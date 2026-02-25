@@ -1,10 +1,9 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
+import { OFFICIAL_COMPANY_ID } from "@/lib/constants";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { fmtIsoDate, generatedAtStamp } from "@/lib/pdf/format";
 import { pdfStyles as s } from "@/lib/pdf/styles";
-
-const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const SALES_INVOICE_PDF_TEMPLATES = ["official_classic", "official_compact", "standard"] as const;
 export type SalesInvoicePdfTemplate = (typeof SALES_INVOICE_PDF_TEMPLATES)[number];
 const OFFICIAL_HEADER_NAME = "Antoine Hage Trading";

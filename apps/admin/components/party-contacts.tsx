@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +40,14 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
   const [isPrimary, setIsPrimary] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const idName = useId();
+  const idTitle = useId();
+  const idPhone = useId();
+  const idEmail = useId();
+  const idNotes = useId();
+  const idPrimary = useId();
+  const idActive = useId();
 
   async function load() {
     if (!partyId) return;
@@ -190,36 +198,36 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
 
             <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Name</label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+                <label htmlFor={idName} className="text-xs font-medium text-fg-muted">Name</label>
+                <Input id={idName} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Title</label>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Owner, Accountant, Buyer..." />
+                <label htmlFor={idTitle} className="text-xs font-medium text-fg-muted">Title</label>
+                <Input id={idTitle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Owner, Accountant, Buyer..." />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Phone</label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+961..." />
+                <label htmlFor={idPhone} className="text-xs font-medium text-fg-muted">Phone</label>
+                <Input id={idPhone} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+961..." />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Email</label>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+                <label htmlFor={idEmail} className="text-xs font-medium text-fg-muted">Email</label>
+                <Input id={idEmail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Notes</label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="WhatsApp preferred, call mornings..." />
+                <label htmlFor={idNotes} className="text-xs font-medium text-fg-muted">Notes</label>
+                <Input id={idNotes} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="WhatsApp preferred, call mornings..." />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Primary?</label>
-                <select className="ui-select" value={isPrimary ? "yes" : "no"} onChange={(e) => setIsPrimary(e.target.value === "yes")}>
+                <label htmlFor={idPrimary} className="text-xs font-medium text-fg-muted">Primary?</label>
+                <select id={idPrimary} className="ui-select" value={isPrimary ? "yes" : "no"} onChange={(e) => setIsPrimary(e.target.value === "yes")}>
                   <option value="no">No</option>
                   <option value="yes">Yes</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Active?</label>
-                <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
+                <label htmlFor={idActive} className="text-xs font-medium text-fg-muted">Active?</label>
+                <select id={idActive} className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </select>

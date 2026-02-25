@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtUsd } from "@/lib/money";
@@ -38,7 +39,7 @@ function Inner() {
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [memo, setMemo] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("89500");
+  const [exchangeRate, setExchangeRate] = useState(String(FALLBACK_FX_RATE_USD_LBP));
   const [lines, setLines] = useState<Line[]>([{ description: "Freight", amount_usd: "", amount_lbp: "" }]);
   const [submitting, setSubmitting] = useState(false);
 

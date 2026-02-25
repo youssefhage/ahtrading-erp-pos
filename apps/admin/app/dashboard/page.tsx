@@ -22,6 +22,7 @@ import { ApiError, apiGet } from "@/lib/api";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { getFxRateUsdToLbp, upsertFxRateUsdToLbp } from "@/lib/fx";
 import { cn } from "@/lib/utils";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -258,7 +259,7 @@ export default function DashboardPage() {
   const metricsRef = useRef<Metrics | null>(null);
   const refreshingRef = useRef(false);
   const [fxLoading, setFxLoading] = useState(true);
-  const [usdToLbp, setUsdToLbp] = useState("89500");
+  const [usdToLbp, setUsdToLbp] = useState(String(FALLBACK_FX_RATE_USD_LBP));
   const [savingFx, setSavingFx] = useState(false);
   const [fxStatus, setFxStatus] = useState("");
   const [showOperationalSignals, setShowOperationalSignals] = useState(false);

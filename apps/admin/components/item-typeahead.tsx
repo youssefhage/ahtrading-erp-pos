@@ -1,19 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { apiGet, getCompanyId } from "@/lib/api";
-import { rankByFuzzy } from "@/lib/fuzzy";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import {
+  EntityTypeahead,
+  type EntityTypeaheadConfig,
+  type EntityTypeaheadHandle,
+} from "@/components/entity-typeahead";
 
-type MenuPosition = {
-  left: number;
-  width: number;
-  top?: number;
-  bottom?: number;
-};
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 type BarcodeRow = { barcode?: string | null };
 
@@ -31,62 +28,15 @@ export type ItemTypeaheadItem = {
   price_lbp?: string | number | null;
 };
 
-const LEGACY_RECENT_KEY = "admin.recent.items.v1";
-
-function recentKey(): string {
-  const cid = String(getCompanyId() || "").trim();
-  return `${LEGACY_RECENT_KEY}.${cid || "unknown"}`;
-}
-
-function maybeMigrateLegacy(nextKey: string) {
-  try {
-    const legacy = localStorage.getItem(LEGACY_RECENT_KEY);
-    if (!legacy) return;
-    if (localStorage.getItem(nextKey)) return;
-    localStorage.setItem(nextKey, legacy);
-    localStorage.removeItem(LEGACY_RECENT_KEY);
-  } catch {
-    // ignore
-  }
-}
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 function norm(s: string) {
   return (s || "").toLowerCase().trim();
 }
 
-function safeJsonParse<T>(raw: string | null): T | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
-function loadRecent(): ItemTypeaheadItem[] {
-  try {
-    const k = recentKey();
-    maybeMigrateLegacy(k);
-    const parsed = safeJsonParse<ItemTypeaheadItem[]>(localStorage.getItem(k));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function pushRecent(it: ItemTypeaheadItem) {
-  try {
-    const k = recentKey();
-    maybeMigrateLegacy(k);
-    const prev = loadRecent();
-    const next = [it, ...prev.filter((p) => p.id !== it.id)].slice(0, 12);
-    localStorage.setItem(k, JSON.stringify(next));
-  } catch {
-    // ignore
-  }
-}
-
-function buildHaystack(it: ItemTypeaheadItem) {
+function buildHaystack(it: ItemTypeaheadItem): string {
   const parts: string[] = [];
   if (it.sku) parts.push(it.sku);
   if (it.name) parts.push(it.name);
@@ -98,7 +48,7 @@ function buildHaystack(it: ItemTypeaheadItem) {
   return norm(parts.join(" "));
 }
 
-function exactMatches(it: ItemTypeaheadItem, token: string) {
+function exactMatches(it: ItemTypeaheadItem, token: string): boolean {
   const t = norm(token);
   if (!t) return false;
   if (norm(it.sku) === t) return true;
@@ -110,59 +60,83 @@ function exactMatches(it: ItemTypeaheadItem, token: string) {
   return false;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Static parts of the config (no dependency on props)                */
+/* ------------------------------------------------------------------ */
+
+const RECENT_STORAGE_KEY = "admin.recent.items.v1";
+const LEGACY_STORAGE_KEY = "admin.recent.items.v1";
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
+
 export function ItemTypeahead(props: {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
   endpoint?: string;
-  // When enabled, barcode scans (fast keyboard input + Enter) will be captured at the document level
-  // so the cashier doesn't need to focus this field first. We intentionally do NOT capture while
-  // the user is typing in any other input/select/textarea/contenteditable element.
+  /**
+   * When enabled, barcode scans (fast keyboard input + Enter) will be
+   * captured at the document level so the cashier doesn't need to focus
+   * this field first.  We intentionally do NOT capture while the user
+   * is typing in any other input/select/textarea/contenteditable element.
+   */
   globalScan?: boolean;
   onSelect: (item: ItemTypeaheadItem) => void;
   onClear?: () => void;
 }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
-
-  const [loading, setLoading] = useState(false);
-  const [remoteItems, setRemoteItems] = useState<ItemTypeaheadItem[]>([]);
-  const [recentItems, setRecentItems] = useState<ItemTypeaheadItem[]>([]);
-
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const typeaheadRef = useRef<EntityTypeaheadHandle<ItemTypeaheadItem>>(null);
   const scanBufRef = useRef<{ buf: string; timer: number | null }>({ buf: "", timer: null });
   const pendingScanRef = useRef<string>("");
 
-  useEffect(() => {
-    if (!open) return;
-    setRecentItems(loadRecent());
-  }, [open]);
+  /* -- EntityTypeahead config (memoised per endpoint) ----------------- */
 
-  useEffect(() => {
-    if (!open) return;
-    function onDocPointerDown(e: PointerEvent) {
-      const el = wrapRef.current;
-      const menu = menuRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && (el.contains(e.target) || (menu && menu.contains(e.target)))) return;
-      setOpen(false);
-    }
-    function onDocKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onDocPointerDown);
-    document.addEventListener("keydown", onDocKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onDocPointerDown);
-      document.removeEventListener("keydown", onDocKeyDown);
-    };
-  }, [open]);
+  const endpoint = props.endpoint || "/items/typeahead";
 
-  // Optional global barcode scan capture (invoice screens, etc.).
+  const config = useMemo<EntityTypeaheadConfig<ItemTypeaheadItem>>(
+    () => ({
+      endpoint,
+      responseKey: "items",
+      recentStorageKey: RECENT_STORAGE_KEY,
+      legacyStorageKey: LEGACY_STORAGE_KEY,
+      buildHaystack,
+      findExactMatch(items, query) {
+        return items.find((it) => exactMatches(it, query));
+      },
+      getLabel(_it) {
+        // ItemTypeahead clears the input on select (unlike Customer/Supplier).
+        // The actual clearing is handled by the `clearOnSelect` prop.
+        return "";
+      },
+      renderItem(it) {
+        return (
+          <>
+            <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
+            <span className="text-foreground">· {it.name}</span>
+          </>
+        );
+      },
+      renderSecondary(it) {
+        if (!it.barcode) return null;
+        return <>{String(it.barcode)}</>;
+      },
+      renderBadge(it) {
+        if (!it.unit_of_measure) return null;
+        return (
+          <div className="shrink-0 font-mono text-xs text-fg-muted">
+            {String(it.unit_of_measure)}
+          </div>
+        );
+      },
+      placeholder: "Search SKU / name / barcode...",
+      emptyRecentText: "No recent items.",
+    }),
+    [endpoint],
+  );
+
+  /* -- Global barcode scan capture ------------------------------------ */
+
   useEffect(() => {
     if (!props.globalScan) return;
     if (props.disabled) return;
@@ -193,9 +167,8 @@ export function ItemTypeahead(props: {
         if (!token) return;
         e.preventDefault();
         pendingScanRef.current = token;
-        setQ(token);
-        setOpen(true);
-        setActive(0);
+        // Programmatically trigger the typeahead search via the handle.
+        typeaheadRef.current?.search(token);
         reset();
         return;
       }
@@ -218,263 +191,42 @@ export function ItemTypeahead(props: {
     };
   }, [props.globalScan, props.disabled]);
 
-  useEffect(() => {
-    if (open) return;
-    setMenuPos(null);
-  }, [open]);
+  /* -- Auto-select on barcode scan result ----------------------------- */
 
+  const onSelectRef = useRef(props.onSelect);
   useEffect(() => {
-    if (!open) return;
-    const updateMenuRect = () => {
-      const el = wrapRef.current;
-      if (!el) return;
-      const gap = 8;
-      const rect = el.getBoundingClientRect();
-      const width = Math.min(rect.width, Math.max(120, window.innerWidth - gap * 2));
-      const left = Math.min(Math.max(gap, rect.left), Math.max(gap, window.innerWidth - gap - width));
-      const spaceBelow = window.innerHeight - rect.bottom - gap;
-      const spaceAbove = rect.top - gap;
-      const preferUp = spaceBelow < 280 && spaceAbove > spaceBelow;
-      if (preferUp) {
-        setMenuPos({
-          left,
-          width,
-          bottom: Math.max(gap, window.innerHeight - rect.top + gap),
-        });
+    onSelectRef.current = props.onSelect;
+  });
+
+  const onRemoteChange = useCallback(
+    (items: ItemTypeaheadItem[], query: string) => {
+      const token = pendingScanRef.current;
+      if (!token) return;
+      if (norm(query) !== norm(token)) {
+        pendingScanRef.current = "";
         return;
       }
-      setMenuPos({
-        left,
-        width,
-        top: Math.max(gap, rect.bottom + gap),
-      });
-    };
-    updateMenuRect();
-    window.addEventListener("resize", updateMenuRect);
-    window.addEventListener("scroll", updateMenuRect, true);
-    return () => {
-      window.removeEventListener("resize", updateMenuRect);
-      window.removeEventListener("scroll", updateMenuRect, true);
-    };
-  }, [open]);
-
-  // Debounced remote search.
-  useEffect(() => {
-    if (!open) return;
-    const qq = q.trim();
-    if (!qq) {
-      setRemoteItems([]);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const t = window.setTimeout(async () => {
-      setLoading(true);
-      try {
-        const ep = props.endpoint || "/items/typeahead";
-        const res = await apiGet<{ items: ItemTypeaheadItem[] }>(`${ep}?q=${encodeURIComponent(qq)}&limit=50`);
-        if (cancelled) return;
-        setRemoteItems(res.items || []);
-      } catch {
-        if (cancelled) return;
-        setRemoteItems([]);
-      } finally {
-        if (cancelled) return;
-        setLoading(false);
-      }
-    }, 180);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [q, open, props.endpoint]);
-
-  const indexedRecent = useMemo(() => (recentItems || []).map((it) => ({ it, hay: buildHaystack(it) })), [recentItems]);
-
-  const localResults = useMemo(() => {
-    const qq = norm(q);
-    if (!qq) return recentItems.slice(0, 12);
-    const terms = qq.split(/\s+/g).filter(Boolean);
-    if (!terms.length) return [];
-    const out: ItemTypeaheadItem[] = [];
-    for (const row of indexedRecent) {
-      let ok = true;
-      for (const t of terms) {
-        if (!row.hay.includes(t)) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) out.push(row.it);
-      if (out.length >= 12) break;
-    }
-    return out;
-  }, [q, indexedRecent, recentItems]);
-
-  const showRecent = open && !q.trim();
-  const rankedRemote = useMemo(() => rankByFuzzy(remoteItems || [], q, buildHaystack), [remoteItems, q]);
-  const results = q.trim() ? rankedRemote : localResults;
-
-  useEffect(() => setActive(0), [q]);
-
-  // If a scan initiated a search, auto-select the exact match as soon as remote results arrive.
-  useEffect(() => {
-    const token = pendingScanRef.current;
-    if (!token) return;
-    if (norm(q) !== norm(token)) {
+      const exact = items.find((it) => exactMatches(it, token));
+      if (!exact) return;
       pendingScanRef.current = "";
-      return;
-    }
-    const exact = (remoteItems || []).find((it) => exactMatches(it, token));
-    if (!exact) return;
-    pendingScanRef.current = "";
-    select(exact);
-  }, [remoteItems, q]); // eslint-disable-line react-hooks/exhaustive-deps
+      onSelectRef.current(exact);
+    },
+    [],
+  );
 
-  function select(it: ItemTypeaheadItem) {
-    pushRecent(it);
-    props.onSelect(it);
-    setQ("");
-    setOpen(false);
-    setActive(0);
-    inputRef.current?.focus();
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setOpen(true);
-      setActive((n) => Math.min((results.length || 1) - 1, n + 1));
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setOpen(true);
-      setActive((n) => Math.max(0, n - 1));
-      return;
-    }
-    if (e.key === "Enter") {
-      const token = (q || "").trim();
-      if (token) {
-        const exact = (remoteItems || []).find((it) => exactMatches(it, token));
-        if (exact) {
-          e.preventDefault();
-          select(exact);
-          return;
-        }
-      }
-      if (open && results[active]) {
-        e.preventDefault();
-        select(results[active]);
-      }
-    }
-  }
+  /* -- Render --------------------------------------------------------- */
 
   return (
-    <div ref={wrapRef} className={cn("relative", props.className)}>
-      <Input
-        ref={inputRef}
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value);
-          if (!open) setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={onKeyDown}
-        placeholder={props.placeholder || "Search SKU / name / barcode..."}
-        disabled={props.disabled}
-      />
-
-      {open && menuPos
-        ? createPortal(
-            <div
-              ref={menuRef}
-              data-dialog-keepopen="true"
-              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
-              style={{
-                position: "fixed",
-                left: menuPos.left,
-                width: menuPos.width,
-                ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
-              }}
-            >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
-                <div className="flex items-center gap-2">
-                  <span className="ui-kbd">Enter</span>
-                  <span>select</span>
-                  <span className="ui-kbd">Esc</span>
-                  <span>close</span>
-                </div>
-                {props.onClear ? (
-                  <button
-                    type="button"
-                    className="text-fg-muted hover:text-foreground"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setQ("");
-                      setOpen(false);
-                      props.onClear?.();
-                    }}
-                  >
-                    Clear
-                  </button>
-                ) : null}
-              </div>
-
-              {showRecent ? (
-                <div className="border-b border-border-subtle px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-                  Recent
-                </div>
-              ) : null}
-
-              <div className="max-h-72 overflow-auto">
-                {loading ? (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
-                ) : results.length ? (
-                  results.map((it, idx) => {
-                    const isActive = idx === active;
-                    return (
-                      <button
-                        key={it.id}
-                        type="button"
-                        className={cn(
-                          "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
-                          "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
-                        )}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          select(it);
-                        }}
-                        onMouseEnter={() => setActive(idx)}
-                        onClick={(e) => e.preventDefault()}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate">
-                              <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
-                              <span className="text-foreground">· {it.name}</span>
-                            </div>
-                            {it.barcode ? <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">{String(it.barcode)}</div> : null}
-                          </div>
-                          {it.unit_of_measure ? <div className="shrink-0 font-mono text-xs text-fg-muted">{String(it.unit_of_measure)}</div> : null}
-                        </div>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">{showRecent ? "No recent items." : "No matches."}</div>
-                )}
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
-    </div>
+    <EntityTypeahead<ItemTypeaheadItem>
+      ref={typeaheadRef}
+      config={config}
+      disabled={props.disabled}
+      placeholder={props.placeholder}
+      className={props.className}
+      onSelect={props.onSelect}
+      onClear={props.onClear}
+      onRemoteChange={onRemoteChange}
+      clearOnSelect
+    />
   );
 }

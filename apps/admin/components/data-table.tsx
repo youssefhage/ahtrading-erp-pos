@@ -9,6 +9,7 @@ import { formatDateLike, formatDateTime, isIsoLikeDate } from "@/lib/datetime";
 import { scoreFuzzyQuery } from "@/lib/fuzzy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 type SortDir = "asc" | "desc";
@@ -665,7 +666,19 @@ export function DataTable<T>(props: DataTableProps<T>) {
               );
             })}
 
-            {pageRows.length === 0 ? (
+            {pageRows.length === 0 && isLoading
+              ? Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`skeleton-${i}`}>
+                    {visibleColumns.map((c) => (
+                      <td key={c.id} className="px-4 py-2">
+                        <Skeleton className="h-4 w-full" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              : null}
+
+            {pageRows.length === 0 && !isLoading ? (
               <tr>
                 <td className="px-4 py-8 text-center text-fg-subtle" colSpan={Math.max(visibleColumns.length, 1)}>
                   {emptyText}

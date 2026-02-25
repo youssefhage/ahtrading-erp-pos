@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,10 @@ export function ItemPicker(props: {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const ariaId = useId();
+  const listboxId = `${ariaId}-listbox`;
+  const optionId = (idx: number) => `${ariaId}-option-${idx}`;
 
   const indexed = useMemo(() => {
     return (props.items || []).map((it) => ({ it, hay: buildHaystack(it) }));
@@ -217,12 +221,19 @@ export function ItemPicker(props: {
         onKeyDown={onKeyDown}
         placeholder={props.placeholder || "Search SKU / name / barcode..."}
         disabled={props.disabled}
+        role="combobox"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-activedescendant={open && results[active] ? optionId(active) : undefined}
       />
 
       {open && q.trim() && menuPos
         ? createPortal(
             <div
               ref={menuRef}
+              id={listboxId}
+              role="listbox"
               data-dialog-keepopen="true"
               className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
               style={{
@@ -263,6 +274,9 @@ export function ItemPicker(props: {
                       <button
                         key={it.id}
                         type="button"
+                        role="option"
+                        id={optionId(idx)}
+                        aria-selected={isActive}
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",

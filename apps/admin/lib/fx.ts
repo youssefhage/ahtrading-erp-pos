@@ -1,4 +1,5 @@
 import { apiGet, apiPost, getCompanyId } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 
 export type FxRate = {
   rate_date: string | null;
@@ -46,7 +47,7 @@ export async function getFxRateUsdToLbp(opts?: { rateDate?: string; rateType?: s
     return {
       rate_date: null,
       rate_type: String(opts?.rateType || "market"),
-      usd_to_lbp: cached && cached > 0 ? cached : 89500,
+      usd_to_lbp: cached && cached > 0 ? cached : FALLBACK_FX_RATE_USD_LBP,
       source: "fallback",
     };
   }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
 import { getDefaultWarehouseId } from "@/lib/op-context";
@@ -70,7 +71,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
   const [supplierId, setSupplierId] = useState("");
   const [supplierLabel, setSupplierLabel] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("89500");
+  const [exchangeRate, setExchangeRate] = useState(String(FALLBACK_FX_RATE_USD_LBP));
   const [supplierRef, setSupplierRef] = useState("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -92,7 +93,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       ]);
       const whs = w.warehouses || [];
       setWarehouses(whs);
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 89500;
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : FALLBACK_FX_RATE_USD_LBP;
       const preferredWarehouseId = (() => {
         const cid = getCompanyId();
         const pref = getDefaultWarehouseId(cid);

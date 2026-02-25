@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,15 +17,17 @@ export function MoneyInput(props: {
   quick?: Array<number | string>;
   className?: string;
 }) {
+  const inputId = useId();
   const quick = useMemo(() => props.quick || [], [props.quick]);
   return (
     <div className={cn("space-y-1", props.className)}>
-      <label className="text-sm font-medium text-fg-muted">{props.label}</label>
+      <label htmlFor={inputId} className="text-sm font-medium text-fg-muted">{props.label}</label>
       <div className="flex">
         <span className="inline-flex h-10 items-center rounded-l-md border border-border bg-bg-sunken px-2 text-sm font-semibold text-fg-muted">
           {props.displayCurrency || props.currency}
         </span>
         <Input
+          id={inputId}
           value={props.value}
           onChange={(e) => props.onChange(e.target.value)}
           placeholder={props.placeholder}

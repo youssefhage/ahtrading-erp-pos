@@ -11,53 +11,7 @@ type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
 const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
 const ACCENT_THEME_STORAGE_KEY = "admin.accentTheme";
 
-const ACCENT_THEME_VARS: Record<
-  AccentTheme,
-  { primary: string; primaryFg: string; primaryDim: string; primaryGlow: string; ring: string }
-> = {
-  cobalt: {
-    primary: "37 99 235",
-    primaryFg: "255 255 255",
-    primaryDim: "29 78 216",
-    primaryGlow: "37 99 235",
-    ring: "37 99 235"
-  },
-  sky: {
-    primary: "14 165 233",
-    primaryFg: "0 0 0",
-    primaryDim: "3 105 161",
-    primaryGlow: "14 165 233",
-    ring: "14 165 233"
-  },
-  emerald: {
-    primary: "16 185 129",
-    primaryFg: "0 0 0",
-    primaryDim: "4 120 87",
-    primaryGlow: "16 185 129",
-    ring: "16 185 129"
-  },
-  teal: {
-    primary: "20 184 166",
-    primaryFg: "0 0 0",
-    primaryDim: "15 118 110",
-    primaryGlow: "20 184 166",
-    ring: "20 184 166"
-  },
-  rose: {
-    primary: "244 63 94",
-    primaryFg: "255 255 255",
-    primaryDim: "190 18 60",
-    primaryGlow: "244 63 94",
-    ring: "244 63 94"
-  },
-  slate: {
-    primary: "100 116 139",
-    primaryFg: "255 255 255",
-    primaryDim: "51 65 85",
-    primaryGlow: "100 116 139",
-    ring: "100 116 139"
-  }
-};
+const ALL_ACCENT_THEMES = ["cobalt", "sky", "emerald", "teal", "rose", "slate"] as const;
 
 const ACCENT_THEMES: {
   key: AccentTheme;
@@ -118,17 +72,15 @@ function applyColorTheme(next: ColorTheme, companyId: string) {
 function applyAccentTheme(next: AccentTheme, companyId: string) {
   saveThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId, next);
   // Remove any existing `theme-*` classes, then apply the new one.
-  const cls = Array.from(document.documentElement.classList);
-  for (const c of cls) {
-    if (c.startsWith("theme-")) document.documentElement.classList.remove(c);
-  }
-  document.documentElement.classList.add(`theme-${next}`);
-  const vars = ACCENT_THEME_VARS[next] ?? ACCENT_THEME_VARS.sky;
-  document.documentElement.style.setProperty("--primary", vars.primary);
-  document.documentElement.style.setProperty("--primary-fg", vars.primaryFg);
-  document.documentElement.style.setProperty("--primary-dim", vars.primaryDim);
-  document.documentElement.style.setProperty("--primary-glow", vars.primaryGlow);
-  document.documentElement.style.setProperty("--ring", vars.ring);
+  const root = document.documentElement;
+  ALL_ACCENT_THEMES.forEach((t) => root.classList.remove(`theme-${t}`));
+  root.classList.add(`theme-${next}`);
+  // Clear any leftover inline style overrides so the CSS class rules take effect.
+  root.style.removeProperty("--primary");
+  root.style.removeProperty("--primary-fg");
+  root.style.removeProperty("--primary-dim");
+  root.style.removeProperty("--primary-glow");
+  root.style.removeProperty("--ring");
   emitThemeChange({ accent: next, companyId: normalizeCompanyThemeScope(companyId) });
 }
 

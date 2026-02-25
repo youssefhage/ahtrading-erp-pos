@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { apiGet } from "@/lib/api";
@@ -51,6 +51,10 @@ export function ComboboxInput(props: {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const ariaId = useId();
+  const listboxId = `${ariaId}-listbox`;
+  const optionId = (idx: number) => `${ariaId}-option-${idx}`;
 
   // Load remote suggestions (debounced) when open.
   useEffect(() => {
@@ -194,12 +198,19 @@ export function ComboboxInput(props: {
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         disabled={disabled}
+        role="combobox"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-activedescendant={open && suggestions[active] ? optionId(active) : undefined}
       />
 
       {open && menuPos
         ? createPortal(
             <div
               ref={menuRef}
+              id={listboxId}
+              role="listbox"
               data-dialog-keepopen="true"
               className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
               style={{
@@ -219,6 +230,9 @@ export function ComboboxInput(props: {
                       <button
                         key={`${s}-${idx}`}
                         type="button"
+                        role="option"
+                        id={optionId(idx)}
+                        aria-selected={isActive}
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",

@@ -134,7 +134,9 @@ export function DocumentAttachments(props: {
             {attachments.length === 0 ? (
               <tr>
                 <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                  No attachments.
+                  {props.allowUpload
+                    ? "No attachments. Drop files here or use the upload button above."
+                    : "No attachments."}
                 </td>
               </tr>
             ) : null}

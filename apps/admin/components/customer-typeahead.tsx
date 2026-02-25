@@ -1,19 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-
-import { apiGet, getCompanyId } from "@/lib/api";
-import { rankByFuzzy } from "@/lib/fuzzy";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-
-type MenuPosition = {
-  left: number;
-  width: number;
-  top?: number;
-  bottom?: number;
-};
+import { EntityTypeahead, type EntityTypeaheadConfig } from "@/components/entity-typeahead";
 
 export type CustomerTypeaheadCustomer = {
   id: string;
@@ -27,79 +14,62 @@ export type CustomerTypeaheadCustomer = {
   is_active?: boolean;
 };
 
-const LEGACY_RECENT_KEY = "admin.recent.customers.v1";
-
-function recentKey(): string {
-  const cid = String(getCompanyId() || "").trim();
-  return `${LEGACY_RECENT_KEY}.${cid || "unknown"}`;
-}
-
-function maybeMigrateLegacy(nextKey: string) {
-  try {
-    const legacy = localStorage.getItem(LEGACY_RECENT_KEY);
-    if (!legacy) return;
-    if (localStorage.getItem(nextKey)) return;
-    localStorage.setItem(nextKey, legacy);
-    localStorage.removeItem(LEGACY_RECENT_KEY);
-  } catch {
-    // ignore
-  }
-}
-
 function norm(s: string) {
   return (s || "").toLowerCase().trim();
 }
 
-function safeJsonParse<T>(raw: string | null): T | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
+const config: EntityTypeaheadConfig<CustomerTypeaheadCustomer> = {
+  endpoint: "/customers/typeahead",
+  responseKey: "customers",
+  recentStorageKey: "admin.recent.customers.v1",
+  legacyStorageKey: "admin.recent.customers.v1",
+  buildHaystack(c) {
+    const parts: string[] = [];
+    if (c.code) parts.push(String(c.code));
+    if (c.name) parts.push(String(c.name));
+    if (c.phone) parts.push(String(c.phone));
+    if (c.email) parts.push(String(c.email));
+    if (c.membership_no) parts.push(String(c.membership_no));
+    return norm(parts.join(" "));
+  },
+  findExactMatch(items, query) {
+    const t = norm(query);
+    if (!t) return undefined;
+    return items.find(
+      (c) =>
+        (c.code && norm(String(c.code)) === t) ||
+        norm(String(c.name || "")) === t ||
+        (c.membership_no && norm(String(c.membership_no)) === t),
+    );
+  },
+  getLabel(c) {
+    return [c.code ? String(c.code).trim() : "", c.name ? String(c.name).trim() : ""]
+      .filter(Boolean)
+      .join(" · ");
+  },
+  renderItem(c) {
+    return (
+      <>
+        {c.code ? <span className="font-mono text-xs text-fg-muted">{c.code}</span> : null}
+        {c.code ? <span className="text-fg-muted"> · </span> : null}
+        <span className="text-foreground">{c.name}</span>
+      </>
+    );
+  },
+  renderSecondary(c) {
+    const parts = [c.phone, c.email, c.membership_no].filter(Boolean);
+    if (!parts.length) return null;
+    return <>{parts.join(" · ")}</>;
+  },
+  renderBadge(c) {
+    if (c.is_active === false) {
+      return <div className="shrink-0 font-mono text-xs text-fg-muted">inactive</div>;
+    }
     return null;
-  }
-}
-
-function loadRecent(): CustomerTypeaheadCustomer[] {
-  try {
-    const k = recentKey();
-    maybeMigrateLegacy(k);
-    const parsed = safeJsonParse<CustomerTypeaheadCustomer[]>(localStorage.getItem(k));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function pushRecent(c: CustomerTypeaheadCustomer) {
-  try {
-    const k = recentKey();
-    maybeMigrateLegacy(k);
-    const prev = loadRecent();
-    const next = [c, ...prev.filter((p) => p.id !== c.id)].slice(0, 12);
-    localStorage.setItem(k, JSON.stringify(next));
-  } catch {
-    // ignore
-  }
-}
-
-function buildHaystack(c: CustomerTypeaheadCustomer) {
-  const parts: string[] = [];
-  if (c.code) parts.push(String(c.code));
-  if (c.name) parts.push(String(c.name));
-  if (c.phone) parts.push(String(c.phone));
-  if (c.email) parts.push(String(c.email));
-  if (c.membership_no) parts.push(String(c.membership_no));
-  return norm(parts.join(" "));
-}
-
-function exactMatches(c: CustomerTypeaheadCustomer, token: string) {
-  const t = norm(token);
-  if (!t) return false;
-  if (c.code && norm(String(c.code)) === t) return true;
-  if (norm(String(c.name || "")) === t) return true;
-  if (c.membership_no && norm(String(c.membership_no)) === t) return true;
-  return false;
-}
+  },
+  placeholder: "Search customer code / name / phone...",
+  emptyRecentText: "No recent customers.",
+};
 
 export function CustomerTypeahead(props: {
   value?: CustomerTypeaheadCustomer | null;
@@ -109,309 +79,5 @@ export function CustomerTypeahead(props: {
   onSelect: (c: CustomerTypeaheadCustomer) => void;
   onClear?: () => void;
 }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
-
-  const [loading, setLoading] = useState(false);
-  const [remote, setRemote] = useState<CustomerTypeaheadCustomer[]>([]);
-  const [recent, setRecent] = useState<CustomerTypeaheadCustomer[]>([]);
-
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setRecent(loadRecent());
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDocPointerDown(e: PointerEvent) {
-      const el = wrapRef.current;
-      const menu = menuRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && (el.contains(e.target) || (menu && menu.contains(e.target)))) return;
-      setOpen(false);
-    }
-    function onDocKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onDocPointerDown);
-    document.addEventListener("keydown", onDocKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onDocPointerDown);
-      document.removeEventListener("keydown", onDocKeyDown);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (open) return;
-    setMenuPos(null);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const updateMenuRect = () => {
-      const el = wrapRef.current;
-      if (!el) return;
-      const gap = 8;
-      const rect = el.getBoundingClientRect();
-      const width = Math.min(rect.width, Math.max(120, window.innerWidth - gap * 2));
-      const left = Math.min(Math.max(gap, rect.left), Math.max(gap, window.innerWidth - gap - width));
-      const spaceBelow = window.innerHeight - rect.bottom - gap;
-      const spaceAbove = rect.top - gap;
-      const preferUp = spaceBelow < 280 && spaceAbove > spaceBelow;
-      if (preferUp) {
-        setMenuPos({
-          left,
-          width,
-          bottom: Math.max(gap, window.innerHeight - rect.top + gap),
-        });
-        return;
-      }
-      setMenuPos({
-        left,
-        width,
-        top: Math.max(gap, rect.bottom + gap),
-      });
-    };
-    updateMenuRect();
-    window.addEventListener("resize", updateMenuRect);
-    window.addEventListener("scroll", updateMenuRect, true);
-    return () => {
-      window.removeEventListener("resize", updateMenuRect);
-      window.removeEventListener("scroll", updateMenuRect, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const qq = q.trim();
-    if (!qq) {
-      setRemote([]);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const t = window.setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await apiGet<{ customers: CustomerTypeaheadCustomer[] }>(
-          `/customers/typeahead?q=${encodeURIComponent(qq)}&limit=50`
-        );
-        if (cancelled) return;
-        setRemote(res.customers || []);
-      } catch {
-        if (cancelled) return;
-        setRemote([]);
-      } finally {
-        if (cancelled) return;
-        setLoading(false);
-      }
-    }, 180);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [q, open]);
-
-  useEffect(() => {
-    if (open) return;
-    const v = props.value;
-    if (!v) {
-      setQ("");
-      return;
-    }
-    const label = [v.code ? String(v.code).trim() : "", v.name ? String(v.name).trim() : ""]
-      .filter(Boolean)
-      .join(" · ");
-    setQ(label || String(v.id || ""));
-  }, [open, props.value]);
-
-  const indexedRecent = useMemo(() => (recent || []).map((c) => ({ c, hay: buildHaystack(c) })), [recent]);
-
-  const localResults = useMemo(() => {
-    const qq = norm(q);
-    if (!qq) return recent.slice(0, 12);
-    const terms = qq.split(/\s+/g).filter(Boolean);
-    if (!terms.length) return [];
-    const out: CustomerTypeaheadCustomer[] = [];
-    for (const row of indexedRecent) {
-      let ok = true;
-      for (const t of terms) {
-        if (!row.hay.includes(t)) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) out.push(row.c);
-      if (out.length >= 12) break;
-    }
-    return out;
-  }, [q, indexedRecent, recent]);
-
-  const showRecent = open && !q.trim();
-  const rankedRemote = useMemo(() => rankByFuzzy(remote || [], q, buildHaystack), [remote, q]);
-  const results = q.trim() ? rankedRemote : localResults;
-
-  useEffect(() => setActive(0), [q]);
-
-  function select(c: CustomerTypeaheadCustomer) {
-    pushRecent(c);
-    props.onSelect(c);
-    const label = [c.code ? String(c.code).trim() : "", c.name ? String(c.name).trim() : ""]
-      .filter(Boolean)
-      .join(" · ");
-    setQ(label || String(c.id || ""));
-    setOpen(false);
-    setActive(0);
-    inputRef.current?.focus();
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setOpen(true);
-      setActive((n) => Math.min((results.length || 1) - 1, n + 1));
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setOpen(true);
-      setActive((n) => Math.max(0, n - 1));
-      return;
-    }
-    if (e.key === "Enter") {
-      const token = (q || "").trim();
-      if (token) {
-        const exact = (remote || []).find((c) => exactMatches(c, token));
-        if (exact) {
-          e.preventDefault();
-          select(exact);
-          return;
-        }
-      }
-      if (open && results[active]) {
-        e.preventDefault();
-        select(results[active]);
-      }
-    }
-  }
-
-  return (
-    <div ref={wrapRef} className={cn("relative", props.className)}>
-      <Input
-        ref={inputRef}
-        value={q}
-        onChange={(e) => {
-          if (props.value) props.onClear?.();
-          setQ(e.target.value);
-          if (!open) setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={onKeyDown}
-        placeholder={props.placeholder || "Search customer code / name / phone..."}
-        disabled={props.disabled}
-      />
-
-      {open && menuPos
-        ? createPortal(
-            <div
-              ref={menuRef}
-              data-dialog-keepopen="true"
-              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
-              style={{
-                position: "fixed",
-                left: menuPos.left,
-                width: menuPos.width,
-                ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
-              }}
-            >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
-                <div className="flex items-center gap-2">
-                  <span className="ui-kbd">Enter</span>
-                  <span>select</span>
-                  <span className="ui-kbd">Esc</span>
-                  <span>close</span>
-                </div>
-                {props.onClear ? (
-                  <button
-                    type="button"
-                    className="text-fg-muted hover:text-foreground"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setQ("");
-                      setOpen(false);
-                      props.onClear?.();
-                    }}
-                  >
-                    Clear
-                  </button>
-                ) : null}
-              </div>
-
-              {showRecent ? (
-                <div className="border-b border-border-subtle px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-                  Recent
-                </div>
-              ) : null}
-
-              <div className="max-h-72 overflow-auto">
-                {loading ? (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
-                ) : results.length ? (
-                  results.map((c, idx) => {
-                    const isActive = idx === active;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={cn(
-                          "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
-                          "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
-                        )}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          select(c);
-                        }}
-                        onMouseEnter={() => setActive(idx)}
-                        onClick={(e) => e.preventDefault()}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate">
-                              {c.code ? <span className="font-mono text-xs text-fg-muted">{c.code}</span> : null}
-                              {c.code ? <span className="text-fg-muted"> · </span> : null}
-                              <span className="text-foreground">{c.name}</span>
-                            </div>
-                            {c.phone || c.email || c.membership_no ? (
-                              <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">
-                                {[c.phone, c.email, c.membership_no].filter(Boolean).join(" · ")}
-                              </div>
-                            ) : null}
-                          </div>
-                          {c.is_active === false ? <div className="shrink-0 font-mono text-xs text-fg-muted">inactive</div> : null}
-                        </div>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">{showRecent ? "No recent customers." : "No matches."}</div>
-                )}
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
-    </div>
-  );
+  return <EntityTypeahead config={config} {...props} />;
 }

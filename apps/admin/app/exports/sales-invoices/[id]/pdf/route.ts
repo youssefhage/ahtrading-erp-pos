@@ -4,12 +4,12 @@ import { createElement } from "react";
 import { BackendHttpError, backendGetJson, backendGetJsonWithHeaders } from "@/lib/server/backend";
 import { pdfResponse } from "@/lib/server/pdf";
 import { safeFilenamePart } from "@/lib/pdf/format";
+import { OFFICIAL_COMPANY_ID } from "@/lib/constants";
 import { SalesInvoicePdf, type SalesInvoiceDetail, type SalesInvoicePdfTemplate } from "@/lib/pdf/sales-invoice";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 const INVOICE_PDF_TEMPLATES = new Set(["official_classic", "official_compact", "standard"]);
-const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -17,13 +17,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const qs = new URL(req.url).searchParams;
     const inline = qs.get("inline") === "1";
     const template = (qs.get("template") || "").trim() as SalesInvoicePdfTemplate | "";
-    const deviceIdFromQuery = (qs.get("x_device_id") || qs.get("device_id") || "").trim();
-    const deviceTokenFromQuery = (qs.get("x_device_token") || qs.get("device_token") || "").trim();
-
     const h = await headers();
     const cookie = (h.get("cookie") || "").trim();
-    const deviceId = (h.get("x-device-id") || deviceIdFromQuery || "").trim();
-    const deviceToken = (h.get("x-device-token") || deviceTokenFromQuery || "").trim();
+    const deviceId = (h.get("x-device-id") || "").trim();
+    const deviceToken = (h.get("x-device-token") || "").trim();
 
     let detail: SalesInvoiceDetail;
     let company: any = null;
@@ -97,7 +94,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       if ((effectiveTemplate || "").toLowerCase() !== "standard") {
         try {
           return await renderInvoicePdf("standard");
-        } catch {}
+        } catch (fallbackErr) {
+          console.error("sales invoice pdf fallback render failed", fallbackErr);
+        }
       }
       throw renderErr;
     }

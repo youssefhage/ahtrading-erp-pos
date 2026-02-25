@@ -12,13 +12,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const qs = new URL(req.url).searchParams;
   const inline = qs.get("inline") === "1";
-  const deviceIdFromQuery = (qs.get("x_device_id") || qs.get("device_id") || "").trim();
-  const deviceTokenFromQuery = (qs.get("x_device_token") || qs.get("device_token") || "").trim();
-
   const h = await headers();
   const cookie = (h.get("cookie") || "").trim();
-  const deviceId = (h.get("x-device-id") || deviceIdFromQuery || "").trim();
-  const deviceToken = (h.get("x-device-token") || deviceTokenFromQuery || "").trim();
+  const deviceId = (h.get("x-device-id") || "").trim();
+  const deviceToken = (h.get("x-device-token") || "").trim();
 
   try {
     let detail: SalesReceiptDetail;

@@ -9,6 +9,10 @@ export interface InputProps
    * Defaults to true for numeric-like inputs (type="number" or inputMode="numeric|decimal").
    */
   autoSelectOnFocus?: boolean;
+  /** When true, renders the input with danger-colored border and sets aria-invalid. */
+  error?: boolean;
+  /** Optional helper or error text rendered below the input. */
+  helperText?: string;
 }
 
 function isNumericLikeInput(type: string | undefined, inputMode: string | undefined) {
@@ -18,9 +22,10 @@ function isNumericLikeInput(type: string | undefined, inputMode: string | undefi
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, autoSelectOnFocus, onFocus, onPointerDown, inputMode, ...props }, ref) => {
+  ({ className, type, autoSelectOnFocus, onFocus, onPointerDown, inputMode, error, helperText, ...props }, ref) => {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const autoSelect = autoSelectOnFocus ?? isNumericLikeInput(type, inputMode);
+    const descId = React.useId();
 
     function setRef(node: HTMLInputElement | null) {
       innerRef.current = node;
@@ -28,7 +33,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       else if (ref) (ref as React.MutableRefObject<HTMLInputElement | null>).current = node;
     }
 
-    return (
+    const inputEl = (
       <input
         type={type}
         className={cn(
@@ -37,9 +42,12 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/60",
           "disabled:cursor-not-allowed disabled:opacity-50",
           "file:border-0 file:bg-transparent file:text-sm file:font-medium",
+          error && "border-danger focus-visible:ring-danger/40 focus-visible:border-danger/60",
           className
         )}
         inputMode={inputMode}
+        aria-invalid={error || undefined}
+        aria-describedby={helperText ? descId : undefined}
         onPointerDown={(e) => {
           onPointerDown?.(e);
           if (!autoSelect || e.defaultPrevented) return;
@@ -64,6 +72,19 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {...props}
       />
     );
+
+    if (helperText) {
+      return (
+        <>
+          {inputEl}
+          <p id={descId} className={cn("mt-1 text-xs text-fg-muted", error && "text-danger")}>
+            {helperText}
+          </p>
+        </>
+      );
+    }
+
+    return inputEl;
   }
 );
 Input.displayName = "Input";

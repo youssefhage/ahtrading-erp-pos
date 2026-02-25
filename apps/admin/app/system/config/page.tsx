@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiDelete, apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmButton } from "@/components/confirm-button";
@@ -155,7 +156,7 @@ export default function ConfigPage() {
   // Exchange rate form
   const [rateDate, setRateDate] = useState(todayISO());
   const [rateType, setRateType] = useState("market");
-  const [usdToLbp, setUsdToLbp] = useState("89500");
+  const [usdToLbp, setUsdToLbp] = useState(String(FALLBACK_FX_RATE_USD_LBP));
   const [rateOpen, setRateOpen] = useState(false);
   const [savingRate, setSavingRate] = useState(false);
 

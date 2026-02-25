@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -60,7 +61,7 @@ export default function ReorderSuggestionsPage() {
   const [windowDays, setWindowDays] = useState("28");
   const [reviewDays, setReviewDays] = useState("7");
   const [safetyDays, setSafetyDays] = useState("3");
-  const [exchangeRate, setExchangeRate] = useState("89500");
+  const [exchangeRate, setExchangeRate] = useState(String(FALLBACK_FX_RATE_USD_LBP));
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const selectedRows = useMemo(() => rows.filter((r) => selected[r.item_id]), [rows, selected]);
@@ -138,7 +139,7 @@ export default function ReorderSuggestionsPage() {
     }
     setStatus("Creating draft purchase orders...");
     try {
-      const ex = Math.max(1, Number(exchangeRate || 89500));
+      const ex = Math.max(1, Number(exchangeRate || FALLBACK_FX_RATE_USD_LBP));
 
       const bySupplier = new Map<string, SuggestRow[]>();
       for (const r of selectedRows) {

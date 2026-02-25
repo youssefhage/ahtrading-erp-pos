@@ -6,7 +6,7 @@ const DEFAULT_PROXY_TIMEOUT_MS = 12000;
 
 function upstreamBase(): string {
   // Local dev default (backend exposed on host). Docker/CI should override via API_PROXY_TARGET.
-  const raw = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8001").trim();
+  const raw = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8000").trim();
   return raw.replace(/\/+$/, "");
 }
 
@@ -51,7 +51,6 @@ function copyHeaders(upstream: Response, requestId: string): Headers {
 
   out.set("x-request-id", requestId);
   out.set("cache-control", "no-store");
-  out.set("x-upstream-url", upstream.url);
   return out;
 }
 
@@ -103,7 +102,6 @@ export async function proxyRoute(req: Request, ctx: ProxyRouteContext): Promise<
       {
         ok: false,
         error: timedOut ? "upstream request timed out" : message,
-        upstream_url: upstreamUrl,
         request_id: requestId
       },
       { status: timedOut ? 504 : 502 }

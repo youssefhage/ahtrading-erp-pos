@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,7 +112,7 @@ export default function GoLivePage() {
   const [notice, setNotice] = useState("");
 
   const [rateType, setRateType] = useState("market");
-  const [exchangeRate, setExchangeRate] = useState("89500");
+  const [exchangeRate, setExchangeRate] = useState(String(FALLBACK_FX_RATE_USD_LBP));
 
   const [preflight, setPreflight] = useState<PreflightRes | null>(null);
   const [preflightLoading, setPreflightLoading] = useState(false);

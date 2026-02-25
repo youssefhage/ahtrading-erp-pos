@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,15 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
   const [postal, setPostal] = useState("");
   const [isDefault, setIsDefault] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const idLabel = useId();
+  const idLine1 = useId();
+  const idLine2 = useId();
+  const idCity = useId();
+  const idRegion = useId();
+  const idCountry = useId();
+  const idPostal = useId();
+  const idDefault = useId();
 
   async function load() {
     if (!partyId) return;
@@ -190,37 +199,37 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
 
             <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Label</label>
-                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Main, Warehouse, Billing..." />
+                <label htmlFor={idLabel} className="text-xs font-medium text-fg-muted">Label</label>
+                <Input id={idLabel} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Main, Warehouse, Billing..." />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Line 1</label>
-                <Input value={line1} onChange={(e) => setLine1(e.target.value)} placeholder="Street, building..." />
+                <label htmlFor={idLine1} className="text-xs font-medium text-fg-muted">Line 1</label>
+                <Input id={idLine1} value={line1} onChange={(e) => setLine1(e.target.value)} placeholder="Street, building..." />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Line 2</label>
-                <Input value={line2} onChange={(e) => setLine2(e.target.value)} placeholder="Area, floor..." />
+                <label htmlFor={idLine2} className="text-xs font-medium text-fg-muted">Line 2</label>
+                <Input id={idLine2} value={line2} onChange={(e) => setLine2(e.target.value)} placeholder="Area, floor..." />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">City</label>
-                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Beirut" />
+                <label htmlFor={idCity} className="text-xs font-medium text-fg-muted">City</label>
+                <Input id={idCity} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Beirut" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Region</label>
-                <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Mount Lebanon" />
+                <label htmlFor={idRegion} className="text-xs font-medium text-fg-muted">Region</label>
+                <Input id={idRegion} value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Mount Lebanon" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Country</label>
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} />
+                <label htmlFor={idCountry} className="text-xs font-medium text-fg-muted">Country</label>
+                <Input id={idCountry} value={country} onChange={(e) => setCountry(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Postal Code</label>
-                <Input value={postal} onChange={(e) => setPostal(e.target.value)} />
+                <label htmlFor={idPostal} className="text-xs font-medium text-fg-muted">Postal Code</label>
+                <Input id={idPostal} value={postal} onChange={(e) => setPostal(e.target.value)} />
               </div>
 
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Default?</label>
-                <select className="ui-select" value={isDefault ? "yes" : "no"} onChange={(e) => setIsDefault(e.target.value === "yes")}>
+                <label htmlFor={idDefault} className="text-xs font-medium text-fg-muted">Default?</label>
+                <select id={idDefault} className="ui-select" value={isDefault ? "yes" : "no"} onChange={(e) => setIsDefault(e.target.value === "yes")}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </select>

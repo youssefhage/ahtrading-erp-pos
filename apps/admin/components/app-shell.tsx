@@ -64,6 +64,10 @@ import {
 } from "@/lib/nav-memory";
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
 import { ADMIN_APP_VERSION } from "@/lib/app-version";
+import {
+  FULL_NAV_SECTIONS as FULL_NAV_DATA,
+  LITE_NAV_SECTIONS as LITE_NAV_DATA
+} from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -243,7 +247,6 @@ function iconForHref(href: string) {
 
   if (byHref[href]) return byHref[href];
 
-  if (href === "/dashboard") return LayoutDashboard;
   if (href.startsWith("/sales/")) return ShoppingCart;
   if (href.startsWith("/purchasing/")) return Truck;
   if (href.startsWith("/partners/")) return Users;
@@ -260,168 +263,10 @@ function withIcons(sections: NavSection[]): NavSection[] {
   }));
 }
 
-const FULL_NAV_SECTIONS: NavSection[] = [
-  {
-    label: "Home",
-    items: [
-      { label: "Dashboard", href: "/dashboard" },
-    ]
-  },
-  {
-    label: "Operations",
-    items: [
-      { label: "Outbox", href: "/system/outbox" },
-      { label: "Needs Attention", href: "/system/attention" },
-      { label: "POS Shifts", href: "/system/pos-shifts" },
-      { label: "POS Devices", href: "/system/pos-devices" },
-      { label: "POS Cashiers", href: "/system/pos-cashiers" },
-      { label: "Inventory Ops", href: "/inventory/ops" }
-    ]
-  },
-  {
-    label: "Sales",
-    items: [
-      { label: "Sales Invoices", href: "/sales/invoices" },
-      { label: "Sales Receipts", href: "/sales/receipts" },
-      { label: "Credit Notes", href: "/sales/credit-notes" },
-      { label: "Adjustment Queue", href: "/sales/adjustment-queue" },
-      { label: "Sales Payments", href: "/sales/payments" },
-      { label: "Sales Returns", href: "/sales/returns" }
-    ]
-  },
-  {
-    label: "Purchasing",
-    items: [
-      { label: "Purchase Orders", href: "/purchasing/purchase-orders" },
-      { label: "Goods Receipts", href: "/purchasing/goods-receipts" },
-      { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
-      { label: "Supplier Credits", href: "/purchasing/supplier-credits" },
-      { label: "3-Way Match", href: "/purchasing/3-way-match" },
-      { label: "Supplier Payments", href: "/purchasing/payments" }
-    ]
-  },
-  {
-    label: "Master Data",
-    items: [
-      { label: "Customers", href: "/partners/customers/list" },
-      { label: "Suppliers", href: "/partners/suppliers" },
-      { label: "Items", href: "/catalog/items/list" },
-      { label: "Products", href: "/catalog/products" },
-      { label: "Categories", href: "/catalog/item-categories" },
-      { label: "Price Lists", href: "/catalog/price-lists" },
-      { label: "Promotions", href: "/catalog/promotions" }
-    ]
-  },
-  {
-    label: "Inventory",
-    items: [
-      { label: "Stock", href: "/inventory/stock" },
-      { label: "Movements", href: "/inventory/movements" },
-      { label: "Transfers", href: "/inventory/transfers" },
-      { label: "Replenishment", href: "/inventory/replenishment" },
-      { label: "Cycle Counts", href: "/inventory/cycle-counts" },
-      { label: "Batches", href: "/inventory/batches" },
-      { label: "Alerts", href: "/inventory/alerts" },
-      { label: "Reorder Suggestions", href: "/inventory/reorder-suggestions" },
-      { label: "Landed Costs", href: "/inventory/landed-costs" },
-      { label: "Cost Changes", href: "/inventory/cost-changes" },
-      { label: "Price Changes", href: "/inventory/price-changes" }
-    ]
-  },
-  {
-    label: "Accounting",
-    items: [
-      { label: "Journals", href: "/accounting/journals" },
-      { label: "Journal Templates", href: "/accounting/journal-templates" },
-      { label: "Recurring Journals", href: "/accounting/recurring-journals" },
-      { label: "Close Checklist", href: "/accounting/close-checklist" },
-      { label: "Chart of Accounts", href: "/accounting/coa" },
-      { label: "Intercompany", href: "/accounting/intercompany" },
-      { label: "Bank Accounts", href: "/accounting/banking/accounts" },
-      { label: "Reconciliation", href: "/accounting/banking/reconciliation" }
-    ]
-  },
-  {
-    label: "Reports",
-    items: [
-      { label: "VAT", href: "/accounting/reports/vat" },
-      { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-      { label: "Profit & Loss", href: "/accounting/reports/profit-loss" },
-      { label: "Balance Sheet", href: "/accounting/reports/balance-sheet" },
-      { label: "General Ledger", href: "/accounting/reports/general-ledger" },
-      { label: "AR Aging", href: "/accounting/reports/ar-aging" },
-      { label: "AP Aging", href: "/accounting/reports/ap-aging" },
-      { label: "Customer SOA", href: "/accounting/reports/customer-soa" },
-      { label: "Supplier SOA", href: "/accounting/reports/supplier-soa" },
-      { label: "Inventory Valuation", href: "/accounting/reports/inventory-valuation" },
-      { label: "Margin by Item", href: "/accounting/reports/margin-by-item" },
-      { label: "Margin by Customer", href: "/accounting/reports/margin-by-customer" },
-      { label: "Margin by Category", href: "/accounting/reports/margin-by-category" },
-      { label: "Expiry Exposure", href: "/accounting/reports/expiry-exposure" },
-      { label: "Negative Stock Risk", href: "/accounting/reports/negative-stock-risk" },
-      { label: "Landed Cost Impact", href: "/accounting/reports/landed-cost-impact" },
-      { label: "Consolidated", href: "/accounting/reports/consolidated" }
-    ]
-  },
-  {
-    label: "Automation",
-    items: [
-      { label: "AI Hub", href: "/automation/ai-hub" },
-      { label: "AP Import Queue", href: "/automation/ap-import" },
-      { label: "Copilot", href: "/automation/copilot" },
-      { label: "Ops Copilot", href: "/automation/ops-copilot" }
-    ]
-  },
-  {
-    label: "Administration",
-    items: [
-      { label: "Go-Live", href: "/system/go-live" },
-      { label: "Config", href: "/system/config" },
-      { label: "Appearance", href: "/system/appearance" },
-      { label: "Dimensions", href: "/system/dimensions" },
-      { label: "Branches", href: "/system/branches" },
-      { label: "UOMs", href: "/system/uoms" },
-      { label: "Warehouses", href: "/system/warehouses" },
-      { label: "Warehouse Locations", href: "/system/warehouse-locations" },
-      { label: "Users", href: "/system/users" },
-      { label: "Security", href: "/system/security" },
-      { label: "Dedup / Merge", href: "/system/dedup" },
-      { label: "Audit Logs", href: "/system/audit-logs" },
-      { label: "Roles", href: "/system/roles-permissions" }
-    ]
-  }
-];
-
-const LITE_NAV_SECTIONS: NavSection[] = [
-  {
-    label: "Core",
-    items: [
-      { label: "Dashboard", href: "/dashboard" },
-      { label: "Sales Invoices", href: "/sales/invoices" },
-      { label: "Customers", href: "/partners/customers/list" },
-      { label: "Items", href: "/catalog/items/list" },
-      { label: "Stock", href: "/inventory/stock" }
-    ]
-  },
-  {
-    label: "Operations",
-    items: [
-      { label: "POS Shifts", href: "/system/pos-shifts" },
-      { label: "POS Devices", href: "/system/pos-devices" },
-      { label: "Outbox", href: "/system/outbox" }
-    ]
-  },
-  {
-    label: "Administration",
-    items: [
-      { label: "Users", href: "/system/users" },
-      { label: "Audit Logs", href: "/system/audit-logs" },
-      { label: "Config", href: "/system/config" },
-      { label: "Appearance", href: "/system/appearance" },
-      { label: "UOMs", href: "/system/uoms" },
-    ]
-  }
-];
+// Nav section data is imported from @/lib/nav (FULL_NAV_DATA, LITE_NAV_DATA).
+// Cast to the local NavSection type (which adds the optional icon field).
+const FULL_NAV_SECTIONS: NavSection[] = FULL_NAV_DATA;
+const LITE_NAV_SECTIONS: NavSection[] = LITE_NAV_DATA;
 
 type UiVariant = "full" | "lite";
 type ColorTheme = "light" | "dark";
@@ -429,53 +274,7 @@ type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
 const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
 const ACCENT_THEME_STORAGE_KEY = "admin.accentTheme";
 
-const ACCENT_THEME_VARS: Record<
-  AccentTheme,
-  { primary: string; primaryFg: string; primaryDim: string; primaryGlow: string; ring: string }
-> = {
-  cobalt: {
-    primary: "37 99 235",
-    primaryFg: "255 255 255",
-    primaryDim: "29 78 216",
-    primaryGlow: "37 99 235",
-    ring: "37 99 235"
-  },
-  sky: {
-    primary: "14 165 233",
-    primaryFg: "0 0 0",
-    primaryDim: "3 105 161",
-    primaryGlow: "14 165 233",
-    ring: "14 165 233"
-  },
-  emerald: {
-    primary: "16 185 129",
-    primaryFg: "0 0 0",
-    primaryDim: "4 120 87",
-    primaryGlow: "16 185 129",
-    ring: "16 185 129"
-  },
-  teal: {
-    primary: "20 184 166",
-    primaryFg: "0 0 0",
-    primaryDim: "15 118 110",
-    primaryGlow: "20 184 166",
-    ring: "20 184 166"
-  },
-  rose: {
-    primary: "244 63 94",
-    primaryFg: "255 255 255",
-    primaryDim: "190 18 60",
-    primaryGlow: "244 63 94",
-    ring: "244 63 94"
-  },
-  slate: {
-    primary: "100 116 139",
-    primaryFg: "255 255 255",
-    primaryDim: "51 65 85",
-    primaryGlow: "100 116 139",
-    ring: "100 116 139"
-  }
-};
+const ACCENT_THEMES = ["cobalt", "sky", "emerald", "teal", "rose", "slate"] as const;
 
 function normalizeCompanyThemeScope(companyId: string) {
   return String(companyId || "").trim();
@@ -534,18 +333,14 @@ function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme; com
 
 function applyAccentThemeClass(next: AccentTheme) {
   const root = document.documentElement;
-  const cls = Array.from(root.classList);
-  for (const c of cls) {
-    if (c.startsWith("theme-")) root.classList.remove(c);
-  }
+  ACCENT_THEMES.forEach((t) => root.classList.remove(`theme-${t}`));
   root.classList.add(`theme-${next}`);
-
-  const vars = ACCENT_THEME_VARS[next] ?? ACCENT_THEME_VARS.sky;
-  root.style.setProperty("--primary", vars.primary);
-  root.style.setProperty("--primary-fg", vars.primaryFg);
-  root.style.setProperty("--primary-dim", vars.primaryDim);
-  root.style.setProperty("--primary-glow", vars.primaryGlow);
-  root.style.setProperty("--ring", vars.ring);
+  // Clear any leftover inline style overrides so the CSS class rules take effect.
+  root.style.removeProperty("--primary");
+  root.style.removeProperty("--primary-fg");
+  root.style.removeProperty("--primary-dim");
+  root.style.removeProperty("--primary-glow");
+  root.style.removeProperty("--ring");
 }
 
 function shortId(id: string) {
@@ -1227,6 +1022,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-primary focus:text-primary-fg focus:px-4 focus:py-2 focus:rounded focus:shadow-lg">
+        Skip to main content
+      </a>
       {/* Sidebar */}
       <aside
         className={cn(
@@ -1510,7 +1308,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main id="main-content" className="flex min-w-0 flex-1 flex-col">
         {/* Top Bar */}
         <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border-subtle bg-background/70 px-4 backdrop-blur-sm">
           <div className="flex items-center gap-3 md:hidden">
@@ -1854,6 +1652,11 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 }}
                 placeholder="Search pages, actions, or data..."
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-fg-subtle focus:outline-none"
+                role="combobox"
+                aria-expanded={true}
+                aria-haspopup="listbox"
+                aria-controls="cmd-palette-listbox"
+                aria-activedescendant={commandResults.length > 0 ? `cmd-palette-option-${commandActiveIndex}` : undefined}
               />
             <kbd className="ui-kbd">ESC</kbd>
           </div>
@@ -1865,7 +1668,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 <p className="mt-1 text-xs">{commandDataLoading ? "Checking items, customers, suppliers, and invoices..." : "Try a different search term"}</p>
               </div>
             ) : (
-              <div className="space-y-0.5 px-2">
+              <div id="cmd-palette-listbox" role="listbox" className="space-y-0.5 px-2">
                 {commandResults.map((item, idx) => {
                   const Icon = item.icon ?? Cpu;
                   const active = idx === commandActiveIndex;
@@ -1873,6 +1676,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     <button
                       key={item.href}
                       type="button"
+                      id={`cmd-palette-option-${idx}`}
+                      role="option"
+                      aria-selected={active}
                       ref={(el) => {
                         commandItemRefs.current[idx] = el;
                       }}

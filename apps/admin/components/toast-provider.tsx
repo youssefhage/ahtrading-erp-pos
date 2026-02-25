@@ -72,7 +72,7 @@ export function ToastProvider(props: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {props.children}
-      <div className="pointer-events-none fixed right-4 top-4 z-[100] w-[360px] max-w-[calc(100vw-2rem)] space-y-2">
+      <div role="log" aria-live="polite" className="pointer-events-none fixed right-4 top-4 z-[100] w-[360px] max-w-[calc(100vw-2rem)] space-y-2">
         {toasts.map((t) => {
           const variant =
             t.kind === "success" ? "success" : t.kind === "error" ? "danger" : "info";

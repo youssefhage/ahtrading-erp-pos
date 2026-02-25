@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
+import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { parseNumberInput } from "@/lib/numbers";
 import { getDefaultWarehouseId } from "@/lib/op-context";
 import { Button } from "@/components/ui/button";
@@ -327,7 +328,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       setWarehouses(wh.warehouses || []);
       setTaxCodes(tc.tax_codes || []);
       setDefaultVatTaxCodeId(resolveDefaultVatTaxCodeId(tc.tax_codes || [], settingsRes.settings || []));
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 89500;
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : FALLBACK_FX_RATE_USD_LBP;
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
       const preferredWhId = (() => {

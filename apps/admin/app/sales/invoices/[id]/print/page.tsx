@@ -8,10 +8,10 @@ import { apiGet } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { applyPrintPageSettings, applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
+import { OFFICIAL_COMPANY_ID } from "@/lib/constants";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 
-const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
 // Temporary business rule: print invoices as non-VAT (0%) while registration is pending.
 const TEMP_NON_VAT_PRINT = true;
