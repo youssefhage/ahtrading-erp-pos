@@ -251,11 +251,11 @@
           <div
             role="button"
             tabindex="0"
-            class={`group w-full flex items-start gap-3.5 rounded-2xl border px-3.5 py-3 text-left cursor-pointer
+            class={`group w-full rounded-2xl border px-3.5 py-3 text-left cursor-pointer
                    transition-all duration-150
                    focus:outline-none focus:ring-2 focus:ring-accent/40
-                   ${isActive 
-                      ? "border-accent/40 bg-accent/5 ring-1 ring-accent/20 shadow-lg shadow-accent/5" 
+                   ${isActive
+                      ? "border-accent/40 bg-accent/5 ring-1 ring-accent/20 shadow-lg shadow-accent/5"
                       : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-white/5 hover:shadow-md"
                    }`}
             on:mouseenter={() => activeIndex = i}
@@ -264,97 +264,96 @@
             on:keydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), addItem(item))}
             title="Add to cart"
           >
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-3 min-w-0">
-                <div class="min-w-0 flex-1">
-                  <div class={`clamp-2 leading-tight transition-colors duration-200 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
-                  {#if desc}
-                    <div class={`mt-1 text-[11px] leading-snug clamp-2 transition-colors ${isActive ? "text-accent/85" : "text-ink/70 group-hover:text-ink/80"}`}>
-                      {desc}
-                    </div>
-                  {/if}
-                  <div class="mt-1 flex items-center gap-2">
-                     <span class={`text-[11px] font-mono tracking-wider transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-ink/60"}`}>
-                      {item.sku || "NO SKU"}
-                    </span>
-                    {#if companyLabel(item)}
-                      <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${tonePill(item)}`}>
-                        {companyLabel(item)}
-                      </span>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-              {#if item.barcode}
-                <div class="mt-1.5 text-[10px] text-muted/60 truncate font-mono">
-                  {item.barcode}
-                </div>
-              {/if}
-            </div>
+            <!-- Name: full width so it's always readable -->
+            <div class={`clamp-2 leading-tight transition-colors duration-200 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
 
-            <div class="flex items-center gap-3 shrink-0">
-              {#if sel}
-                {#if opts.length > 2}
-                  <div class="relative group/uom">
-                    <select
-                      class="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
-                      title="UOM (dropdown)"
-                      value={optValue(sel)}
-                      on:change|stopPropagation={(e) => {
-                        const v = String(e?.target?.value || "");
-                        const idx = (opts || []).findIndex((o) => optValue(o) === v);
-                        if (idx >= 0) setUomIndex(item, idx);
-                      }}
-                      on:click|stopPropagation={() => {}}
-                    >
-                      {#each opts as o}
-                        <option value={optValue(o)}>{optLabel(o)}</option>
-                      {/each}
-                    </select>
-                    <svg
-                      class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted group-hover/uom:text-accent"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-                {:else}
-                  <button
-                    type="button"
-                    class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors"
-                    title={opts.length > 1 ? "UOM (tap to toggle, Alt+U to cycle, Alt+1..9 to select)" : "UOM"}
-                    on:click|stopPropagation={() => cycleUom(item, 1)}
-                  >
-                    {sel.label || sel.uom}
-                  </button>
+            {#if desc}
+              <div class={`mt-1 text-[11px] leading-snug clamp-2 transition-colors ${isActive ? "text-accent/85" : "text-ink/70 group-hover:text-ink/80"}`}>
+                {desc}
+              </div>
+            {/if}
+
+            <!-- Bottom row: metadata left, price + action right -->
+            <div class="mt-2 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class={`text-[11px] font-mono tracking-wider transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-ink/60"}`}>
+                  {item.sku || "NO SKU"}
+                </span>
+                {#if companyLabel(item)}
+                  <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border shrink-0 ${tonePill(item)}`}>
+                    {companyLabel(item)}
+                  </span>
                 {/if}
-              {/if}
-
-              <div class="text-right leading-none">
-                <div class="font-bold text-sm text-ink num-readable tracking-tight">
-                  {fmtMoney(afterVatPrice(item), currencyPrimary)}
-                </div>
-                <!-- <div class="text-[9px] text-emerald-400 mt-0.5 font-medium">Net</div> -->
-                <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
-                  {fmtMoney(basePrice(item), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
-                </div>
+                {#if item.barcode}
+                  <span class="text-[10px] text-muted/60 truncate font-mono hidden sm:inline">
+                    {item.barcode}
+                  </span>
+                {/if}
               </div>
-              
-              <span
-                class={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
-                  isActive 
-                    ? "bg-accent text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/40 scale-105" 
-                    : "bg-surface-highlight/50 text-muted hover:bg-white/10 hover:text-ink"
-                }`}
-                aria-hidden="true"
-              >
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-              </span>
+
+              <div class="flex items-center gap-2 shrink-0">
+                {#if sel}
+                  {#if opts.length > 2}
+                    <div class="relative group/uom">
+                      <select
+                        class="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
+                        title="UOM (dropdown)"
+                        value={optValue(sel)}
+                        on:change|stopPropagation={(e) => {
+                          const v = String(e?.target?.value || "");
+                          const idx = (opts || []).findIndex((o) => optValue(o) === v);
+                          if (idx >= 0) setUomIndex(item, idx);
+                        }}
+                        on:click|stopPropagation={() => {}}
+                      >
+                        {#each opts as o}
+                          <option value={optValue(o)}>{optLabel(o)}</option>
+                        {/each}
+                      </select>
+                      <svg
+                        class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted group-hover/uom:text-accent"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  {:else}
+                    <button
+                      type="button"
+                      class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors"
+                      title={opts.length > 1 ? "UOM (tap to toggle, Alt+U to cycle, Alt+1..9 to select)" : "UOM"}
+                      on:click|stopPropagation={() => cycleUom(item, 1)}
+                    >
+                      {sel.label || sel.uom}
+                    </button>
+                  {/if}
+                {/if}
+
+                <div class="text-right leading-none">
+                  <div class="font-bold text-sm text-ink num-readable tracking-tight">
+                    {fmtMoney(afterVatPrice(item), currencyPrimary)}
+                  </div>
+                  <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
+                    {fmtMoney(basePrice(item), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
+                  </div>
+                </div>
+
+                <span
+                  class={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
+                    isActive
+                      ? "bg-accent text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/40 scale-105"
+                      : "bg-surface-highlight/50 text-muted hover:bg-white/10 hover:text-ink"
+                  }`}
+                  aria-hidden="true"
+                >
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                </span>
+              </div>
             </div>
           </div>
         {/each}
