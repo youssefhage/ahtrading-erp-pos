@@ -437,21 +437,27 @@
 
   @media (max-width: 1200px) {
     .cart-grid {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(110px, 0.9fr);
       gap: 0.5rem;
     }
     .cart-head {
       display: none;
     }
     .cart-line .cart-name {
+      grid-column: 1 / -1;
       padding-right: 0;
     }
-    .cart-line .cart-qty,
-    .cart-line .cart-uom,
-    .cart-line .cart-price {
+    .cart-line .cart-qty {
+      grid-column: 1;
+      width: 100%;
+    }
+    .cart-line .cart-uom {
+      grid-column: 2;
       width: 100%;
     }
     .cart-line .cart-price {
+      grid-column: 1 / -1;
+      width: 100%;
       align-items: flex-start;
     }
   }

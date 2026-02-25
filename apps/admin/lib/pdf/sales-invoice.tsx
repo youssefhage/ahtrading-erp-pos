@@ -276,14 +276,144 @@ function hasLineDiscount(line: InvoiceLine) {
   return Math.abs(lineDiscountAmount(line)) > 0.0001;
 }
 
+function toMoneyCents(value: unknown) {
+  return Math.max(0, Math.round((toNum(value) + Number.EPSILON) * 100));
+}
+
+function fromMoneyCents(cents: number) {
+  return Math.max(0, cents) / 100;
+}
+
+function allocateLineTotalsInclTax(opts: {
+  lines: InvoiceLine[];
+  taxLines: TaxLine[];
+  lineBase: (line: InvoiceLine) => number;
+  taxValue: (line: TaxLine) => number;
+  targetTotal: number;
+}) {
+  const { lines, taxLines, lineBase, taxValue, targetTotal } = opts;
+  const entries = lines.map((line, idx) => {
+    const code = String(line.item_tax_code_id || "").trim();
+    const base = Math.max(0, lineBase(line));
+    return { idx, code, base };
+  });
+
+  const baseCents = entries.map((e) => toMoneyCents(e.base));
+  const lineTaxCents = Array.from({ length: lines.length }, () => 0);
+
+  const taxByCode = new Map<string, number>();
+  for (const row of taxLines) {
+    const code = String(row.tax_code_id || "").trim();
+    if (!code) continue;
+    taxByCode.set(code, toNum(taxByCode.get(code)) + Math.max(0, taxValue(row)));
+  }
+  const explicitTax = Array.from(taxByCode.values()).reduce((sum, v) => sum + toNum(v), 0);
+  const totalTax = taxLines.reduce((sum, row) => sum + Math.max(0, taxValue(row)), 0);
+  const fallbackTax = Math.max(0, totalTax - explicitTax);
+
+  const bucketMap = new Map<string, number[]>();
+  const pushBucket = (bucketKey: string, idx: number) => {
+    if (!bucketMap.has(bucketKey)) bucketMap.set(bucketKey, []);
+    bucketMap.get(bucketKey)!.push(idx);
+  };
+
+  for (const e of entries) {
+    if (e.code && taxByCode.has(e.code)) {
+      pushBucket(e.code, e.idx);
+    } else if (fallbackTax > 0) {
+      pushBucket("__fallback__", e.idx);
+    }
+  }
+  if (!bucketMap.size && fallbackTax > 0 && entries.length) {
+    for (const e of entries) pushBucket("__fallback__", e.idx);
+  }
+
+  const allocateBucket = (indices: number[], targetTax: number) => {
+    const targetCents = toMoneyCents(targetTax);
+    if (!indices.length || targetCents <= 0) return;
+    const baseSum = indices.reduce((sum, idx) => sum + Math.max(0, entries[idx]?.base || 0), 0);
+    if (baseSum <= 0) {
+      lineTaxCents[indices[0]] += targetCents;
+      return;
+    }
+    const ranked = indices.map((idx, order) => {
+      const base = Math.max(0, entries[idx]?.base || 0);
+      const raw = (targetCents * base) / baseSum;
+      const cents = Math.floor(raw);
+      return { idx, order, cents, remainder: raw - cents, base };
+    });
+    const used = ranked.reduce((sum, row) => sum + row.cents, 0);
+    const remainder = Math.max(0, targetCents - used);
+    ranked.sort((a, b) => (b.remainder - a.remainder) || (b.base - a.base) || (a.order - b.order));
+    for (let i = 0; i < remainder; i += 1) {
+      ranked[i % ranked.length].cents += 1;
+    }
+    for (const row of ranked) {
+      lineTaxCents[row.idx] += row.cents;
+    }
+  };
+
+  for (const [bucketKey, indices] of bucketMap.entries()) {
+    const taxTarget = bucketKey === "__fallback__" ? fallbackTax : Math.max(0, toNum(taxByCode.get(bucketKey)));
+    allocateBucket(indices, taxTarget);
+  }
+
+  const targetTaxCents = toMoneyCents(totalTax);
+  const allocatedTaxCents = lineTaxCents.reduce((sum, cents) => sum + cents, 0);
+  let taxDelta = targetTaxCents - allocatedTaxCents;
+  if (taxDelta !== 0 && entries.length) {
+    const rankedIndices = [...entries]
+      .sort((a, b) => (b.base - a.base) || (a.idx - b.idx))
+      .map((e) => e.idx);
+    let cursor = 0;
+    let safety = 0;
+    while (taxDelta !== 0 && safety < 100000) {
+      safety += 1;
+      const idx = rankedIndices[cursor % rankedIndices.length];
+      cursor += 1;
+      if (taxDelta > 0) {
+        lineTaxCents[idx] += 1;
+        taxDelta -= 1;
+      } else if (lineTaxCents[idx] > 0) {
+        lineTaxCents[idx] -= 1;
+        taxDelta += 1;
+      }
+    }
+  }
+
+  const amountCents = baseCents.map((base, idx) => base + lineTaxCents[idx]);
+  const targetTotalCents = toMoneyCents(targetTotal);
+  let totalDelta = targetTotalCents - amountCents.reduce((sum, cents) => sum + cents, 0);
+  if (totalDelta !== 0 && entries.length) {
+    const rankedIndices = [...entries]
+      .sort((a, b) => (b.base - a.base) || (a.idx - b.idx))
+      .map((e) => e.idx);
+    let cursor = 0;
+    let safety = 0;
+    while (totalDelta !== 0 && safety < 100000) {
+      safety += 1;
+      const idx = rankedIndices[cursor % rankedIndices.length];
+      cursor += 1;
+      if (totalDelta > 0) {
+        amountCents[idx] += 1;
+        totalDelta -= 1;
+      } else if (amountCents[idx] > 0) {
+        amountCents[idx] -= 1;
+        totalDelta += 1;
+      }
+    }
+  }
+
+  return amountCents.map((cents) => fromMoneyCents(cents));
+}
+
 function displayUom(raw: unknown) {
   const out = String(raw || "").trim().toUpperCase();
   return out || "-";
 }
 
 function customerLabel(inv: InvoiceRow, customer?: Customer | null) {
-  if (!inv.customer_id) return "Walk-in";
-  return String(customer?.legal_name || customer?.name || inv.customer_name || inv.customer_id);
+  return String(customer?.legal_name || customer?.name || inv.customer_name || "Walk-in");
 }
 
 function paymentTerms(inv: InvoiceRow) {
@@ -595,8 +725,7 @@ function OfficialInvoiceTemplate(props: {
   const meta = parseMeta(inv.receipt_meta);
   const defaultAddress = pickDefaultAddress(addresses);
 
-  const docNo = inv.invoice_no || inv.receipt_no || inv.id.slice(0, 8);
-  const customerNo = customer?.code || inv.customer_id || "-";
+  const docNo = inv.invoice_no || inv.receipt_no || "(draft)";
   const customerName = customerLabel(inv, customer);
   const customerPhone = String(customer?.phone || "").trim() || "-";
 
@@ -651,14 +780,10 @@ function OfficialInvoiceTemplate(props: {
               </View>
               <View style={official.kvRow}>
                 <Text style={official.kvLabel}>Reference</Text>
-                <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+                <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || "-"}</Text>
               </View>
 
               <Text style={official.blockTitle}>Primary Address</Text>
-              <View style={official.kvRow}>
-                <Text style={official.kvLabel}>Customer No.</Text>
-                <Text style={official.kvValue}>{customerNo}</Text>
-              </View>
               <Text style={official.bodyLine}>{customerName}</Text>
               {primaryLines.map((ln, idx) => (
                 <Text key={`primary-${idx}`} style={official.bodyLine}>
@@ -690,10 +815,6 @@ function OfficialInvoiceTemplate(props: {
               </View>
 
               <Text style={official.blockTitle}>Delivery Address</Text>
-              <View style={official.kvRow}>
-                <Text style={official.kvLabel}>Customer No.</Text>
-                <Text style={official.kvValue}>{customerNo}</Text>
-              </View>
               <Text style={official.bodyLine}>{customerName}</Text>
               {deliveryLines.map((ln, idx) => (
                 <Text key={`delivery-${idx}`} style={official.bodyLine}>
@@ -742,7 +863,7 @@ function OfficialInvoiceTemplate(props: {
             {lines.map((l) => (
               <View key={l.id} style={official.row} wrap={false}>
                 <View style={[official.cell, { flex: 1.25 }]}>
-                  <Text style={[official.left, { fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                  <Text style={[official.left, { fontSize: 8.3 }]}>{l.item_sku || "-"}</Text>
                 </View>
                 <View style={[official.cell, { flex: 3.2 }]}>
                   <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
@@ -816,7 +937,7 @@ function OfficialInvoiceTemplate(props: {
             <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
           </View>
 
-          <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
+          <Text style={official.trace}>Generated {generatedAtStamp()}</Text>
         </View>
       </Page>
     </Document>
@@ -838,8 +959,7 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
   const meta = parseMeta(inv.receipt_meta);
   const defaultAddress = pickDefaultAddress(addresses);
 
-  const docNo = inv.invoice_no || inv.receipt_no || inv.id.slice(0, 8);
-  const customerNo = customer?.code || inv.customer_id || "-";
+  const docNo = inv.invoice_no || inv.receipt_no || "(draft)";
   const customerName = customerLabel(inv, customer);
   const customerPhone = String(customer?.phone || "").trim() || "-";
 
@@ -920,14 +1040,10 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
               </View>
               <View style={official.kvRow}>
                 <Text style={official.kvLabel}>Reference</Text>
-                <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+                <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || "-"}</Text>
               </View>
 
               <Text style={official.blockTitle}>Primary Address</Text>
-              <View style={official.kvRow}>
-                <Text style={official.kvLabel}>Customer No.</Text>
-                <Text style={official.kvValue}>{customerNo}</Text>
-              </View>
               <Text style={official.bodyLine}>{customerName}</Text>
               {primaryLines.map((ln, idx) => (
                 <Text key={`primary-temp-${idx}`} style={official.bodyLine}>
@@ -959,10 +1075,6 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
               </View>
 
               <Text style={official.blockTitle}>Delivery Address</Text>
-              <View style={official.kvRow}>
-                <Text style={official.kvLabel}>Customer No.</Text>
-                <Text style={official.kvValue}>{customerNo}</Text>
-              </View>
               <Text style={official.bodyLine}>{customerName}</Text>
               {deliveryLines.map((ln, idx) => (
                 <Text key={`delivery-temp-${idx}`} style={official.bodyLine}>
@@ -1003,7 +1115,7 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
               return (
                 <View key={l.id} style={official.row} wrap={false}>
                   <View style={[official.cell, { flex: 1.35 }]}>
-                    <Text style={[official.left, { fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                    <Text style={[official.left, { fontSize: 8.3 }]}>{l.item_sku || "-"}</Text>
                   </View>
                   <View style={[official.cell, { flex: 3.45 }]}>
                     <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
@@ -1067,7 +1179,7 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
             <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
           </View>
 
-          <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
+          <Text style={official.trace}>Generated {generatedAtStamp()}</Text>
         </View>
       </Page>
     </Document>
@@ -1084,8 +1196,7 @@ function OfficialCompactInvoiceTemplate(props: {
   const taxLines = props.detail.tax_lines || [];
   const customer = props.customer || null;
 
-  const docNo = inv.invoice_no || inv.receipt_no || inv.id.slice(0, 8);
-  const customerNo = customer?.code || inv.customer_id || "-";
+  const docNo = inv.invoice_no || inv.receipt_no || "(draft)";
   const customerName = customerLabel(inv, customer);
   const customerPhone = String(customer?.phone || "").trim() || "-";
   const totalQty = lines.reduce((a, l) => a + lineQty(l), 0);
@@ -1119,7 +1230,6 @@ function OfficialCompactInvoiceTemplate(props: {
           <View style={s.box}>
             <Text style={s.label}>Customer</Text>
             <Text style={s.value}>{customerName}</Text>
-            <Text style={[s.muted, s.mono, { marginTop: 3 }]}>No. {customerNo}</Text>
             <Text style={[s.muted, s.mono]}>Tel {customerPhone}</Text>
           </View>
           <View style={s.box}>
@@ -1151,7 +1261,7 @@ function OfficialCompactInvoiceTemplate(props: {
             </View>
             {lines.map((l) => (
               <View key={l.id} style={s.tr} wrap={false}>
-                <Text style={[s.td, s.mono, { flex: 2.2 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                <Text style={[s.td, s.mono, { flex: 2.2 }]}>{l.item_sku || "-"}</Text>
                 <Text style={[s.td, { flex: 4.4 }]}>{l.item_name || "-"}</Text>
                 <Text style={[s.td, s.right, s.mono, { flex: 1.2 }]}>{fmtQty(lineQty(l))}</Text>
                 <Text style={[s.td, { flex: 1.1 }]}>{String(l.uom || "").trim() || "-"}</Text>
@@ -1187,7 +1297,7 @@ function OfficialCompactInvoiceTemplate(props: {
         </View>
 
         <View style={s.foot}>
-          <Text style={s.mono}>Ref {inv.id}</Text>
+          <Text style={s.mono}>No. {docNo}</Text>
           <Text style={s.mono}>Generated {generatedAtStamp()}</Text>
         </View>
 
@@ -1218,6 +1328,20 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
 
   const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
   const taxLbp = taxLines.reduce((a, t) => a + toNum(t.tax_lbp), 0);
+  const lineTotalsUsdInclVat = allocateLineTotalsInclTax({
+    lines,
+    taxLines,
+    lineBase: (line) => toNum(line.line_total_usd),
+    taxValue: (line) => toNum(line.tax_usd),
+    targetTotal: toNum(inv.total_usd),
+  });
+  const lineTotalsLbpInclVat = allocateLineTotalsInclTax({
+    lines,
+    taxLines,
+    lineBase: (line) => toNum(line.line_total_lbp),
+    taxValue: (line) => toNum(line.tax_lbp),
+    targetTotal: toNum(inv.total_lbp),
+  });
 
   const docNo = inv.invoice_no || "(draft)";
 
@@ -1248,11 +1372,11 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
         <View style={[s.section, s.grid3]}>
           <View style={s.box}>
             <Text style={s.label}>Customer</Text>
-            <Text style={s.value}>{inv.customer_id ? inv.customer_name || inv.customer_id : "Walk-in"}</Text>
+            <Text style={s.value}>{inv.customer_name || "Walk-in"}</Text>
           </View>
           <View style={s.box}>
             <Text style={s.label}>Warehouse</Text>
-            <Text style={s.value}>{inv.warehouse_name || inv.warehouse_id || "-"}</Text>
+            <Text style={s.value}>{inv.warehouse_name || "-"}</Text>
           </View>
           <View style={s.box}>
             <Text style={s.label}>Currencies</Text>
@@ -1271,15 +1395,15 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
               <Text style={[s.th, s.right, { flex: 2.3 }]}>Total USD</Text>
               <Text style={[s.th, s.right, { flex: 2.3 }]}>Total LL</Text>
             </View>
-            {lines.map((l) => (
+            {lines.map((l, idx) => (
               <View key={l.id} style={s.tr} wrap={false}>
                 <View style={[s.td, { flex: 6 }]}> 
-                  <Text style={[s.mono, { fontSize: 8, color: "#444" }]}>{l.item_sku || l.item_id}</Text>
+                  <Text style={[s.mono, { fontSize: 8, color: "#444" }]}>{l.item_sku || "-"}</Text>
                   <Text style={{ marginTop: 2 }}>{l.item_name || "-"}</Text>
                 </View>
                 <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{toNum(l.qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 2.3 }]}>{fmtUsd(l.line_total_usd)}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 2.3 }]}>{fmtLbp(l.line_total_lbp)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 2.3 }]}>{fmtUsd(lineTotalsUsdInclVat[idx] ?? l.line_total_usd)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 2.3 }]}>{fmtLbp(lineTotalsLbpInclVat[idx] ?? l.line_total_lbp)}</Text>
               </View>
             ))}
             {lines.length === 0 ? (
@@ -1311,7 +1435,7 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
         </View>
 
         <View style={s.foot}>
-          <Text style={s.mono}>Invoice ID: {inv.id}</Text>
+          <Text style={s.mono}>Invoice No: {docNo}</Text>
           <Text style={s.mono}>Generated: {generatedAtStamp()}</Text>
         </View>
       </Page>

@@ -76,6 +76,8 @@
   $: unofficialTotalUsd = toNum(totalsByCompany?.unofficial?.totalUsd, 0);
   $: lineCount = Array.isArray(cart) ? cart.length : 0;
   $: emptyCart = lineCount === 0;
+  $: splitAlignAdjustmentCents = Math.max(0, Math.trunc(toNum(totalsByCompany?._align_adjustment_cents, 0)));
+  $: showSplitAlignBadge = !emptyCart && mixedCart && invoiceCompanyMode === "auto" && splitAlignAdjustmentCents > 0;
   // Keep checkout enabled when we have either cart lines or a computed total,
   // and strict guardrails are satisfied (cashier + shift).
   $: hasSaleToCheckout = lineCount > 0 || totalIncUsd > 0;
@@ -196,6 +198,11 @@
           {/if}
         </div>
       </div>
+      {#if showSplitAlignBadge}
+        <div class="rounded-xl border border-accent/30 bg-accent/10 px-2.5 py-2 text-[10px] text-ink/70">
+          <span class="font-semibold text-accent">Audit:</span> split rounded by {fmtMoney(splitAlignAdjustmentCents / 100, "USD")} for cent alignment.
+        </div>
+      {/if}
     {/if}
 
     <!-- Final Totals -->

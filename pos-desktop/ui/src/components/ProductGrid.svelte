@@ -25,6 +25,16 @@
     return "text-xs font-semibold";
   };
 
+  const compactText = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+
+  const itemDescription = (item) => {
+    const preferred = compactText(item?.description);
+    if (preferred) return preferred;
+    const shortName = compactText(item?.short_name);
+    if (shortName) return shortName;
+    return compactText(item?.item_description);
+  };
+
   const toNum = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -241,10 +251,11 @@
           {@const sel = getUomSelected(item)}
           {@const opts = getUomOptions(item)}
           {@const isActive = i === activeIndex}
+          {@const desc = itemDescription(item)}
           <div
             role="button"
             tabindex="0"
-            class={`group w-full flex items-center gap-3.5 rounded-2xl border px-3.5 py-3 text-left cursor-pointer
+            class={`group w-full flex items-start gap-3.5 rounded-2xl border px-3.5 py-3 text-left cursor-pointer
                    transition-all duration-150
                    focus:outline-none focus:ring-2 focus:ring-accent/40
                    ${isActive 
@@ -261,8 +272,13 @@
               <div class="flex items-center gap-3 min-w-0">
                 <div class="min-w-0 flex-1">
                   <div class={`clamp-2 leading-tight transition-colors duration-200 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
+                  {#if desc}
+                    <div class={`mt-1 text-[11px] leading-snug clamp-2 transition-colors ${isActive ? "text-accent/85" : "text-ink/70 group-hover:text-ink/80"}`}>
+                      {desc}
+                    </div>
+                  {/if}
                   <div class="mt-1 flex items-center gap-2">
-                     <span class={`text-[10px] font-mono tracking-wider transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-ink/60"}`}>
+                     <span class={`text-[11px] font-mono tracking-wider transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-ink/60"}`}>
                       {item.sku || "NO SKU"}
                     </span>
                     {#if companyLabel(item)}

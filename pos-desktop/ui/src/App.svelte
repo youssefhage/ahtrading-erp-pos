@@ -1501,30 +1501,106 @@
     };
   })();
 
+  const _toUsdCents = (value) => Math.max(0, Math.round((toNum(value, 0) + Number.EPSILON) * 100));
+  const _fromUsdCents = (value) => Math.max(0, toNum(value, 0) / 100);
+  const _roundUsd = (value) => _fromUsdCents(_toUsdCents(value));
+  const _alignSplitCompanyTotals = ({ officialUsd = 0, unofficialUsd = 0, targetUsd = 0 } = {}) => {
+    const officialRawCents = Math.max(0, toNum(officialUsd, 0)) * 100;
+    const unofficialRawCents = Math.max(0, toNum(unofficialUsd, 0)) * 100;
+    let officialCents = _toUsdCents(officialUsd);
+    let unofficialCents = _toUsdCents(unofficialUsd);
+    const targetCents = _toUsdCents(targetUsd);
+    const initialDiff = targetCents - (officialCents + unofficialCents);
+    let diff = initialDiff;
+
+    const chooseTarget = () => {
+      if (diff > 0) {
+        // Need to add cents to the side rounded down the most.
+        const offErr = officialCents - officialRawCents;
+        const unErr = unofficialCents - unofficialRawCents;
+        if (offErr === unErr) return officialRawCents >= unofficialRawCents ? "official" : "unofficial";
+        return offErr < unErr ? "official" : "unofficial";
+      }
+      // Need to remove cents from the side rounded up the most.
+      const offErr = officialCents - officialRawCents;
+      const unErr = unofficialCents - unofficialRawCents;
+      if (offErr === unErr) return officialCents >= unofficialCents ? "official" : "unofficial";
+      return offErr > unErr ? "official" : "unofficial";
+    };
+
+    while (diff !== 0) {
+      const target = chooseTarget();
+      if (diff > 0) {
+        if (target === "official") officialCents += 1;
+        else unofficialCents += 1;
+        diff -= 1;
+        continue;
+      }
+      if (target === "official") {
+        if (officialCents > 0) {
+          officialCents -= 1;
+          diff += 1;
+        } else if (unofficialCents > 0) {
+          unofficialCents -= 1;
+          diff += 1;
+        } else {
+          break;
+        }
+      } else if (unofficialCents > 0) {
+        unofficialCents -= 1;
+        diff += 1;
+      } else if (officialCents > 0) {
+        officialCents -= 1;
+        diff += 1;
+      } else {
+        break;
+      }
+    }
+
+    return {
+      officialCents,
+      unofficialCents,
+      targetCents,
+      appliedAdjustmentCents: Math.abs(initialDiff),
+      deltaCents: Math.abs((officialCents + unofficialCents) - targetCents),
+    };
+  };
   $: totalsByCompany = (() => {
     const byCompany = cartVatSnapshot?.byCompany || {};
+    const officialRaw = byCompany.official || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 };
+    const unofficialRaw = byCompany.unofficial || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 };
+    const aligned = _alignSplitCompanyTotals({
+      officialUsd: toNum(officialRaw?.totalUsd, 0),
+      unofficialUsd: toNum(unofficialRaw?.totalUsd, 0),
+      targetUsd: toNum(totals?.totalUsd, 0),
+    });
     return {
-      official: byCompany.official || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
-      unofficial: byCompany.unofficial || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
+      official: { ...officialRaw, totalUsd: _fromUsdCents(aligned.officialCents) },
+      unofficial: { ...unofficialRaw, totalUsd: _fromUsdCents(aligned.unofficialCents) },
+      _align_adjustment_cents: aligned.appliedAdjustmentCents,
+      _align_delta_cents: aligned.deltaCents,
+      _target_total_usd: _fromUsdCents(aligned.targetCents),
     };
   })();
-  const _roundUsd = (value) => Math.max(0, Math.round((toNum(value, 0) + 1e-9) * 100) / 100);
   const _sumLineTotalUsd = (lines) => {
     let total = 0;
     for (const ln of (lines || [])) {
       const row = cartLineAmounts(ln);
       total += toNum(row.baseUsd, 0) + toNum(row.taxUsd, 0);
     }
-    return _roundUsd(total);
+    return total;
   };
   const _assertSplitTotalsConsistent = (groups = []) => {
-    let grouped = 0;
-    for (const g of (groups || [])) grouped += _sumLineTotalUsd(g?.lines || []);
-    const cartTotal = _roundUsd(totals?.totalUsd || 0);
-    const delta = Math.abs(_roundUsd(grouped) - cartTotal);
-    if (delta > 0.01) {
-      throw new Error(`Checkout guardrail: split totals mismatch by ${delta.toFixed(2)} USD.`);
+    let groupedRaw = 0;
+    for (const g of (groups || [])) groupedRaw += _sumLineTotalUsd(g?.lines || []);
+    const groupedCents = _toUsdCents(groupedRaw);
+    const cartCents = _toUsdCents(totals?.totalUsd || 0);
+    const deltaCents = Math.abs(groupedCents - cartCents);
+    // Allow a 1-cent tolerance so tiny rounding drift never blocks operations.
+    if (deltaCents > 1) {
+      throw new Error(`Checkout guardrail: split totals mismatch by ${(deltaCents / 100).toFixed(2)} USD.`);
     }
+    return { deltaCents, groupedCents, cartCents };
   };
   const _companyLabel = (key) => (normalizeCompanyKey(key) === "unofficial" ? "Unofficial" : "Official");
   const _companyListText = (keys = []) => (
@@ -1554,7 +1630,7 @@
   })();
   $: checkoutBlocked = !!checkoutBlockReason;
 
-  const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""}`.toLowerCase();
+  const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""} ${e?.description || ""} ${e?.short_name || ""}`.toLowerCase();
 
   const _buildBarcodeIndex = (list) => {
     const m = new Map();
@@ -2404,8 +2480,6 @@
       line?.sku,
       line?.item_code,
       line?.code,
-      line?.item_id,
-      line?.id,
     ];
     for (const raw of candidates) {
       const v = String(raw || "").trim();
@@ -2424,8 +2498,6 @@
       line?.title,
       line?.item_sku,
       line?.sku,
-      line?.item_id,
-      line?.id,
     ];
     for (const raw of candidates) {
       const v = String(raw || "").trim();
@@ -2536,8 +2608,7 @@
       const salesOrderNo = String(inv?.receipt_no || docNo).trim() || docNo;
       const salesPerson = pickMeta("sales_person", "salesperson") || "-";
       const routeName = pickMeta("route", "route_name") || "-";
-      const referenceNo = pickMeta("reference", "po_no") || String(inv?.id || "").slice(0, 12) || "-";
-      const customerNo = pickMeta("customer_no", "customer_code") || String(inv?.customer_id || "").trim() || "-";
+      const referenceNo = pickMeta("reference", "po_no") || "-";
       const customerName = String(inv?.customer_name || "Walk-in").trim() || "Walk-in";
       const customerPhone = pickMeta("customer_phone", "phone") || "-";
       const primaryAddressLines = parseAddressLines(meta?.primary_address || meta?.primaryAddress || meta?.billing_address || meta?.bill_to);
@@ -2569,8 +2640,121 @@
         const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
         return discountUsd > 0.0001 || pct > 0.0001;
       });
+      const officialLineVatCentsById = (() => {
+        const lineEntries = (lines || []).map((ln, idx) => {
+          let code = String(ln?.tax_code_id || ln?.item_tax_code_id || "").trim();
+          const idKey = String(ln?.id || `ln-${idx}`);
+          const baseUsd = Math.max(0, toNum(ln?.line_total_usd, 0));
+          if (!code && taxLines.length === 1) {
+            code = String(taxLines[0]?.tax_code_id || "").trim();
+          }
+          return { idKey, code, baseUsd, idx };
+        });
+        const taxUsdByCode = new Map();
+        for (const row of (taxLines || [])) {
+          const code = String(row?.tax_code_id || "").trim();
+          if (!code) continue;
+          taxUsdByCode.set(code, toNum(taxUsdByCode.get(code), 0) + Math.max(0, toNum(row?.tax_usd, 0)));
+        }
+        const explicitTaxUsd = Array.from(taxUsdByCode.values()).reduce((sum, v) => sum + toNum(v, 0), 0);
+        const fallbackTaxUsd = Math.max(0, toNum(taxUsd, 0) - explicitTaxUsd);
+        const bucketEntries = new Map();
+        const pushBucket = (key, entry) => {
+          if (!bucketEntries.has(key)) bucketEntries.set(key, []);
+          bucketEntries.get(key).push(entry);
+        };
+        for (const entry of lineEntries) {
+          if (entry.code && taxUsdByCode.has(entry.code)) {
+            pushBucket(entry.code, entry);
+            continue;
+          }
+          if (fallbackTaxUsd > 0) {
+            pushBucket("__fallback__", entry);
+          }
+        }
+        if (taxUsdByCode.size === 0 && fallbackTaxUsd > 0 && !bucketEntries.has("__fallback__")) {
+          for (const entry of lineEntries) pushBucket("__fallback__", entry);
+        }
 
-      const officialLineRows = lines.map((ln) => {
+        const lineTaxCents = new Map();
+        const allocateBucket = (entries, targetTaxUsd) => {
+          const targetCents = _toUsdCents(targetTaxUsd);
+          if (!entries?.length || targetCents <= 0) return;
+          const baseSum = entries.reduce((sum, e) => sum + Math.max(0, toNum(e?.baseUsd, 0)), 0);
+          if (baseSum <= 0) {
+            const firstId = String(entries[0]?.idKey || "");
+            if (firstId) lineTaxCents.set(firstId, (lineTaxCents.get(firstId) || 0) + targetCents);
+            return;
+          }
+          const ranked = entries.map((e, order) => {
+            const safeBase = Math.max(0, toNum(e?.baseUsd, 0));
+            const raw = (targetCents * safeBase) / baseSum;
+            const cents = Math.floor(raw);
+            return {
+              idKey: String(e?.idKey || ""),
+              cents,
+              remainder: raw - cents,
+              baseUsd: safeBase,
+              order,
+            };
+          });
+          let used = ranked.reduce((sum, r) => sum + r.cents, 0);
+          let remaining = Math.max(0, targetCents - used);
+          ranked.sort((a, b) => (
+            (b.remainder - a.remainder)
+            || (b.baseUsd - a.baseUsd)
+            || (a.order - b.order)
+          ));
+          for (let i = 0; i < remaining; i += 1) {
+            ranked[i % ranked.length].cents += 1;
+          }
+          for (const row of ranked) {
+            if (!row.idKey) continue;
+            lineTaxCents.set(row.idKey, (lineTaxCents.get(row.idKey) || 0) + row.cents);
+          }
+        };
+
+        for (const [code, entries] of bucketEntries.entries()) {
+          const targetTaxUsd = code === "__fallback__"
+            ? fallbackTaxUsd
+            : Math.max(0, toNum(taxUsdByCode.get(code), 0));
+          allocateBucket(entries, targetTaxUsd);
+        }
+        const targetTotalTaxCents = _toUsdCents(taxUsd);
+        const allocatedTaxCents = Array.from(lineTaxCents.values()).reduce((sum, cents) => sum + toNum(cents, 0), 0);
+        const residualTaxCents = targetTotalTaxCents - allocatedTaxCents;
+        if (residualTaxCents > 0 && lineEntries.length) {
+          allocateBucket(lineEntries, _fromUsdCents(residualTaxCents));
+        } else if (residualTaxCents < 0 && lineEntries.length) {
+          let toRemove = Math.abs(residualTaxCents);
+          const ranked = [...lineEntries].sort((a, b) => (
+            (toNum(lineTaxCents.get(String(b?.idKey || "")), 0) - toNum(lineTaxCents.get(String(a?.idKey || "")), 0))
+            || (toNum(b?.baseUsd, 0) - toNum(a?.baseUsd, 0))
+            || (toNum(a?.idx, 0) - toNum(b?.idx, 0))
+          ));
+          if (ranked.length) {
+            let cursor = 0;
+            let safety = 0;
+            while (toRemove > 0 && safety < 100000) {
+              safety += 1;
+              const entry = ranked[cursor % ranked.length];
+              cursor += 1;
+              const key = String(entry?.idKey || "");
+              if (!key) continue;
+              const current = toNum(lineTaxCents.get(key), 0);
+              if (current <= 0) continue;
+              lineTaxCents.set(key, current - 1);
+              toRemove -= 1;
+            }
+          }
+        }
+        return lineTaxCents;
+      })();
+
+      const officialLineRows = lines.map((ln, idx) => {
+        const lineIdKey = String(ln?.id || `ln-${idx}`);
+        const lineTaxUsd = _fromUsdCents(toNum(officialLineVatCentsById.get(lineIdKey), 0));
+        const lineAmountWithVatUsd = toNum(ln?.line_total_usd, 0) + lineTaxUsd;
         const rawPct = toNum(ln?.discount_pct, 0);
         const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
         const pctText = pct === 0
@@ -2585,7 +2769,7 @@
             <td class="br r mono">${fmtPlainMoney(ln?.unit_price_entered_usd ?? ln?.unit_price_usd)}</td>
             ${officialHasDiscount ? `<td class="br c mono">${_escapeHtml(pctText)}</td>` : ""}
             ${officialHasDiscount ? `<td class="br r mono">${fmtPlainMoney(ln?.discount_amount_usd || 0)}</td>` : ""}
-            <td class="r mono">${fmtPlainMoney(ln?.line_total_usd)}</td>
+            <td class="r mono">${fmtPlainMoney(lineAmountWithVatUsd)}</td>
           </tr>
         `;
       }).join("");
@@ -2650,7 +2834,6 @@
         <div class="line"><span><strong>Route</strong></span><span class="mono">${_escapeHtml(routeName)}</span></div>
         <div class="line"><span><strong>Reference</strong></span><span class="mono">${_escapeHtml(referenceNo)}</span></div>
         <div class="title">Primary Address</div>
-        <div class="line"><span><strong>Customer No.</strong></span><span class="mono">${_escapeHtml(customerNo)}</span></div>
         <div>${_escapeHtml(customerName)}</div>
         ${primaryLinesHtml}
         <div class="line"><span><strong>Tel</strong></span><span class="mono">${_escapeHtml(customerPhone)}</span></div>
@@ -2661,7 +2844,6 @@
         <div class="line"><span><strong>Payment Terms</strong></span><span class="mono">${_escapeHtml(paymentTerms(inv?.invoice_date, inv?.due_date))}</span></div>
         <div class="line"><span><strong>Currency</strong></span><span class="mono">${_escapeHtml(String(inv?.settlement_currency || inv?.pricing_currency || "USD"))}</span></div>
         <div class="title">Delivery Address</div>
-        <div class="line"><span><strong>Customer No.</strong></span><span class="mono">${_escapeHtml(customerNo)}</span></div>
         <div>${_escapeHtml(customerName)}</div>
         ${deliveryLinesHtml}
         <div class="line"><span><strong>Tel</strong></span><span class="mono">${_escapeHtml(customerPhone)}</span></div>
@@ -8905,7 +9087,6 @@
             {@const cashierName = String(row?.cashier_name || "").trim()}
             {@const cashierId = String(row?.cashier_id || "").trim()}
             {@const customerName = String(row?.customer_name || invoice?.customer_name || "").trim()}
-            {@const customerId = String(row?.customer_id || invoice?.customer_id || "").trim()}
             <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2.5">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -8929,7 +9110,7 @@
                     {_queueAgeText(row?.created_at)} · Cashier: <span class="text-ink/90">{cashierName || cashierId || "—"}</span>
                   </div>
                   <div class="text-[11px] text-muted mt-0.5">
-                    Customer: <span class="text-ink/90">{customerName || customerId || "Walk-in"}</span>
+                    Customer: <span class="text-ink/90">{customerName || "Walk-in"}</span>
                   </div>
                   <div class="text-[11px] text-muted mt-0.5">
                     Event: <span class="font-mono text-ink/90">{_shortQueueEventId(row?.event_id || "")}</span>
@@ -8998,7 +9179,7 @@
                     <div class="text-[12px] text-muted">Detail unavailable. Try Refresh then View Details again.</div>
                   {:else}
                     <div class="text-[11px] text-muted">
-                      Customer: <span class="text-ink">{String(invoice?.customer_name || invoice?.customer_id || "Walk-in")}</span>
+                      Customer: <span class="text-ink">{String(invoice?.customer_name || "Walk-in")}</span>
                       {" · "}Date: <span class="text-ink">{_fmtDateTime(invoice?.created_at || invoice?.invoice_date || row?.created_at || "") || "-"}</span>
                     </div>
                     {#if lines.length === 0}
@@ -9008,7 +9189,7 @@
                         {#each lines as ln}
                           <div class="px-3 py-2 flex items-center justify-between gap-3 text-[12px]">
                             <div class="min-w-0">
-                              <div class="text-ink font-semibold truncate">{String(ln?.item_name || ln?.item_sku || ln?.item_id || "Item")}</div>
+                              <div class="text-ink font-semibold truncate">{String(ln?.item_name || ln?.item_sku || "Item")}</div>
                               <div class="text-[11px] text-muted">Qty {toNum(ln?.qty_entered, toNum(ln?.qty, 0))} {String(ln?.uom || "").trim() || ""}</div>
                             </div>
                             <div class="text-right font-mono text-ink/90 shrink-0">
