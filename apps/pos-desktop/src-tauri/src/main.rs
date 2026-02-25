@@ -30,6 +30,17 @@ struct AgentsState {
   watchdog_started: bool,
 }
 
+impl Drop for AgentsState {
+  fn drop(&mut self) {
+    if let Some(mut c) = self.official.take() {
+      let _ = c.kill();
+    }
+    if let Some(mut c) = self.unofficial.take() {
+      let _ = c.kill();
+    }
+  }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct AgentConfig {
   api_base_url: String,
@@ -228,7 +239,7 @@ fn spawn_agent_from_spec(app: &tauri::AppHandle, spec: &AgentRuntime) -> std::io
 fn ensure_watchdog_running(app: &tauri::AppHandle) {
   let should_start = {
     let state: tauri::State<'_, Mutex<AgentsState>> = app.state();
-    let mut st = state.lock().unwrap();
+    let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
     if st.watchdog_started {
       false
     } else {
@@ -248,7 +259,7 @@ fn ensure_watchdog_running(app: &tauri::AppHandle) {
     let mut restart_unofficial: Option<AgentRuntime> = None;
     {
       let state: tauri::State<'_, Mutex<AgentsState>> = app_handle.state();
-      let mut st = state.lock().unwrap();
+      let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
 
       if let Some(child) = st.official.as_mut() {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -281,7 +292,7 @@ fn ensure_watchdog_running(app: &tauri::AppHandle) {
       match spawn_agent_from_spec(&app_handle, &spec) {
         Ok(child) => {
           let state: tauri::State<'_, Mutex<AgentsState>> = app_handle.state();
-          let mut st = state.lock().unwrap();
+          let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
           if st.official.is_none() {
             st.official = Some(child);
             let _ = append_desktop_log(
@@ -307,7 +318,7 @@ fn ensure_watchdog_running(app: &tauri::AppHandle) {
       match spawn_agent_from_spec(&app_handle, &spec) {
         Ok(child) => {
           let state: tauri::State<'_, Mutex<AgentsState>> = app_handle.state();
-          let mut st = state.lock().unwrap();
+          let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
           if st.unofficial.is_none() {
             st.unofficial = Some(child);
             let _ = append_desktop_log(
@@ -543,7 +554,7 @@ fn start_agents(
       .map_err(|e| format!("Unofficial agent DB init failed: {e}"))?;
   }
 
-  let mut st = state.lock().unwrap();
+  let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
   st.official_spec = Some(official_spec);
   st.unofficial_spec = Some(unofficial_spec);
   if st.official.is_none() && !official_busy {
@@ -634,7 +645,7 @@ fn start_setup_agent(
       .map_err(|e| format!("Official agent DB init failed: {e}"))?;
   }
 
-  let mut st = state.lock().unwrap();
+  let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
   st.official_spec = Some(official_spec);
   if st.official.is_none() && !official_busy {
     let child = spawn_agent(&app, port_official, &official_cfg, &official_db, &official_log)
@@ -657,7 +668,7 @@ fn start_setup_agent(
 
 #[tauri::command]
 fn stop_agents(state: tauri::State<'_, Mutex<AgentsState>>) -> Result<(), String> {
-  let mut st = state.lock().unwrap();
+  let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
   if let Some(mut c) = st.official.take() {
     let _ = c.kill();
   }

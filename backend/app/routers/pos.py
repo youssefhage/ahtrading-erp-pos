@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import uuid
 from ..db import get_conn, set_company_context
 from ..deps import require_device, get_company_id, require_company_access, require_permission, get_current_user
@@ -10,10 +10,23 @@ import secrets
 import json
 from decimal import Decimal
 from psycopg.errors import ForeignKeyViolation, UniqueViolation  # type: ignore
+import time as _time
+import logging as _logging
+
+_pin_verify_logger = _logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pos", tags=["pos"])
-SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
-OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001"
+
+# C-10: In-memory rate limiter for PIN verification
+_pin_verify_attempts: dict = {}  # device_id -> {"count": int, "locked_until": float}
+_PIN_MAX_ATTEMPTS = 5
+_PIN_LOCKOUT_SECONDS = 60
+from ..print_utils import (
+    load_print_policy as _load_print_policy,
+    effective_sales_invoice_pdf_template as _effective_sales_invoice_pdf_template,
+    SALES_INVOICE_PDF_TEMPLATES,
+    OFFICIAL_COMPANY_ID,
+)
 
 class PosEvent(BaseModel):
     event_id: uuid.UUID
@@ -22,56 +35,17 @@ class PosEvent(BaseModel):
     created_at: datetime
     idempotency_key: Optional[str] = None
 
+    @field_validator("payload")
+    @classmethod
+    def payload_max_size(cls, v):
+        if len(json.dumps(v)) > 512_000:  # 512KB limit
+            raise ValueError("payload too large")
+        return v
+
 class OutboxSubmit(BaseModel):
     company_id: Optional[uuid.UUID] = None
     device_id: uuid.UUID
     events: List[PosEvent]
-
-
-def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
-
-
-def _effective_sales_invoice_pdf_template(value, company_id: str) -> Optional[str]:
-    tpl = _normalize_sales_invoice_pdf_template(value)
-    # Temporary compliance window: official company customer invoices should not use
-    # the legacy "standard" print layout.
-    if str(company_id or "").strip() == OFFICIAL_COMPANY_ID and tpl == "standard":
-        return "official_classic"
-    return tpl
-
-
-def _load_print_policy(cur, company_id: str) -> dict:
-    cur.execute(
-        """
-        SELECT value_json
-        FROM company_settings
-        WHERE company_id = %s AND key = 'print_policy'
-        LIMIT 1
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        return {"sales_invoice_pdf_template": None}
-
-    raw = row.get("value_json")
-    obj = {}
-    if isinstance(raw, dict):
-        obj = raw
-    elif isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                obj = parsed
-        except Exception:
-            obj = {}
-
-    tpl = _effective_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"), company_id)
-    return {"sales_invoice_pdf_template": tpl}
 
 
 class ShiftOpenIn(BaseModel):
@@ -889,7 +863,7 @@ def outbox_device_summary(device=Depends(require_device)):
             oldest_pending_age_seconds = None
             if oldest_pending is not None:
                 if oldest_pending.tzinfo is None:
-                    now_ts = datetime.utcnow()
+                    now_ts = datetime.now(timezone.utc)
                 else:
                     now_ts = datetime.now(oldest_pending.tzinfo)
                 oldest_pending_age_seconds = max(0, int((now_ts - oldest_pending).total_seconds()))
@@ -942,29 +916,38 @@ def reset_device_token(
     device_id: str,
     company_id: str = Depends(get_company_id),
     _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
 ):
     device_id = _normalize_required_uuid_text(device_id, "device_id")
     token = secrets.token_urlsafe(32)
     with get_conn() as conn:
         set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id FROM pos_devices
-                WHERE id = %s AND company_id = %s
-                """,
-                (device_id, company_id),
-            )
-            if not cur.fetchone():
-                raise HTTPException(status_code=404, detail="device not found")
-            cur.execute(
-                """
-                UPDATE pos_devices
-                SET device_token_hash = %s
-                WHERE id = %s
-                """,
-                (hash_device_token(token), device_id),
-            )
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id FROM pos_devices
+                    WHERE id = %s AND company_id = %s
+                    """,
+                    (device_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="device not found")
+                cur.execute(
+                    """
+                    UPDATE pos_devices
+                    SET device_token_hash = %s
+                    WHERE id = %s
+                    """,
+                    (hash_device_token(token), device_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'pos.device.reset_token', 'pos_device', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], device_id, json.dumps({})),
+                )
     return {"id": device_id, "token": token}
 
 
@@ -1086,65 +1069,66 @@ def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
 
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
-        with conn.cursor() as cur:
-            for e in data.events:
-                try:
-                    idempotency_key = str(e.idempotency_key or "").strip() or None
-                    cur.execute(
-                        """
-                        INSERT INTO pos_events_outbox
-                          (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
-                        VALUES
-                          (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
-                        ON CONFLICT DO NOTHING
-                        RETURNING id
-                        """,
-                        (
-                            e.event_id,
-                            data.device_id,
-                            e.event_type,
-                            json.dumps(e.payload),
-                            e.created_at,
-                            idempotency_key,
-                            e.created_at,
-                        ),
-                    )
-                    inserted = cur.fetchone()
-                    status = "inserted" if inserted else "duplicate"
-                    existing_event_id = None
-                    if not inserted:
-                        if idempotency_key:
-                            cur.execute(
-                                """
-                                SELECT id
-                                FROM pos_events_outbox
-                                WHERE device_id = %s
-                                  AND event_type = %s
-                                  AND idempotency_key = %s
-                                ORDER BY created_at ASC
-                                LIMIT 1
-                                """,
-                                (data.device_id, e.event_type, idempotency_key),
-                            )
-                        else:
-                            cur.execute(
-                                """
-                                SELECT id
-                                FROM pos_events_outbox
-                                WHERE id = %s
-                                """,
-                                (e.event_id,),
-                            )
-                        existing = cur.fetchone()
-                        if existing:
-                            existing_event_id = str(existing["id"])
-                    accepted.append(str(e.event_id))
-                    meta = {"event_id": str(e.event_id), "status": status}
-                    if existing_event_id and existing_event_id != str(e.event_id):
-                        meta["existing_event_id"] = existing_event_id
-                    accepted_meta.append(meta)
-                except Exception as ex:
-                    rejected.append({"event_id": str(e.event_id), "error": str(ex)})
+        with conn.transaction():
+            with conn.cursor() as cur:
+                for e in data.events:
+                    try:
+                        idempotency_key = str(e.idempotency_key or "").strip() or None
+                        cur.execute(
+                            """
+                            INSERT INTO pos_events_outbox
+                              (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
+                            VALUES
+                              (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
+                            ON CONFLICT DO NOTHING
+                            RETURNING id
+                            """,
+                            (
+                                e.event_id,
+                                data.device_id,
+                                e.event_type,
+                                json.dumps(e.payload),
+                                e.created_at,
+                                idempotency_key,
+                                e.created_at,
+                            ),
+                        )
+                        inserted = cur.fetchone()
+                        status = "inserted" if inserted else "duplicate"
+                        existing_event_id = None
+                        if not inserted:
+                            if idempotency_key:
+                                cur.execute(
+                                    """
+                                    SELECT id
+                                    FROM pos_events_outbox
+                                    WHERE device_id = %s
+                                      AND event_type = %s
+                                      AND idempotency_key = %s
+                                    ORDER BY created_at ASC
+                                    LIMIT 1
+                                    """,
+                                    (data.device_id, e.event_type, idempotency_key),
+                                )
+                            else:
+                                cur.execute(
+                                    """
+                                    SELECT id
+                                    FROM pos_events_outbox
+                                    WHERE id = %s
+                                    """,
+                                    (e.event_id,),
+                                )
+                            existing = cur.fetchone()
+                            if existing:
+                                existing_event_id = str(existing["id"])
+                        accepted.append(str(e.event_id))
+                        meta = {"event_id": str(e.event_id), "status": status}
+                        if existing_event_id and existing_event_id != str(e.event_id):
+                            meta["existing_event_id"] = existing_event_id
+                        accepted_meta.append(meta)
+                    except Exception as ex:
+                        rejected.append({"event_id": str(e.event_id), "error": str(ex)})
     return {"accepted": accepted, "accepted_meta": accepted_meta, "rejected": rejected}
 
 
@@ -1197,7 +1181,7 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                     raise HTTPException(status_code=409, detail="event is dead; requeue it before retrying")
                 if status == "failed" and (next_attempt_at is not None) and not data.force:
                     if next_attempt_at.tzinfo is None:
-                        now_ts = datetime.utcnow()
+                        now_ts = datetime.now(timezone.utc)
                     else:
                         now_ts = datetime.now(next_attempt_at.tzinfo)
                     if next_attempt_at > now_ts:
@@ -1300,7 +1284,7 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                                 event_id,
                             ),
                         )
-                        error_detail = str(process_error)
+                        error_detail = "processing failed"  # Don't leak internal error details
                         response_payload = {"ok": False, "event_id": event_id, "event_type": event_type, "status": next_status}
                     else:
                         inv = None
@@ -1528,7 +1512,7 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                 ,
                 (default_pl_id, default_pl_id),
             )
-            return {"items": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
+            return {"items": cur.fetchall(), "server_time": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/catalog/delta")
@@ -1721,7 +1705,7 @@ def item_categories_catalog(device=Depends(require_device)):
                 """,
                 (device["company_id"],),
             )
-            return {"categories": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
+            return {"categories": cur.fetchall(), "server_time": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/item-categories/catalog/delta")
@@ -1849,7 +1833,7 @@ def list_item_batches(
                     except Exception:
                         dte = None
                 out.append({**r, "days_to_expiry": dte, "min_shelf_life_days": min_days})
-            return {"batches": out, "server_time": datetime.utcnow().isoformat()}
+            return {"batches": out, "server_time": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/config")
@@ -2275,8 +2259,8 @@ def heartbeat(
                     """,
                     (status, device["company_id"], device["device_id"]),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                _pin_verify_logger.warning("heartbeat update failed: %s", exc)
     return {"ok": True, "status": status, "device_id": device["device_id"]}
 
 
@@ -2772,7 +2756,7 @@ def list_shift_variance_alerts(
 
 
 class CashMovementIn(BaseModel):
-    movement_type: str  # cash_in|cash_out|paid_out|safe_drop|other
+    movement_type: Literal["cash_in", "cash_out", "paid_out", "safe_drop", "other"]
     amount_usd: Decimal = Decimal("0")
     amount_lbp: Decimal = Decimal("0")
     notes: Optional[str] = None
@@ -2788,6 +2772,16 @@ def list_cash_movements(
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
+            # H-3: Verify shift belongs to this device (IDOR protection)
+            cur.execute(
+                """
+                SELECT id FROM pos_shifts
+                WHERE id = %s AND company_id = %s AND device_id = %s
+                """,
+                (shift_id, device["company_id"], device["device_id"]),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="shift not found")
             cur.execute(
                 """
                 SELECT id, movement_type, amount_usd, amount_lbp, notes, created_at
@@ -3229,12 +3223,15 @@ def _cashier_manager_meta(cur, company_id: str, user_id: Optional[str]) -> dict:
 @router.get("/cashiers/catalog")
 def cashiers_catalog(device=Depends(require_device)):
     """
-    Device sync endpoint. Includes PIN hashes so the POS can verify offline.
+    Device sync endpoint. Returns cashier info for the POS (pin_hash stripped).
     """
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            return {"cashiers": _eligible_cashiers_for_device(cur, str(device["company_id"]), str(device["device_id"]))}
+            cashiers = _eligible_cashiers_for_device(cur, str(device["company_id"]), str(device["device_id"]))
+            for c in cashiers:
+                c.pop("pin_hash", None)
+            return {"cashiers": cashiers}
 
 @router.get("/customers/catalog")
 def customers_catalog(device=Depends(require_device)):
@@ -3261,7 +3258,7 @@ def customers_catalog(device=Depends(require_device)):
                 """,
                 (device["company_id"],),
             )
-            return {"customers": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
+            return {"customers": cur.fetchall(), "server_time": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/customers/{customer_id}")
@@ -3424,7 +3421,7 @@ def promotions_catalog(device=Depends(require_device)):
                 """,
                 (device["company_id"],),
             )
-            return {"promotions": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
+            return {"promotions": cur.fetchall(), "server_time": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/promotions/delta")
@@ -3496,7 +3493,27 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
     pin = (data.pin or "").strip()
     if not pin:
         raise HTTPException(status_code=400, detail="pin is required")
+
+    # C-10: Rate-limit PIN verification per device
+    dev_id = str(device["device_id"])
+    now_ts = _time.monotonic()
+    bucket = _pin_verify_attempts.get(dev_id)
+    if bucket and bucket["locked_until"] > now_ts:
+        raise HTTPException(status_code=429, detail="too many failed attempts, try again later")
+
     target_cashier_id = _normalize_optional_uuid_text(data.cashier_id)
+
+    def _on_pin_failure():
+        if not bucket:
+            _pin_verify_attempts[dev_id] = {"count": 1, "locked_until": 0.0}
+        else:
+            bucket["count"] += 1
+            if bucket["count"] >= _PIN_MAX_ATTEMPTS:
+                bucket["locked_until"] = _time.monotonic() + _PIN_LOCKOUT_SECONDS
+
+    def _on_pin_success():
+        _pin_verify_attempts.pop(dev_id, None)
+
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
@@ -3540,11 +3557,14 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
                         raise HTTPException(status_code=403, detail="cashier is not assigned to this device")
                     raise HTTPException(status_code=404, detail="cashier not found")
                 if not verify_pin(pin, target_row["pin_hash"]):
+                    _on_pin_failure()
                     raise HTTPException(status_code=401, detail="invalid pin")
+                _on_pin_success()
                 return _cashier_payload(target_row)
 
             for r in rows:
                 if verify_pin(pin, r["pin_hash"]):
+                    _on_pin_success()
                     return _cashier_payload(r)
             # Better operator UX: if PIN is valid for an active cashier but that cashier
             # is filtered out by device assignments, return a specific error.
@@ -3565,6 +3585,7 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
                     continue
                 if verify_pin(pin, row.get("pin_hash")):
                     raise HTTPException(status_code=403, detail="cashier is not assigned to this device")
+    _on_pin_failure()
     raise HTTPException(status_code=401, detail="invalid pin")
 
 @router.get("/cash-movements/admin", dependencies=[Depends(require_permission("pos:manage"))])
@@ -3601,7 +3622,7 @@ def list_shifts(company_id: str = Depends(get_company_id), _auth=Depends(require
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            _cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
+            _, cash_methods_norm = _load_cash_methods(cur, company_id)
             cur.execute(
                 """
                 SELECT id, device_id, status, opened_at, closed_at,

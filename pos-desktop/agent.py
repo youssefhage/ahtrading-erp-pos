@@ -11,17 +11,82 @@ import sys
 import tempfile
 import textwrap
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 import secrets
-from datetime import timedelta
+import logging
 from typing import Optional
 import time
 
 import bcrypt
+
+_agent_logger = logging.getLogger("pos-agent")
+
+# ---------------------------------------------------------------------------
+# C-2: Rate limiting for PIN verification
+# ---------------------------------------------------------------------------
+_pin_attempts = {}  # key -> {"count": int, "locked_until": float}
+_PIN_MAX_ATTEMPTS = 5
+_PIN_LOCKOUT_SECONDS = 60
+
+
+def _check_pin_rate_limit(key: str) -> bool:
+    """Returns True if the request should be blocked."""
+    import time as _t
+    now = _t.time()
+    entry = _pin_attempts.get(key)
+    if entry and entry["locked_until"] > now:
+        return True
+    return False
+
+
+def _record_pin_failure(key: str):
+    import time as _t
+    now = _t.time()
+    entry = _pin_attempts.get(key, {"count": 0, "locked_until": 0})
+    entry["count"] = entry.get("count", 0) + 1
+    if entry["count"] >= _PIN_MAX_ATTEMPTS:
+        entry["locked_until"] = now + _PIN_LOCKOUT_SECONDS
+        entry["count"] = 0
+    _pin_attempts[key] = entry
+
+
+def _reset_pin_attempts(key: str):
+    _pin_attempts.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
+# C-3 / H-11: Allowlists for configuration patching and API writes
+# ---------------------------------------------------------------------------
+_CONFIG_PATCHABLE_KEYS = {
+    "company_name", "branch_name", "vat_rate", "vat_codes",
+    "receipt_template", "receipt_header", "receipt_footer",
+    "receipt_show_logo", "receipt_logo_url",
+    "default_customer_id", "default_customer_name",
+    "default_warehouse_id", "default_warehouse_name",
+    "allow_negative_stock", "allow_credit_sale",
+    "require_manager_approval_credit", "require_manager_approval_return",
+    "require_manager_approval_discount",
+    "max_discount_pct", "loyalty_enabled",
+    "printer_type", "printer_address",
+    "currency_label_usd", "currency_label_lbp",
+}
+
+_CONFIG_API_WRITABLE_KEYS = {
+    "company_name", "branch_name", "receipt_template", "receipt_header",
+    "receipt_footer", "receipt_show_logo", "receipt_logo_url",
+    "printer_type", "printer_address", "printer_width_mm",
+    "default_customer_id", "default_customer_name",
+    "default_warehouse_id", "default_warehouse_name",
+    "allow_negative_stock", "allow_credit_sale",
+    "require_manager_approval_credit", "require_manager_approval_return",
+    "require_manager_approval_discount", "max_discount_pct",
+    "loyalty_enabled", "currency_label_usd", "currency_label_lbp",
+    "admin_session_hours",
+}
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT, 'pos.sqlite')  # can be overridden via CLI/env (see main())
@@ -393,7 +458,7 @@ class _JsonBodyError(Exception):
 
 
 def _clean_expired_sessions(cur):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     cur.execute("DELETE FROM pos_local_sessions WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
 
 
@@ -416,7 +481,7 @@ def _create_admin_session(hours: int) -> dict:
     if hours_i <= 0 or hours_i > 24 * 14:
         hours_i = 12
     token = secrets.token_urlsafe(32)
-    expires_at = (datetime.utcnow() + timedelta(hours=hours_i)).isoformat()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=hours_i)).isoformat()
     with db_connect() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -621,6 +686,9 @@ def json_response(handler, payload, status=200):
     body = json.dumps(payload).encode('utf-8')
     handler.send_response(status)
     handler.send_header('Content-Type', 'application/json')
+    handler.send_header('X-Content-Type-Options', 'nosniff')
+    handler.send_header('X-Frame-Options', 'DENY')
+    handler.send_header('Cache-Control', 'no-store')
     _maybe_send_cors_headers(handler)
     handler.end_headers()
     handler.wfile.write(body)
@@ -650,6 +718,7 @@ def file_response(handler, path):
             data = f.read()
         handler.send_response(200)
         handler.send_header('Content-Type', ctype)
+        handler.send_header('X-Content-Type-Options', 'nosniff')
         _maybe_send_cors_headers(handler)
         handler.end_headers()
         handler.wfile.write(data)
@@ -695,14 +764,14 @@ def _run_cmd(args: list[str], timeout_s: float = 2.5) -> tuple[int, str, str]:
     except Exception as ex:
         return 1, "", str(ex)
 
-def _parse_windows_printers_json(raw: str) -> tuple[list[dict], str | None]:
+def _parse_windows_printers_json(raw: str) -> tuple:
     txt = (raw or "").strip()
     if not txt:
         return [], None
     obj = json.loads(txt)
     rows = obj if isinstance(obj, list) else ([obj] if isinstance(obj, dict) else [])
     printers: list[dict] = []
-    default_name: str | None = None
+    default_name: Optional[str] = None
     for r in rows:
         if not isinstance(r, dict):
             continue
@@ -715,7 +784,7 @@ def _parse_windows_printers_json(raw: str) -> tuple[list[dict], str | None]:
         printers.append({"name": name, "is_default": is_def})
     return printers, default_name
 
-def _parse_windows_printers_wmic(raw: str) -> tuple[list[dict], str | None]:
+def _parse_windows_printers_wmic(raw: str) -> tuple:
     """
     Parse `wmic printer get Name,Default /format:csv` output.
     Example lines:
@@ -724,7 +793,7 @@ def _parse_windows_printers_wmic(raw: str) -> tuple[list[dict], str | None]:
       MY-PC,FALSE,Microsoft Print to PDF
     """
     printers: list[dict] = []
-    default_name: str | None = None
+    default_name: Optional[str] = None
     lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
     if not lines:
         return printers, default_name
@@ -1039,6 +1108,9 @@ def _resolve_active_api_base(cfg: dict, *, force: bool = False) -> tuple[str, st
     else:
         base, mode, detail = "", "", "missing cloud_api_base_url/api_base_url"
 
+    if base and not base.startswith("https://") and "localhost" not in base and "127.0.0.1" not in base:
+        _agent_logger.warning("Cloud API URL is not HTTPS: %s — traffic may be unencrypted", base)
+
     _ACTIVE_API_CACHE["checked_at"] = now
     _ACTIVE_API_CACHE["base"] = base
     _ACTIVE_API_CACHE["mode"] = mode
@@ -1104,7 +1176,7 @@ def submit_single_event(
     event_type: str,
     payload: dict,
     created_at: str,
-    idempotency_key: str | None = None,
+    idempotency_key: Optional[str] = None,
 ) -> tuple[bool, dict]:
     """
     Submit a single outbox event immediately to the cloud API.
@@ -1175,7 +1247,7 @@ def set_sync_cursor(resource: str, cursor=None, cursor_id=None):
               cursor_id=excluded.cursor_id,
               updated_at=excluded.updated_at
             """,
-            (resource, cursor, cursor_id, datetime.utcnow().isoformat()),
+            (resource, cursor, cursor_id, datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
 
@@ -1198,7 +1270,7 @@ def apply_inbox_events(events, cfg: dict):
     - sync.reset: {"resources": ["catalog","customers",...]} (omit => all)
     - message: freeform payload
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     applied_ids = []
     changed_cfg = False
     for ev in events or []:
@@ -1230,8 +1302,9 @@ def apply_inbox_events(events, cfg: dict):
             to_set = (payload or {}).get("set") or {}
             if isinstance(to_set, dict):
                 for k, v in to_set.items():
-                    cfg[k] = v
-                    changed_cfg = True
+                    if k in _CONFIG_PATCHABLE_KEYS:
+                        cfg[k] = v
+                        changed_cfg = True
         elif etype == "sync.reset":
             resources = (payload or {}).get("resources") or None
             if resources and isinstance(resources, list):
@@ -1251,7 +1324,7 @@ def sync_resource_snapshot(base: str, headers: dict, resource: str, url: str, ke
     res = fetch_json(url, headers=headers)
     rows = (res or {}).get(key) or []
     upsert_fn(rows)
-    server_time = (res or {}).get("server_time") or datetime.utcnow().isoformat()
+    server_time = (res or {}).get("server_time") or datetime.now(timezone.utc).isoformat()
     set_sync_cursor(resource, server_time, None)
     return {"mode": "snapshot", "count": len(rows)}
 
@@ -1495,7 +1568,7 @@ def upsert_customers(customers):
                     float(c.get("loyalty_points") or 0),
                     c.get("price_list_id"),
                     1 if c.get("is_active", True) else 0,
-                    (c.get("updated_at") or c.get("changed_at") or datetime.utcnow().isoformat()),
+                    (c.get("updated_at") or c.get("changed_at") or datetime.now(timezone.utc).isoformat()),
                 ),
             )
         conn.commit()
@@ -1523,7 +1596,7 @@ def upsert_cashiers(cashiers):
                     c.get("user_email"),
                     c.get("pin_hash"),
                     1 if c.get("is_active") else 0,
-                    datetime.utcnow().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                 ),
             )
         conn.commit()
@@ -1563,7 +1636,7 @@ def upsert_promotions(promotions):
                     pid,
                     (p.get("name") or "").strip() or (p.get("code") or "").strip(),
                     json.dumps(rules),
-                    (p.get("updated_at") or datetime.utcnow().isoformat()),
+                    (p.get("updated_at") or datetime.now(timezone.utc).isoformat()),
                 ),
             )
         conn.commit()
@@ -1599,7 +1672,7 @@ def get_promotions():
 
 def save_receipt(receipt_type: str, receipt_obj: dict):
     rid = str(uuid.uuid4())
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     with db_connect() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -1724,7 +1797,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
         else ""
     )
     balance_rows_html = ""
-    if hide_vat_reference and customer_balance:
+    if customer_balance:
         balance_rows_html = (
             f'<div class="row"><span class="muted">Previous Balance USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("previous_usd")))}</strong></div>'
             f'<div class="row"><span class="muted">Previous Balance LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("previous_lbp")))}</strong></div>'
@@ -1997,7 +2070,7 @@ def _receipt_text(
         push_aligned("VAT USD", fmt_usd(totals.get('tax_usd')))
     push_aligned("TOTAL USD", fmt_usd(totals.get('total_usd')))
     push_aligned("TOTAL LBP", fmt_lbp(totals.get('total_lbp')))
-    if hide_vat_reference and customer_balance:
+    if customer_balance:
         push_aligned("Prev Bal USD", fmt_usd(customer_balance.get('previous_usd')))
         push_aligned("Prev Bal LBP", fmt_lbp(customer_balance.get('previous_lbp')))
         push_aligned("After Bal USD", fmt_usd(customer_balance.get('after_usd')))
@@ -2082,7 +2155,6 @@ def _print_text_to_printer(text: str, printer: Optional[str] = None, copies: int
             "page-right=0",
             "page-top=0",
             "page-bottom=0",
-            "fit-to-page",
             "cpi=12",
             "lpi=8",
         ]
@@ -2131,6 +2203,15 @@ def _print_pdf_to_printer(pdf_bytes: bytes, printer: Optional[str] = None, copie
         if sys.platform.startswith("win"):
             # Prefer SumatraPDF when available (more reliable than PrintTo).
             sumatra = shutil.which("SumatraPDF") or shutil.which("SumatraPDF.exe")
+            if not sumatra:
+                for candidate in (
+                    os.path.expandvars(r"%LOCALAPPDATA%\SumatraPDF\SumatraPDF.exe"),
+                    os.path.expandvars(r"%PROGRAMFILES%\SumatraPDF\SumatraPDF.exe"),
+                    os.path.expandvars(r"%PROGRAMFILES(X86)%\SumatraPDF\SumatraPDF.exe"),
+                ):
+                    if os.path.isfile(candidate):
+                        sumatra = candidate
+                        break
             if sumatra and printer:
                 for _ in range(copies_i):
                     subprocess.run(
@@ -2158,7 +2239,7 @@ def _print_pdf_to_printer(pdf_bytes: bytes, printer: Optional[str] = None, copie
             cmd = (
                 f"for ($i=0; $i -lt {copies_i}; $i++) {{ "
                 f"$p = Start-Process -FilePath {file_lit} -Verb PrintTo -ArgumentList {prn_lit} -PassThru; "
-                f"Start-Sleep -Milliseconds 800; "
+                f"Start-Sleep -Milliseconds 3000; "
                 f"try {{ $p.CloseMainWindow() | Out-Null }} catch {{}} "
                 f"}}"
             )
@@ -2590,7 +2671,7 @@ def upsert_catalog(items):
     with db_connect() as conn:
         cur = conn.cursor()
         for it in items:
-            updated_at = it.get("changed_at") or it.get("updated_at") or datetime.utcnow().isoformat()
+            updated_at = it.get("changed_at") or it.get("updated_at") or datetime.now(timezone.utc).isoformat()
             cur.execute(
                 """
                 INSERT INTO local_items_cache
@@ -2667,7 +2748,7 @@ def upsert_catalog(items):
                         b.get("uom_code"),
                         b.get("label"),
                         1 if b.get("is_primary") else 0,
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                     ),
                 )
             cur.execute(
@@ -2686,7 +2767,7 @@ def upsert_catalog(items):
                     it.get('id'),
                     it.get('price_usd') or 0,
                     it.get('price_lbp') or 0,
-                    datetime.utcnow().date().isoformat(),
+                    datetime.now(timezone.utc).date().isoformat(),
                 ),
             )
         conn.commit()
@@ -2696,7 +2777,7 @@ def upsert_categories(categories):
     with db_connect() as conn:
         cur = conn.cursor()
         for c in categories or []:
-            updated_at = c.get("changed_at") or c.get("updated_at") or datetime.utcnow().isoformat()
+            updated_at = c.get("changed_at") or c.get("updated_at") or datetime.now(timezone.utc).isoformat()
             cur.execute(
                 """
                 INSERT INTO local_item_categories_cache (id, name, parent_id, is_active, updated_at)
@@ -2721,7 +2802,7 @@ def upsert_categories(categories):
 def add_outbox_event(event_type, payload):
     # Must be UUID to match Postgres `pos_events_outbox.id` type.
     event_id = str(uuid.uuid4())
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     add_outbox_event_record(
         event_id,
         event_type,
@@ -2759,7 +2840,7 @@ def get_outbox_event_by_idempotency(event_type: str, idempotency_key: str):
 
 def add_outbox_event_record(event_id, event_type, payload, created_at, status="pending", idempotency_key=None):
     event_id = str(event_id or "").strip() or str(uuid.uuid4())
-    created_at = str(created_at or "").strip() or datetime.utcnow().isoformat()
+    created_at = str(created_at or "").strip() or datetime.now(timezone.utc).isoformat()
     st = str(status or "pending").strip().lower()
     if st not in {"pending", "acked"}:
         st = "pending"
@@ -2795,6 +2876,7 @@ def list_outbox():
             FROM pos_outbox_events
             WHERE status = 'pending'
             ORDER BY created_at
+            LIMIT 500
             """
         )
         return [dict(r) for r in cur.fetchall()]
@@ -2824,7 +2906,7 @@ def add_audit_log(
     act = str(action or "").strip()
     if not act:
         return
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     det = None
     if details is not None:
         try:
@@ -3260,7 +3342,7 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
                     "base_lbp": float(b["base_lbp"] or 0),
                     "tax_usd": float(t_usd or 0),
                     "tax_lbp": float(t_lbp or 0),
-                    "tax_date": datetime.utcnow().date().isoformat(),
+                    "tax_date": datetime.now(timezone.utc).date().isoformat(),
                 }
             )
             tax_usd += t_usd
@@ -3274,7 +3356,7 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
                 'base_lbp': base_lbp,
                 'tax_usd': tax_usd,
                 'tax_lbp': tax_lbp,
-                'tax_date': datetime.utcnow().date().isoformat()
+                'tax_date': datetime.now(timezone.utc).date().isoformat()
             }
 
     total_usd = _round_usd(base_usd + tax_usd)
@@ -3403,7 +3485,7 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
                     "base_lbp": float(b["base_lbp"] or 0),
                     "tax_usd": float(t_usd or 0),
                     "tax_lbp": float(t_lbp or 0),
-                    "tax_date": datetime.utcnow().date().isoformat(),
+                    "tax_date": datetime.now(timezone.utc).date().isoformat(),
                 }
             )
             tax_usd += t_usd
@@ -3417,7 +3499,7 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
                 'base_lbp': base_lbp,
                 'tax_usd': tax_usd,
                 'tax_lbp': tax_lbp,
-                'tax_date': datetime.utcnow().date().isoformat()
+                'tax_date': datetime.now(timezone.utc).date().isoformat()
             }
 
     return {
@@ -3721,6 +3803,10 @@ class Handler(BaseHTTPRequestHandler):
             data = self.read_json()
             pin = (data.get("pin") or "").strip()
             cfg = load_config()
+            rate_key = f"admin:{self.client_address[0]}"
+            if _check_pin_rate_limit(rate_key):
+                json_response(self, {"error": "too_many_attempts", "message": "Too many attempts. Try again later."}, status=429)
+                return
             if not (cfg.get("admin_pin_hash") or "").strip():
                 json_response(
                     self,
@@ -3729,10 +3815,22 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             if not _verify_admin_pin(cfg, pin):
+                _record_pin_failure(rate_key)
                 json_response(self, {"error": "invalid_pin"}, status=401)
                 return
+            _reset_pin_attempts(rate_key)
             sess = _create_admin_session(int(cfg.get("admin_session_hours") or 12))
             json_response(self, {"ok": True, "token": sess["token"], "expires_at": sess["expires_at"]})
+            return
+
+        if parsed.path == "/api/auth/logout":
+            session_token = self.headers.get("X-POS-Session") or ""
+            if session_token:
+                with db_connect() as conn:
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM pos_local_sessions WHERE token = ?", (session_token,))
+                    conn.commit()
+            json_response(self, {"ok": True})
             return
 
         setup_route = parsed.path.startswith("/api/setup/")
@@ -4097,9 +4195,11 @@ class Handler(BaseHTTPRequestHandler):
                 data["receipt_footer_text"] = _clean_receipt_text(data.get("receipt_footer_text"), fallback="", limit=160)
             if "invoice_template" in data:
                 data["invoice_template"] = _effective_invoice_template_id(data.get("invoice_template"), cfg.get("company_id"))
-            cfg.update(data)
+            for k, v in data.items():
+                if k in _CONFIG_API_WRITABLE_KEYS:
+                    cfg[k] = v
             save_config(cfg)
-            json_response(self, {'ok': True, 'config': cfg})
+            json_response(self, {'ok': True, 'config': _public_config(cfg)})
             return
 
         if parsed.path == "/api/receipts/print-last":
@@ -4474,7 +4574,7 @@ class Handler(BaseHTTPRequestHandler):
                     details={"payment_method": pm},
                 )
                 return
-            created_at = datetime.utcnow().isoformat()
+            created_at = datetime.now(timezone.utc).isoformat()
             event_id = str(uuid.uuid4())
             outbox_status = "pending"
             sync_accepted = None
@@ -4693,7 +4793,7 @@ class Handler(BaseHTTPRequestHandler):
                     details={"refund_method": str(refund_method or "")},
                 )
                 return
-            created_at = datetime.utcnow().isoformat()
+            created_at = datetime.now(timezone.utc).isoformat()
             event_id = str(uuid.uuid4())
             outbox_status = "pending"
             sync_accepted = False
@@ -4823,12 +4923,17 @@ class Handler(BaseHTTPRequestHandler):
             data = self.read_json()
             pin = (data.get("pin") or "").strip()
             cfg = load_config()
+            rate_key = f"cashier:{self.client_address[0]}"
+            if _check_pin_rate_limit(rate_key):
+                json_response(self, {"error": "too_many_attempts", "message": "Too many attempts. Try again later."}, status=429)
+                return
             cashier = verify_cashier_pin(pin)
             online_error = ""
             if not cashier:
                 # Fallback: if the local cache is empty/outdated, try verifying online.
                 cashier, online_error = verify_cashier_pin_online(pin, cfg)
             if not cashier:
+                _record_pin_failure(rate_key)
                 if online_error == "invalid_device":
                     json_response(
                         self,
@@ -4869,16 +4974,17 @@ class Handler(BaseHTTPRequestHandler):
                         status=401,
                     )
                 return
+            _reset_pin_attempts(rate_key)
             cfg['cashier_id'] = cashier['id']
             save_config(cfg)
-            json_response(self, {'ok': True, 'cashier': cashier, 'config': cfg})
+            json_response(self, {'ok': True, 'cashier': cashier, 'config': _public_config(cfg)})
             return
 
         if parsed.path == '/api/cashiers/logout':
             cfg = load_config()
             cfg['cashier_id'] = ''
             save_config(cfg)
-            json_response(self, {'ok': True, 'config': cfg})
+            json_response(self, {'ok': True, 'config': _public_config(cfg)})
             return
 
         if parsed.path == '/api/cash-movement':
@@ -5328,6 +5434,7 @@ class Handler(BaseHTTPRequestHandler):
                     FROM pos_outbox_events
                     WHERE status = 'pending'
                     ORDER BY created_at
+                    LIMIT 500
                     """
                 )
                 rows = cur.fetchall()

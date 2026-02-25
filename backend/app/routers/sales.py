@@ -18,9 +18,13 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 
 USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
-SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
+from ..print_utils import (
+    load_print_policy as _load_print_policy,
+    effective_sales_invoice_pdf_template as _effective_sales_invoice_pdf_template,
+    SALES_INVOICE_PDF_TEMPLATES,
+    OFFICIAL_COMPANY_ID,
+)
 SALES_INVOICE_CHANNELS = {"pos", "admin", "import", "api"}
-OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def q_usd(v: Decimal) -> Decimal:
@@ -190,57 +194,12 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
     return cur.fetchone()["doc_no"]
 
 
-def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
-
-
-def _effective_sales_invoice_pdf_template(value, company_id: str) -> Optional[str]:
-    tpl = _normalize_sales_invoice_pdf_template(value)
-    # Temporary compliance window: official company customer invoices should not use
-    # the legacy "standard" print layout.
-    if str(company_id or "").strip() == OFFICIAL_COMPANY_ID and tpl == "standard":
-        return "official_classic"
-    return tpl
-
-
 def _normalize_sales_invoice_channel(value) -> Optional[str]:
     raw = str(value or "").strip().lower()
     if not raw:
         return None
     return raw if raw in SALES_INVOICE_CHANNELS else None
 
-
-def _load_print_policy(cur, company_id: str) -> dict:
-    cur.execute(
-        """
-        SELECT value_json
-        FROM company_settings
-        WHERE company_id = %s AND key = 'print_policy'
-        LIMIT 1
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        return {"sales_invoice_pdf_template": None}
-
-    raw = row.get("value_json")
-    obj = {}
-    if isinstance(raw, dict):
-        obj = raw
-    elif isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                obj = parsed
-        except Exception:
-            obj = {}
-
-    tpl = _effective_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"), company_id)
-    return {"sales_invoice_pdf_template": tpl}
 
 def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
     if exchange_rate and exchange_rate != 0:

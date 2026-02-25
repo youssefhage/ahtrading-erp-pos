@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' tauri: asset:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' tauri: http://127.0.0.1:* https://*.melqard.com; img-src 'self' data: blob: asset: tauri:; font-src 'self' data:"
     }
   },
   "plugins": {
