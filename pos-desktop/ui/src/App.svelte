@@ -1348,7 +1348,7 @@
   $: linkedShiftOpenAny = linkedShiftOpenOfficial || linkedShiftOpenUnofficial;
   $: linkedShiftOpenBoth = linkedShiftOpenOfficial && linkedShiftOpenUnofficial;
   $: linkedShiftMissingCompanies = POS_COMPANY_KEYS.filter((k) => !shiftIdForCompany(k));
-  $: shiftModalSelectedOpen = linkedOpsMode ? linkedShiftOpenBoth : selectedShiftOpen;
+  $: shiftModalSelectedOpen = linkedOpsMode ? linkedShiftOpenAny : selectedShiftOpen;
   $: shiftModalCompanyStatusText = linkedOpsMode
     ? `Official: ${linkedShiftOpenOfficial ? "Open" : "Closed"} · Unofficial: ${linkedShiftOpenUnofficial ? "Open" : "Closed"}`
     : `${normalizeCompanyKey(shiftCompanyKey) === "unofficial" ? "Unofficial" : "Official"}: ${selectedShiftOpen ? "Open shift detected" : "No open shift"}`;
@@ -9920,6 +9920,15 @@
           >
             {linkedOpsMode ? "Close Open Shifts" : "Close Shift"}
           </button>
+          {#if linkedOpsMode && linkedShiftMissingCompanies.length}
+            <button
+              class="w-full py-2.5 px-4 rounded-xl border border-accent/30 bg-accent/10 text-accent font-semibold hover:bg-accent/20 transition-all active:scale-[0.98] disabled:opacity-60 mt-2 text-sm"
+              on:click={() => shiftOpen()}
+              disabled={loading}
+            >
+              Open Missing ({_companyListText(linkedShiftMissingCompanies)})
+            </button>
+          {/if}
         {/if}
       </div>
     </div>
