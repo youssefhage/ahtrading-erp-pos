@@ -8834,6 +8834,7 @@
   isOpen={showPaymentModal}
   total={checkoutTotal}
   currency={currencyPrimary}
+  exchangeRate={config.exchange_rate || 0}
   mode={saleMode}
   busy={loading || checkoutInFlight}
   lineCount={cart.length}
