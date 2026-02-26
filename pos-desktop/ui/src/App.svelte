@@ -6900,6 +6900,15 @@
     checkoutInFlight = true;
     showPaymentModal = false;
     loading = true;
+    // Safety net: if the checkout hangs for 45s (e.g. network stall),
+    // reset the in-flight flag so the cashier can retry or cancel.
+    const checkoutSafetyTimer = setTimeout(() => {
+      if (checkoutInFlight) {
+        checkoutInFlight = false;
+        loading = false;
+        reportError("Checkout timed out. The sale may still be processing in the background. Check Queue or Invoices before retrying.");
+      }
+    }, 45000);
     let payment_method = String(method || "cash").trim().toLowerCase();
     lastSaleSummary = {
       method: payment_method,
@@ -7040,9 +7049,15 @@
           }
           await fetchData();
           if (failed.length) {
-            const okText = done.length ? `Completed: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}. ` : "";
-            const failText = failed.map((f) => `${f.companyKey}: ${f.error}`).join(" | ");
-            reportError(`${okText}Split return incomplete. Failed: ${failText}`);
+            const okText = done.length
+              ? `✓ ${done.map((d) => _companyLabel(d.companyKey)).join(", ")} returned. `
+              : "";
+            const failText = failed.map((f) => `${_companyLabel(f.companyKey)}: ${f.error}`).join(" | ");
+            const remainingLines = cart.length;
+            const retryHint = remainingLines > 0
+              ? ` ${remainingLines} item(s) remain in cart — retry or remove them.`
+              : "";
+            reportError(`${okText}Failed: ${failText}.${retryHint}`);
             return;
           }
           cart = [];
@@ -7362,7 +7377,15 @@
         if (requested_customer_id) {
           for (const k of companiesInOrder) customerByCompany[k] = await resolveCustomerId(k);
           const missing = companiesInOrder.filter((k) => !customerByCompany[k]);
-          if (missing.length) reportNotice(`Customer not found on: ${missing.join(", ")}. Those invoices will be walk-in.`);
+          if (missing.length) {
+            const linked = companiesInOrder.filter((k) => !!customerByCompany[k]);
+            const missingLabels = missing.map((k) => _companyLabel(k)).join(", ");
+            const linkedLabels = linked.map((k) => _companyLabel(k)).join(", ");
+            reportNotice(
+              `Customer not found on ${missingLabels} — ${missing.length > 1 ? "those invoices" : "that invoice"} will be walk-in.`
+              + (linked.length ? ` Customer linked on ${linkedLabels}.` : ""),
+            );
+          }
         }
 
         const done = [];
@@ -7421,9 +7444,15 @@
 
         fetchData();
         if (failed.length) {
-          const okText = done.length ? `Completed: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}. ` : "";
-          const failText = failed.map((f) => `${f.companyKey}: ${f.error}`).join(" | ");
-          reportError(`${okText}Split sale incomplete. Failed: ${failText}`);
+          const okText = done.length
+            ? `✓ ${done.map((d) => _companyLabel(d.companyKey)).join(", ")} completed. `
+            : "";
+          const failText = failed.map((f) => `${_companyLabel(f.companyKey)}: ${f.error}`).join(" | ");
+          const remainingLines = cart.length;
+          const retryHint = remainingLines > 0
+            ? ` ${remainingLines} item(s) remain in cart — retry checkout or remove them.`
+            : "";
+          reportError(`${okText}Failed: ${failText}.${retryHint}`);
           return;
         }
         cart = [];
@@ -7520,6 +7549,7 @@
         reportError(e.message);
       }
     } finally {
+      clearTimeout(checkoutSafetyTimer);
       for (const [companyKey, win] of Object.entries(preopenedPrintWindows)) {
         if (consumedPrintWindows.has(normalizeCompanyKey(companyKey))) continue;
         try { if (win && !win.closed) win.close(); } catch (_) {}
