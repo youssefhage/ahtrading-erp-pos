@@ -4345,19 +4345,24 @@
   };
 
   const openReceiptPreview = async () => {
-    const companyKey = effectiveInvoiceCompany();
-    if (_companyUsesCloudTransport(companyKey)) {
-      let receiptWin = null;
-      try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
-      try {
-        await _printLastReceiptWeb(companyKey, receiptWin, { thermal: companyKey !== "official" });
-      } catch (e) {
-        try { if (receiptWin) receiptWin.close(); } catch (_) {}
-        reportError(e?.message || "Unable to print last receipt.");
+    // Print last receipt for ALL configured companies (handles split sales).
+    const companyKeys = [originCompanyKey, otherCompanyKey].filter(Boolean);
+    let printed = 0;
+    for (const companyKey of companyKeys) {
+      if (_companyUsesCloudTransport(companyKey)) {
+        let receiptWin = null;
+        try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
+        try {
+          await _printLastReceiptWeb(companyKey, receiptWin, { thermal: companyKey !== "official" });
+          printed++;
+        } catch (_) {
+          try { if (receiptWin) receiptWin.close(); } catch (__) {}
+        }
+      } else {
+        try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); printed++; } catch (_) {}
       }
-      return;
     }
-    try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); } catch (_) {}
+    if (printed === 0) reportError("No receipts found for this device.");
   };
 
   // Wrapper for the agent serving this UI (origin).
@@ -8305,12 +8310,12 @@
       title="Cashier POS screen"
     >POS</button>
     <button
-      class={`${tabBase} w-7 px-0 inline-flex items-center justify-center relative ${showCartDraftsDrawer || draftCount > 0 ? draftsTabOn : tabOff}`}
+      class={`${tabBase} w-8 px-0 inline-flex items-center justify-center relative ${showCartDraftsDrawer || draftCount > 0 ? draftsTabOn : tabOff}`}
       on:click={openCartDrafts}
       title="Draft carts"
       type="button"
     >
-      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
         <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
       {#if draftCount > 0}
@@ -8368,181 +8373,213 @@
         {/if}
       </button>
       {#if showTopMoreActions}
-        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-xl border border-ink/10 bg-surface shadow-2xl p-1.5 space-y-0.5 min-w-[200px]" style={topMoreMenuStyle}>
-          <!-- Primary actions group -->
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; syncPull(); }}
-            disabled={loading}
-            title={syncPullHint}
-            type="button"
-          >
-            Refresh
-          </button>
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; openCashierModal(cashierCompanyKey || originCompanyKey); }}
-            disabled={loading}
-            title="Cashier login"
-            type="button"
-          >
-            Cashier
-          </button>
-          <button
-            class={moreBtnBase}
-            on:click={() => {
-              showTopMoreActions = false;
-              if (!linkedOpsMode) shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
-              showShiftModal = true;
-              if (linkedOpsMode) shiftRefreshLinked({ quiet: true });
-              else shiftRefresh(shiftCompanyKey, { quiet: true });
-            }}
-            disabled={loading}
-            title="Shift open/close"
-            type="button"
-          >
-            Shift
-          </button>
+        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-xl border border-ink/10 bg-surface shadow-2xl p-2 min-w-[240px]" style={topMoreMenuStyle}>
 
-          <div class="h-px bg-white/5 my-1"></div>
+          <!-- ── Primary actions: 2×2 icon grid ── -->
+          <div class="grid grid-cols-2 gap-1.5 mb-2">
+            <button
+              class="flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 border border-ink/10 bg-surface/55 hover:bg-accent/15 hover:border-accent/30 hover:text-accent transition-colors disabled:opacity-60"
+              on:click={() => { showTopMoreActions = false; syncPull(); }}
+              disabled={loading}
+              title={syncPullHint}
+              type="button"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" /></svg>
+              <span class="text-[10px] font-bold">Refresh</span>
+            </button>
+            <button
+              class="flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 border border-ink/10 bg-surface/55 hover:bg-accent/15 hover:border-accent/30 hover:text-accent transition-colors disabled:opacity-60"
+              on:click={() => { showTopMoreActions = false; openCashierModal(cashierCompanyKey || originCompanyKey); }}
+              disabled={loading}
+              title="Cashier login"
+              type="button"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              <span class="text-[10px] font-bold">Cashier</span>
+            </button>
+            <button
+              class="flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 border border-ink/10 bg-surface/55 hover:bg-accent/15 hover:border-accent/30 hover:text-accent transition-colors disabled:opacity-60"
+              on:click={() => {
+                showTopMoreActions = false;
+                if (!linkedOpsMode) shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
+                showShiftModal = true;
+                if (linkedOpsMode) shiftRefreshLinked({ quiet: true });
+                else shiftRefresh(shiftCompanyKey, { quiet: true });
+              }}
+              disabled={loading}
+              title="Shift open/close"
+              type="button"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span class="text-[10px] font-bold">Shift</span>
+            </button>
+            <button
+              class="flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 border border-ink/10 bg-surface/55 hover:bg-accent/15 hover:border-accent/30 hover:text-accent transition-colors disabled:opacity-60"
+              on:click={() => { showTopMoreActions = false; openShiftInvoicesDrawer(); }}
+              disabled={loading}
+              title="Review invoices from this shift"
+              type="button"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+              <span class="text-[10px] font-bold">Invoices</span>
+            </button>
+          </div>
 
-          <!-- Queue & Sync -->
-          <button
-            class={`${moreBtnBase} ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
-            on:click={() => { showTopMoreActions = false; showQueueDrawer = true; }}
-            disabled={loading}
-            title="Inspect pending queue events"
-            type="button"
-          >
-            Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
-          </button>
-          <button
-            class={`${moreBtnBase} ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
-            on:click={() => { showTopMoreActions = false; syncPush(); }}
-            disabled={loading}
-            title={syncPushHint}
-            type="button"
-          >
-            Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
-          </button>
+          <div class="h-px bg-white/5 mb-1.5"></div>
 
-          <div class="h-px bg-white/5 my-1"></div>
+          <!-- ── Queue & Sync ── -->
+          <div class="px-1.5 mb-1">
+            <span class="text-[9px] font-bold uppercase tracking-wider text-muted/50">Sync</span>
+          </div>
+          <div class="space-y-0.5 mb-1.5">
+            <button
+              class={`${moreBtnBase} ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
+              on:click={() => { showTopMoreActions = false; showQueueDrawer = true; }}
+              disabled={loading}
+              title="Inspect pending queue events"
+              type="button"
+            >
+              Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+            </button>
+            <button
+              class={`${moreBtnBase} ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
+              on:click={() => { showTopMoreActions = false; syncPush(); }}
+              disabled={loading}
+              title={syncPushHint}
+              type="button"
+            >
+              Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+            </button>
+          </div>
 
-          <!-- Invoices, Cash, Audit -->
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; openShiftInvoicesDrawer(); }}
-            disabled={loading}
-            title="Review invoices from this shift"
-            type="button"
-          >
-            Invoices
-          </button>
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; showCashMovementDrawer = true; }}
-            disabled={loading}
-            title="Cash in/out, safe drop, paid out"
-            type="button"
-          >
-            Cash Movement
-          </button>
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; openAuditDrawer(); }}
-            disabled={loading}
-            title="Recent sale/return/retry audit entries"
-            type="button"
-          >
-            Audit
-          </button>
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; openReceiptPreview(); }}
-            title="Open printable last receipt"
-            type="button"
-          >
-            Receipt
-          </button>
+          <div class="h-px bg-white/5 mb-1.5"></div>
 
-          <div class="h-px bg-white/5 my-1"></div>
-
-          <!-- Utility -->
-          <button
-            class={moreBtnBase}
-            on:click={openShortcutsGuide}
-            title="Show keyboard shortcuts"
-            type="button"
-          >
-            Shortcuts
-          </button>
-          {#if activeScreen === "pos"}
+          <!-- ── Operations ── -->
+          <div class="px-1.5 mb-1">
+            <span class="text-[9px] font-bold uppercase tracking-wider text-muted/50">Operations</span>
+          </div>
+          <div class="space-y-0.5 mb-1.5">
             <button
               class={moreBtnBase}
-              on:click={() => { showTopMoreActions = false; openCartDrafts(); }}
-              title="Open cart drafts"
+              on:click={() => { showTopMoreActions = false; showCashMovementDrawer = true; }}
+              disabled={loading}
+              title="Cash in/out, safe drop, paid out"
               type="button"
             >
-              Drafts{cartDrafts.length > 0 ? ` (${cartDrafts.length})` : ""}
+              Cash Movement
             </button>
-            <button
-              class={`${moreBtnBase} disabled:opacity-60`}
-              on:click={() => { showTopMoreActions = false; saveCurrentCartToDraft(); }}
-              disabled={(cart || []).length === 0}
-              title={(cart || []).length === 0 ? "Add items before saving draft" : "Save current cart to drafts"}
-              type="button"
-            >
-              Save As Draft
-            </button>
-          {/if}
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; toggleTheme(); }}
-            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-            type="button"
-          >
-            Theme: {theme === "light" ? "Light" : "Dark"}
-          </button>
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; setLinkedOpsMode(!linkedOpsMode); }}
-            title="Toggle linked operations for cashier and shift actions"
-            type="button"
-          >
-            Ops: {linkedOpsMode ? "Linked" : "Individual"}
-          </button>
-          {#if canOpenAdminPortal}
             <button
               class={moreBtnBase}
-              on:click={() => { showTopMoreActions = false; openAdminPortal(); }}
-              title="Open Admin Portal in browser"
+              on:click={() => { showTopMoreActions = false; openAuditDrawer(); }}
+              disabled={loading}
+              title="Recent sale/return/retry audit entries"
               type="button"
             >
-              Admin Portal
+              Audit
             </button>
-          {/if}
-          <button
-            class={moreBtnBase}
-            on:click={() => { showTopMoreActions = false; cashierLogout(); }}
-            disabled={loading}
-            title="Cashier logout"
-            type="button"
-          >
-            Cashier Logout
-          </button>
-          {#if webHostUnsupported}
-            <a
-              class="{moreBtnBase} inline-flex items-center"
-              href="https://download.melqard.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              on:click={() => { showTopMoreActions = false; }}
+            <button
+              class={moreBtnBase}
+              on:click={() => { showTopMoreActions = false; openReceiptPreview(); }}
+              title="Open printable last receipt"
+              type="button"
             >
-              Download POS Desktop
-            </a>
-          {/if}
-          <div class="px-2 pt-1 text-[9px] text-muted/70">{syncActionHelp}</div>
-          <div class="px-2 pb-0.5 text-[9px] text-muted/50">v{runtimeVersionText}</div>
+              Receipt
+            </button>
+            {#if activeScreen === "pos"}
+              <button
+                class={moreBtnBase}
+                on:click={() => { showTopMoreActions = false; openCartDrafts(); }}
+                title="Open cart drafts"
+                type="button"
+              >
+                Drafts{cartDrafts.length > 0 ? ` (${cartDrafts.length})` : ""}
+              </button>
+              <button
+                class={`${moreBtnBase} disabled:opacity-60`}
+                on:click={() => { showTopMoreActions = false; saveCurrentCartToDraft(); }}
+                disabled={(cart || []).length === 0}
+                title={(cart || []).length === 0 ? "Add items before saving draft" : "Save current cart to drafts"}
+                type="button"
+              >
+                Save As Draft
+              </button>
+            {/if}
+          </div>
+
+          <div class="h-px bg-white/5 mb-1.5"></div>
+
+          <!-- ── Settings ── -->
+          <div class="px-1.5 mb-1">
+            <span class="text-[9px] font-bold uppercase tracking-wider text-muted/50">Settings</span>
+          </div>
+          <div class="space-y-0.5 mb-1.5">
+            <button
+              class={moreBtnBase}
+              on:click={() => { showTopMoreActions = false; toggleTheme(); }}
+              title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+              type="button"
+            >
+              Theme: {theme === "light" ? "Light" : "Dark"}
+            </button>
+            <button
+              class={moreBtnBase}
+              on:click={() => { showTopMoreActions = false; setLinkedOpsMode(!linkedOpsMode); }}
+              title="Toggle linked operations for cashier and shift actions"
+              type="button"
+            >
+              Ops: {linkedOpsMode ? "Linked" : "Individual"}
+            </button>
+            <button
+              class={moreBtnBase}
+              on:click={openShortcutsGuide}
+              title="Show keyboard shortcuts"
+              type="button"
+            >
+              Shortcuts
+            </button>
+            {#if canOpenAdminPortal}
+              <button
+                class={moreBtnBase}
+                on:click={() => { showTopMoreActions = false; openAdminPortal(); }}
+                title="Open Admin Portal in browser"
+                type="button"
+              >
+                Admin Portal
+              </button>
+            {/if}
+          </div>
+
+          <div class="h-px bg-white/5 mb-1.5"></div>
+
+          <!-- ── Account ── -->
+          <div class="space-y-0.5">
+            <button
+              class={`${moreBtnBase} text-red-400/80 hover:bg-red-500/10 hover:border-red-500/30`}
+              on:click={() => { showTopMoreActions = false; cashierLogout(); }}
+              disabled={loading}
+              title="Cashier logout"
+              type="button"
+            >
+              Cashier Logout
+            </button>
+            {#if webHostUnsupported}
+              <a
+                class="{moreBtnBase} inline-flex items-center"
+                href="https://download.melqard.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                on:click={() => { showTopMoreActions = false; }}
+              >
+                Download POS Desktop
+              </a>
+            {/if}
+          </div>
+
+          <!-- Footer -->
+          <div class="mt-1.5 pt-1.5 border-t border-white/5">
+            <div class="px-1 text-[9px] text-muted/60">{syncActionHelp}</div>
+            <div class="px-1 text-[9px] text-muted/40">v{runtimeVersionText}</div>
+          </div>
         </div>
       {/if}
     </div>
