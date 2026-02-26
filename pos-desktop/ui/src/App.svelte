@@ -630,6 +630,7 @@
   let checkoutInFlight = false;
   let lastSaleSummary = null;
   let showSaleComplete = false;
+  let saleSyncWarning = ""; // persistent red banner when post-sale verification fails
 
   // Admin unlock (POS agent can require a local admin PIN when LAN-exposed)
   let showAdminPinModal = false;
@@ -4491,6 +4492,30 @@
     } catch (_) {}
   };
 
+  /**
+   * Fire-and-forget background check after a sale is submitted.
+   * Waits for the cloud to process the event, then shows a persistent
+   * red banner if the invoice was never created.
+   */
+  const verifySaleProcessed = (companyKey, eventId) => {
+    const eid = String(eventId || "").trim();
+    if (!eid) return;
+    // Start verification after a short delay to give the server time.
+    // _resolveInvoiceByEventWeb already retries for ~5s internally.
+    setTimeout(async () => {
+      try {
+        const resolved = await _resolveInvoiceByEventWeb(companyKey, eid);
+        if (resolved?.invoice_id) {
+          // Success — invoice created. Clear any previous warning.
+          if (saleSyncWarning) saleSyncWarning = "";
+          return;
+        }
+      } catch (_) {}
+      // Resolution failed — invoice was not created.
+      saleSyncWarning = `Last sale failed to sync (event ${eid.slice(0, 8)}…). Invoice was not created. Contact manager or check Queue Inspector.`;
+    }, 3000);
+  };
+
   const openReceiptPreview = async () => {
     // Print last receipt for ALL configured companies (handles split sales).
     const companyKeys = [originCompanyKey, otherCompanyKey].filter(Boolean);
@@ -7226,6 +7251,7 @@
             reportNotice("Return complete.");
             showSaleComplete = true;
             setTimeout(() => { showSaleComplete = false; }, 4000);
+            for (const o of outcomes) { verifySaleProcessed(o.companyKey, o.res?.event_id); }
             // Fire-and-forget return receipt printing.
             for (const o of outcomes) {
               markPrintWindowConsumed(o.companyKey);
@@ -7254,6 +7280,7 @@
         const res = await returnForCompany(returnCompany, lines);
         queueSyncPush(returnCompany);
         reportNotice(`Return complete (${returnCompany}): ${res.event_id}`);
+        verifySaleProcessed(returnCompany, res?.event_id);
         cart = [];
         activeCustomer = null;
         returnSourceContext = null;
@@ -7528,6 +7555,7 @@
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
         showSaleComplete = true;
         setTimeout(() => { showSaleComplete = false; }, 4000);
+        verifySaleProcessed(invoiceCompany, res?.event_id);
         await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
         markPrintWindowConsumed(invoiceCompany);
         return;
@@ -7676,6 +7704,11 @@
           showSaleComplete = true;
           setTimeout(() => { showSaleComplete = false; }, 4000);
 
+          // Verify each company's event was processed by the cloud.
+          for (const o of outcomes) {
+            verifySaleProcessed(o.companyKey, o.res?.event_id);
+          }
+
           // Fire-and-forget print — never block checkout on printing.
           // No pre-opened windows in split path (they create visible tabs
           // on POS web).  printAfterSale opens its own window on-demand.
@@ -7756,6 +7789,7 @@
       reportNotice(`Sale queued: ${res.event_id || "ok"}${deferredNote}`);
       showSaleComplete = true;
       setTimeout(() => { showSaleComplete = false; }, 4000);
+      verifySaleProcessed(invoiceCompany, res?.event_id);
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
@@ -9143,6 +9177,20 @@
         <button class="flex-1 py-3 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:scale-[1.02] active:scale-[0.98] transition-all" on:click={handleDiscountModalConfirm}>Apply</button>
       </div>
     </div>
+  </div>
+{/if}
+
+{#if saleSyncWarning}
+  <div class="fixed top-0 left-0 right-0 z-[95] px-4 py-3 bg-red-600 text-white shadow-lg flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <svg class="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+      <span class="text-sm font-semibold">{saleSyncWarning}</span>
+    </div>
+    <button
+      class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/20 hover:bg-white/30 transition-colors"
+      type="button"
+      on:click={() => saleSyncWarning = ""}
+    >Dismiss</button>
   </div>
 {/if}
 
