@@ -1,9 +1,13 @@
 <script>
+  import { createEventDispatcher, onMount } from "svelte";
+  const dispatch = createEventDispatcher();
+
   export let officialConfig = {};
   export let unofficialConfig = {};
   export let isCloudOnlyMode = false;
   export let unofficialEnabled = true;
   export let unofficialStatus = "Pending";
+  export let autoOpenSetup = false;
 
   export let otherAgentUrl = "";
   export let otherAgentDraftUrl = "";
@@ -63,6 +67,14 @@
   let setupErr = "";
   let setupNotice = "";
   let mobilePanel = "quick";
+  let showOnboardingBanner = false;
+
+  onMount(() => {
+    if (autoOpenSetup) {
+      mobilePanel = "quick";
+      showOnboardingBanner = true;
+    }
+  });
 
   let testOff = null;
   let testUn = null;
@@ -669,6 +681,9 @@
         setupNotice = `${setupNotice} Device token was refreshed for stale credentials.`;
       }
       err = "";
+      setupErr = "";
+      showOnboardingBanner = false;
+      dispatch("setupComplete");
     } catch (e) {
       setupErr = e?.message || String(e);
     } finally {
@@ -783,6 +798,11 @@
     </header>
 
     <div class="relative z-10 flex-1 min-h-0 overflow-y-auto pr-0 xl:pr-2 custom-scrollbar space-y-4 xl:space-y-6">
+      {#if showOnboardingBanner}
+        <div class="rounded-xl border border-accent/30 bg-accent/10 p-4 text-accent text-sm font-medium">
+          Welcome! Complete the Quick Setup below to connect this POS to your cloud account.
+        </div>
+      {/if}
       {#if err}
         <div class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300 text-sm font-medium animate-pulse">Error: {err}</div>
       {/if}

@@ -220,6 +220,8 @@ function SalesInvoiceShowInner() {
   const [cancelDraftReason, setCancelDraftReason] = useState("");
   const [cancelDrafting, setCancelDrafting] = useState(false);
   const [invoiceMathOpen, setInvoiceMathOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState("official_classic");
   const searchParams = useSearchParams();
 
   const methodChoices = useMemo(() => {
@@ -1202,6 +1204,9 @@ function SalesInvoiceShowInner() {
                   </CardDescription>
                 </div>
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  <Button variant="outline" onClick={() => setPreviewOpen(true)}>
+                    Preview
+                  </Button>
                   <Button asChild variant="outline">
                     <Link
                       href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`}
@@ -1773,6 +1778,39 @@ function SalesInvoiceShowInner() {
             </DialogContent>
           </Dialog>
         </>
+      ) : null}
+
+      {detail ? (
+        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+          <DialogContent className="max-w-4xl" style={{ height: "85vh", display: "flex", flexDirection: "column" }}>
+            <DialogHeader>
+              <DialogTitle>Print Preview</DialogTitle>
+              <DialogDescription>Preview how this invoice looks with different templates.</DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2 pb-2">
+              {([
+                ["official_classic", "Official Classic"],
+                ["official_compact", "Official Compact"],
+                ["standard", "Standard"],
+              ] as const).map(([key, label]) => (
+                <Button
+                  key={key}
+                  variant={previewTemplate === key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setPreviewTemplate(key)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+            <iframe
+              key={previewTemplate}
+              src={`/exports/sales-invoices/${encodeURIComponent(detail.invoice.id)}/pdf?inline=1&template=${encodeURIComponent(previewTemplate)}`}
+              className="flex-1 w-full rounded border border-border"
+              title="Invoice PDF Preview"
+            />
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

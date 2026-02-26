@@ -10,31 +10,6 @@
     <main class="app-shell">
       <div class="surface-glow glow-one" aria-hidden="true"></div>
       <div class="surface-glow glow-two" aria-hidden="true"></div>
-      <header class="topbar glass">
-        <div class="topbar-left">
-          <div class="brand-mark">POS</div>
-          <div>
-            <h1>Melqard POS Desktop</h1>
-            <p>Desktop opens POS directly like a normal app. Device/company credentials are managed inside POS Settings.</p>
-          </div>
-        </div>
-        <div class="topbar-right">
-          <div id="appVersion" class="app-version muted"></div>
-        </div>
-      </header>
-
-      <section class="hidden-bootstrap" hidden aria-hidden="true">
-        <input id="edgeUrl" />
-        <input id="portOfficial" type="number" value="7070" />
-        <input id="portUnofficial" type="number" value="7072" />
-        <input id="companyOfficial" />
-        <input id="companyUnofficial" />
-        <input id="deviceIdOfficial" />
-        <input id="deviceTokenOfficial" />
-        <input id="deviceIdUnofficial" />
-        <input id="deviceTokenUnofficial" />
-        <textarea id="setupPack"></textarea>
-      </section>
 
       <section id="bootCard" class="glass card-compact boot-card" aria-live="polite">
         <div class="boot-row">
@@ -45,11 +20,10 @@
           </div>
         </div>
         <div id="bootStatus" class="status"></div>
-        <div id="bootSetupNote" class="status muted setup-note"></div>
-        <div id="bootAssist" hidden>
-          <div class="actions-row actions-main">
-            <button id="startBtn" class="primary">Retry Launch</button>
-            <button id="openBtn" class="ghost">Open If Running</button>
+
+        <div id="errorPanel" hidden>
+          <div class="actions-row">
+            <button id="retryBtn" class="primary">Retry</button>
             <details id="moreMenu" class="more-menu">
               <summary class="ghost more-summary">More</summary>
               <div class="more-menu-panel">
@@ -58,17 +32,18 @@
                   <span>Download Update</span>
                   <span id="updateBadge" class="update-pill">No update available</span>
                 </button>
-                <button id="diagBtn" class="ghost" type="button">Connection Diagnostics</button>
-                <button id="showDesktopLogsBtn" class="ghost" type="button">Show Desktop Logs</button>
+                <button id="diagBtn" class="ghost" type="button">Show Diagnostics</button>
                 <button id="copyDebugBtn" class="ghost" type="button">Copy Debug Report</button>
               </div>
             </details>
           </div>
-          <div id="setupNote" class="status muted setup-note" aria-live="polite"></div>
-          <div id="status" class="status"></div>
-          <div id="diag" class="status muted"></div>
+          <pre id="diag" class="diag-output" hidden></pre>
         </div>
       </section>
+
+      <footer class="footer">
+        <span id="appVersion" class="app-version muted"></span>
+      </footer>
     </main>
 
     <script type="module" src="./main.js"></script>

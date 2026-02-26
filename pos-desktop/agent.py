@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -73,6 +74,7 @@ _CONFIG_PATCHABLE_KEYS = {
     "max_discount_pct", "loyalty_enabled",
     "printer_type", "printer_address",
     "currency_label_usd", "currency_label_lbp",
+    "receipt_hide_vat",
 }
 
 _CONFIG_API_WRITABLE_KEYS = {
@@ -85,7 +87,8 @@ _CONFIG_API_WRITABLE_KEYS = {
     "require_manager_approval_credit", "require_manager_approval_return",
     "require_manager_approval_discount", "max_discount_pct",
     "loyalty_enabled", "currency_label_usd", "currency_label_lbp",
-    "admin_session_hours",
+    "admin_session_hours", "receipt_hide_vat",
+    "invoice_template",
 }
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -172,6 +175,9 @@ DEFAULT_CONFIG = {
     'receipt_company_name': 'AH Trading',
     # Optional line printed at the end of each receipt.
     'receipt_footer_text': '',
+    # When set to true, VAT line is omitted from printed/thermal receipts.
+    # When null/unset, auto-detected: hidden for unofficial companies, shown for official.
+    'receipt_hide_vat': None,
 
     # Official invoice printing (A4 PDF) (optional)
     'invoice_printer': '',
@@ -218,13 +224,13 @@ RECEIPT_TEMPLATES = {
 INVOICE_TEMPLATES = {
     "official_classic": {
         "id": "official_classic",
-        "label": "Client Invoice - No VAT (Temporary)",
-        "description": "Temporary official client print mode with VAT hidden on printed invoice.",
+        "label": "Client Invoice (Classic)",
+        "description": "Official client invoice layout with company branding.",
     },
     "official_compact": {
         "id": "official_compact",
-        "label": "Client Invoice - No VAT (Temporary Alias)",
-        "description": "Legacy alias; currently unified to the same temporary client print output.",
+        "label": "Client Invoice (Compact)",
+        "description": "Compact official client invoice layout.",
     },
     "standard": {
         "id": "standard",
@@ -254,12 +260,18 @@ def _receipt_render_profile(cfg: Optional[dict] = None) -> dict:
     c = cfg or {}
     company_id = str(c.get("company_id") or "").strip()
     is_unofficial = bool(company_id) and company_id != OFFICIAL_COMPANY_ID
+    # receipt_hide_vat: explicit bool overrides auto-detect; None/missing falls back to company type.
+    hide_vat_raw = c.get("receipt_hide_vat")
+    if isinstance(hide_vat_raw, bool):
+        hide_vat = hide_vat_raw
+    else:
+        hide_vat = is_unofficial
     return {
         "template_id": _normalize_receipt_template_id(c.get("receipt_template")),
         "company_name": _clean_receipt_text(c.get("receipt_company_name"), fallback="AH Trading", limit=64) or "AH Trading",
         "footer_text": _clean_receipt_text(c.get("receipt_footer_text"), fallback="", limit=160),
         "hide_company_name": is_unofficial,
-        "hide_vat_reference": is_unofficial,
+        "hide_vat_reference": hide_vat,
     }
 
 
@@ -816,11 +828,31 @@ def _parse_windows_printers_wmic(raw: str) -> tuple:
         printers.append({"name": name, "is_default": is_def})
     return printers, default_name
 
-def list_system_printers() -> dict:
+_printer_cache: dict = {"result": None, "ts": 0.0}
+_printer_cache_lock = threading.Lock()
+_PRINTER_CACHE_TTL_S = 60.0
+
+
+def list_system_printers(force_refresh: bool = False) -> dict:
     """
     Enumerate printers available on this machine (best-effort).
-    This is used for mapping receipts to printers in kiosk flows.
+    Results are cached for 60 seconds to avoid repeated slow OS queries.
+    Thread-safe: guarded by ``_printer_cache_lock``.
     """
+    import time as _time
+    with _printer_cache_lock:
+        now = _time.monotonic()
+        if not force_refresh and _printer_cache["result"] is not None and (now - _printer_cache["ts"]) < _PRINTER_CACHE_TTL_S:
+            return _printer_cache["result"]
+    # Release lock during the (potentially slow) OS query.
+    out = _list_system_printers_uncached()
+    with _printer_cache_lock:
+        _printer_cache["result"] = out
+        _printer_cache["ts"] = _time.monotonic()
+    return out
+
+
+def _list_system_printers_uncached() -> dict:
     out: dict = {"printers": [], "default_printer": None, "error": None}
 
     # Windows: query via PowerShell (Get-Printer).
@@ -2236,11 +2268,19 @@ def _print_pdf_to_printer(pdf_bytes: bytes, printer: Optional[str] = None, copie
             if not printer:
                 raise RuntimeError("PDF printing on Windows requires selecting a printer")
             prn_lit = ps_sq(printer)
+            # Wait for the print process to become idle (input-ready) or exit,
+            # polling every 500ms up to 30s, instead of a fixed sleep.
             cmd = (
                 f"for ($i=0; $i -lt {copies_i}; $i++) {{ "
                 f"$p = Start-Process -FilePath {file_lit} -Verb PrintTo -ArgumentList {prn_lit} -PassThru; "
-                f"Start-Sleep -Milliseconds 3000; "
-                f"try {{ $p.CloseMainWindow() | Out-Null }} catch {{}} "
+                f"$waited = 0; "
+                f"while (!$p.HasExited -and $waited -lt 30000) {{ "
+                f"  try {{ $p.WaitForInputIdle(500) | Out-Null }} catch {{}}; "
+                f"  $waited += 500; "
+                f"  Start-Sleep -Milliseconds 500 "
+                f"}}; "
+                f"if (!$p.HasExited) {{ try {{ $p.CloseMainWindow() | Out-Null }} catch {{}} }}; "
+                f"Start-Sleep -Milliseconds 200 "
                 f"}}"
             )
             subprocess.run([ps, "-NoProfile", "-Command", cmd], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
@@ -3619,7 +3659,9 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {'ok': True})
             return
         if parsed.path == "/api/printers":
-            json_response(self, list_system_printers())
+            qs = parse_qs(parsed.query)
+            force = str(qs.get("refresh", [""])[0]).strip().lower() in ("1", "true")
+            json_response(self, list_system_printers(force_refresh=force))
             return
         if parsed.path in {"/api/sync/status", "/api/edge/status"}:
             st = edge_health(cfg, timeout_s=0.8)
