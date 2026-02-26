@@ -167,6 +167,7 @@ def login(data: LoginIn):
 
             resp = JSONResponse(
                 {
+                    "token": token,
                     "user_id": str(user["id"]),
                     "companies": [str(c) for c in companies],
                     "active_company_id": str(active_company_id) if active_company_id else None,
@@ -276,6 +277,7 @@ def mfa_verify(data: MfaVerifyIn):
 
                 resp = JSONResponse(
                     {
+                        "token": session_token,
                         "user_id": str(user["id"]),
                         "companies": [str(c) for c in companies],
                         "active_company_id": str(active_company_id) if active_company_id else None,
