@@ -1193,10 +1193,12 @@
     return list.slice(0, maxRows);
   };
   const _persistWebLocalOutbox = () => {
-    try { localStorage.setItem(WEB_LOCAL_OUTBOX_STORAGE_KEY, JSON.stringify(webLocalOutboxByCompany || {})); } catch (_) {}
+    try { localStorage.setItem(WEB_LOCAL_OUTBOX_STORAGE_KEY, JSON.stringify(webLocalOutboxByCompany || {})); }
+    catch (e) { console.warn("[POS] outbox persist failed:", e?.message || e); }
   };
   const _persistWebAudit = () => {
-    try { localStorage.setItem(WEB_LOCAL_AUDIT_STORAGE_KEY, JSON.stringify(webAuditByCompany || {})); } catch (_) {}
+    try { localStorage.setItem(WEB_LOCAL_AUDIT_STORAGE_KEY, JSON.stringify(webAuditByCompany || {})); }
+    catch (e) { console.warn("[POS] audit persist failed:", e?.message || e); }
   };
   const _webLocalOutboxRowsFor = (companyKey) => {
     const key = _companyForStorage(companyKey);
@@ -3235,6 +3237,7 @@
     const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
     const invoiceId = String(resolved?.invoice_id || "").trim();
     if (!invoiceId) {
+      // Invoice not yet created (deferred processing). Throw so callers can fall back.
       throw new Error("Invoice is still being generated. Please retry in a few seconds.");
     }
     let detail = null;
@@ -4322,7 +4325,7 @@
       if (!eventId) throw new Error("event_id is required");
       const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
       const invoiceId = String(resolved?.invoice_id || "").trim();
-      if (!invoiceId) throw new Error("Invoice is still being generated. Please retry in a few seconds.");
+      if (!invoiceId) return null; // Invoice still being processed — caller handles gracefully
       const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
       return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId, detail };
     }
@@ -4880,7 +4883,12 @@
       }).catch(() => {});
       reportNotice(`Reprint sent (${companyKey}).`);
     } catch (e) {
-      reportError(e?.message || "Unable to reprint invoice.");
+      const msg = String(e?.message || "").toLowerCase();
+      if (msg.includes("still being generated") || msg.includes("not available yet")) {
+        reportNotice("Invoice is still being processed. Try reprinting in a few seconds.");
+      } else {
+        reportError(e?.message || "Unable to reprint invoice.");
+      }
     } finally {
       shiftInvoiceActionBusyKey = "";
     }
@@ -7564,7 +7572,8 @@
 
         const customerByCompany = {};
         if (requested_customer_id) {
-          for (const k of companiesInOrder) customerByCompany[k] = await resolveCustomerId(k);
+          const resolved = await Promise.all(companiesInOrder.map((k) => resolveCustomerId(k)));
+          companiesInOrder.forEach((k, i) => { customerByCompany[k] = resolved[i]; });
           const missing = companiesInOrder.filter((k) => !customerByCompany[k]);
           if (missing.length) {
             const linked = companiesInOrder.filter((k) => !!customerByCompany[k]);
@@ -10020,7 +10029,7 @@
       class="absolute inset-0 bg-black/80 backdrop-blur-sm"
       type="button"
       aria-label="Close admin PIN modal"
-      on:click={() => showAdminPinModal = false}
+      on:click={() => { showAdminPinModal = false; pendingCheckoutMethod = ""; pendingCheckoutCashTendered = 0; }}
     ></button>
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
@@ -10043,7 +10052,7 @@
         <div class="flex gap-3">
           <button
             class="flex-1 py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
-            on:click={() => showAdminPinModal = false}
+            on:click={() => { showAdminPinModal = false; pendingCheckoutMethod = ""; pendingCheckoutCashTendered = 0; }}
             type="button"
           >
             Cancel
