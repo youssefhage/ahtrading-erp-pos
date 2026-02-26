@@ -3004,7 +3004,9 @@
         const uom = String(ln?.uom || "").trim();
         const qtyLabel = uom ? `${qty} ${uom}` : String(qty);
         return `<tr>
-          <td class="name">${_escapeHtml(name)}</td>
+          <td colspan="3" class="iname">${_escapeHtml(name)}</td>
+        </tr><tr>
+          <td class="sub"></td>
           <td class="qty">${_escapeHtml(qtyLabel)}</td>
           <td class="amt">${_escapeHtml(_fmtMoney(ln?.line_total_usd, 2))}</td>
         </tr>`;
@@ -3018,19 +3020,23 @@
   <title>${_escapeHtml(title)}</title>
   <style>
     :root { --w: ${widthMm}; --fg: #111; --muted: #666; --border: #ddd; --mono: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; --sans: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
-    body { margin: 0; padding: 4px 3px; color: var(--fg); font-family: var(--sans); width: var(--w); box-sizing: border-box; }
+    body { margin: 0; padding: 2px 2px; color: var(--fg); font-family: var(--sans); width: var(--w); box-sizing: border-box; font-size: 10px; }
     .muted { color: var(--muted); } .mono { font-family: var(--mono); }
-    h2 { font-size: 12px; margin: 0 0 12px; font-weight: 600; }
-    .meta { font-size: 11px; line-height: 1.35; margin-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    thead th { text-align: left; border-bottom: 1px solid var(--border); padding: 6px 0; }
-    tbody td { padding: 6px 0; border-bottom: 1px dashed #eee; vertical-align: top; }
-    td.qty, th.qty { text-align: right; width: 18%; }
-    td.amt, th.amt { text-align: right; width: 28%; }
-    .totals { margin-top: 10px; font-size: 12px; }
-    .row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
-    .footer { margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; }
-    @media print { @page { size: var(--w) auto; margin: 1.5mm; } body { padding: 0; } .no-print { display: none; } }
+    h2 { font-size: 11px; margin: 0 0 6px; font-weight: 700; }
+    .meta { font-size: 9px; line-height: 1.3; margin-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+    thead th { text-align: left; border-bottom: 1px solid var(--border); padding: 2px 0; font-size: 9px; }
+    td.iname { padding: 3px 0 0; font-weight: 500; word-break: break-word; overflow-wrap: anywhere; }
+    td.sub { padding: 0; }
+    tbody td { padding: 0 0 3px; vertical-align: top; }
+    tr:last-child td.amt { border-bottom: 1px dashed #ddd; padding-bottom: 4px; }
+    td.qty, th.qty { text-align: right; width: 22%; white-space: nowrap; }
+    td.amt, th.amt { text-align: right; width: 22%; white-space: nowrap; }
+    .totals { margin-top: 6px; font-size: 10px; }
+    .row { display: flex; justify-content: space-between; gap: 4px; padding: 1px 0; }
+    .row strong { white-space: nowrap; }
+    .footer { margin-top: 8px; font-size: 9px; color: var(--muted); text-align: center; }
+    @media print { @page { size: var(--w) auto; margin: 1mm; } body { padding: 0; } .no-print { display: none; } }
   </style>
 </head>
 <body>
@@ -3038,10 +3044,10 @@
   <div class="meta">${metaHtml}</div>
   <table>
     <thead><tr><th>Item</th><th class="qty">Qty</th><th class="amt">USD</th></tr></thead>
-    <tbody>${lineRowsHtml || '<tr><td colspan="3" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>'}</tbody>
+    <tbody>${lineRowsHtml || '<tr><td colspan="3" style="text-align:center;padding:8px;color:#666;">No lines.</td></tr>'}</tbody>
   </table>
   <div class="totals">
-    <div class="row"><span class="muted">Subtotal USD</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</strong></div>
+    <div class="row"><span class="muted">Subtotal</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</strong></div>
     ${vatRowHtml}
     <div class="row"><span class="muted">Total USD</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))}</strong></div>
     <div class="row"><span class="muted">Total LBP</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 2))}</strong></div>
