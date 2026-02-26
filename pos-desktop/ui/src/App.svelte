@@ -2238,10 +2238,33 @@
     const duplicateReplay = String(meta?.status || "") === "duplicate";
     const processEventId = String(meta?.existing_event_id || meta?.event_id || eventId).trim() || eventId;
 
-    const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
-      method: "POST",
-      body: { event_id: processEventId, force: true },
-    });
+    // process-one eagerly creates the invoice from the already-submitted event.
+    // If it fails transiently (5xx, timeout, network), the cloud will process
+    // the event later through its normal queue — so we return a deferred result.
+    // If it fails permanently (4xx data error), the event is stuck and we must
+    // surface the error so the cashier knows something is wrong.
+    let processed = null;
+    try {
+      processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+        method: "POST",
+        body: { event_id: processEventId, force: true },
+      });
+    } catch (processErr) {
+      const isTransient = !_isPermanentCloudError(processErr);
+      if (isTransient) {
+        // Submit succeeded, cloud will process it later.
+        return {
+          event_id: processEventId,
+          edge_accepted: true,
+          idempotent_replay: duplicateReplay,
+          invoice_id: null,
+          invoice_no: null,
+          process_deferred: true,
+        };
+      }
+      // Permanent error — rethrow so the checkout reports it properly.
+      throw processErr;
+    }
     const out = {
       event_id: processEventId,
       edge_accepted: true,
@@ -2318,6 +2341,7 @@
         details: {
           ...auditDetailsBase,
           idempotent_replay: !!remote?.idempotent_replay,
+          process_deferred: !!remote?.process_deferred,
           remote_event_id: String(remote?.event_id || "").trim() || null,
           invoice_id: String(remote?.invoice_id || auditDetailsBase?.invoice_id || "").trim() || null,
           invoice_no: String(remote?.invoice_no || "").trim() || null,
