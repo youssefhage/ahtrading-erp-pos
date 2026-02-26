@@ -2438,7 +2438,7 @@
     };
 
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, toNum(ms, 0))));
-    const attemptsMs = [0, 220, 520, 1000];
+    const attemptsMs = [0, 300, 700, 1400, 2200];
     for (const delayMs of attemptsMs) {
       if (delayMs > 0) await wait(delayMs);
 
@@ -2793,6 +2793,8 @@
         const lineIdKey = String(ln?.id || `ln-${idx}`);
         const lineTaxUsd = _fromUsdCents(toNum(officialLineVatCentsById.get(lineIdKey), 0));
         const lineAmountWithVatUsd = toNum(ln?.line_total_usd, 0) + lineTaxUsd;
+        const qty = Math.max(1, Math.abs(toNum(ln?.qty_entered ?? ln?.qty, 0)));
+        const unitPriceWithVatUsd = toNum(ln?.unit_price_entered_usd ?? ln?.unit_price_usd, 0) + lineTaxUsd / qty;
         const rawPct = toNum(ln?.discount_pct, 0);
         const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
         const pctText = pct === 0
@@ -2804,7 +2806,7 @@
             <td class="br">${_escapeHtml(_lineNameForPrint(ln))}</td>
             <td class="br r mono">${fmtPlainQty(ln?.qty_entered ?? ln?.qty)}</td>
             <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
-            <td class="br r mono">${fmtPlainMoney(ln?.unit_price_entered_usd ?? ln?.unit_price_usd)}</td>
+            <td class="br r mono">${fmtPlainMoney(unitPriceWithVatUsd)}</td>
             ${officialHasDiscount ? `<td class="br c mono">${_escapeHtml(pctText)}</td>` : ""}
             ${officialHasDiscount ? `<td class="br r mono">${fmtPlainMoney(ln?.discount_amount_usd || 0)}</td>` : ""}
             <td class="r mono">${fmtPlainMoney(lineAmountWithVatUsd)}</td>
@@ -3205,12 +3207,13 @@
     try {
       detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
     } catch (e) {
-      const statusCode = toNum(e?.status, 0);
-      // Some backends can lag on per-invoice read while last receipt is already available.
-      // For thermal unofficial printing, fall back to last receipt detail instead of export URLs.
-      if (thermal && companyKey !== "official" && (statusCode === 404 || statusCode === 409)) {
-        const last = await _fetchLastReceiptDetailWeb(companyKey);
-        detail = last?.receipt || null;
+      // For thermal unofficial printing, fall back to last receipt detail on any error.
+      // The per-invoice endpoint can lag while the last-receipt endpoint is already populated.
+      if (thermal && companyKey !== "official") {
+        try {
+          const last = await _fetchLastReceiptDetailWeb(companyKey);
+          detail = last?.receipt || null;
+        } catch (_) {}
       } else {
         throw e;
       }
@@ -4402,11 +4405,9 @@
 
     // Unofficial: thermal receipt.
     const auto = !!cfg.auto_print_receipt;
-    if (auto) {
+    if (auto && !isCloud) {
       try {
-        if (isCloud && eid) await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: true });
-        else if (isCloud) await _printLastReceiptWeb(companyKey, receiptWin, { thermal: true });
-        else await apiCallFor(companyKey, "/receipts/print-last", { method: "POST", body: {} });
+        await apiCallFor(companyKey, "/receipts/print-last", { method: "POST", body: {} });
         try { if (receiptWin) receiptWin.close(); } catch (_) {}
         return;
       } catch (_) {
@@ -4414,15 +4415,44 @@
       }
     }
     if (isCloud) {
+      // Strategy: try event-based print first, then last-receipt fallback.
+      // Each approach: resolve event / fetch detail → render HTML → write to window.
+      if (eid) {
+        try {
+          await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: true });
+          if (auto) { try { if (receiptWin) receiptWin.close(); } catch (_) {} }
+          return;
+        } catch (_) {}
+      }
+      // Event resolution failed — try fetching last receipt directly (bypasses event→invoice lookup).
       try {
-        if (eid) await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: true });
-        else await _printLastReceiptWeb(companyKey, receiptWin, { thermal: true });
+        await _printLastReceiptWeb(companyKey, receiptWin, { thermal: true });
+        if (auto) { try { if (receiptWin) receiptWin.close(); } catch (_) {} }
         return;
       } catch (_) {}
     }
+    // Agent-based fallback: navigate to agent receipt URL.
+    const agentUrl = _agentReceiptUrl(companyKey);
+    if (agentUrl && agentUrl !== "/receipt/last") {
+      try {
+        if (receiptWin) receiptWin.location = agentUrl;
+        else window.open(agentUrl, "_blank", "noopener,noreferrer");
+        return;
+      } catch (_) {}
+    }
+    // All strategies exhausted — show error in the print window instead of leaving placeholder.
     try {
-      if (receiptWin) receiptWin.location = _agentReceiptUrl(companyKey);
-      else window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
+      if (receiptWin && !receiptWin.closed) {
+        receiptWin.document.open();
+        receiptWin.document.write(
+          '<!doctype html><html><head><meta charset="utf-8"><title>Print Error</title></head>' +
+          '<body style="font-family:system-ui,sans-serif;padding:32px;text-align:center;color:#333;">' +
+          '<h2 style="color:#b91c1c;">Unable to print receipt</h2>' +
+          '<p>The receipt could not be retrieved in time. Please use <strong>Reprint Last</strong> from the POS menu.</p>' +
+          '</body></html>'
+        );
+        receiptWin.document.close();
+      }
     } catch (_) {}
   };
 
@@ -7096,7 +7126,11 @@
               cart = cart.filter((c) => c.companyKey !== companyKey);
               try {
                 if (_companyUsesCloudTransport(companyKey)) {
-                  await _printReturnByEventWeb(companyKey, res?.event_id || "", null, { thermal: companyKey !== "official" });
+                  try {
+                    await _printReturnByEventWeb(companyKey, res?.event_id || "", null, { thermal: companyKey !== "official" });
+                  } catch (_) {
+                    await _printLastReturnWeb(companyKey, null, { thermal: companyKey !== "official" });
+                  }
                 } else {
                   window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
                 }
@@ -7140,7 +7174,11 @@
         await fetchData();
         try {
           if (_companyUsesCloudTransport(returnCompany)) {
-            await _printReturnByEventWeb(returnCompany, res?.event_id || "", null, { thermal: returnCompany !== "official" });
+            try {
+              await _printReturnByEventWeb(returnCompany, res?.event_id || "", null, { thermal: returnCompany !== "official" });
+            } catch (_) {
+              await _printLastReturnWeb(returnCompany, null, { thermal: returnCompany !== "official" });
+            }
           } else {
             window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer");
           }

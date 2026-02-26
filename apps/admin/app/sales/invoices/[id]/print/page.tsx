@@ -444,7 +444,7 @@ export default function SalesInvoicePrintPage() {
           .map((l) => {
             const name = (l.item_name || l.item_sku || l.item_id || "").toString().trim();
             const qty = Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 });
-            const amt = fmtUsd(l.line_total_usd);
+            const amt = fmtUsd(lineAmountUsd(l));
             return `${name}\n  ${qty}  ${amt}`;
           })
           .join("\n");
@@ -563,6 +563,49 @@ export default function SalesInvoicePrintPage() {
   const officialPrintedVatUsd = TEMP_NON_VAT_PRINT ? 0 : officialTaxUsd;
   const officialPrintedVatLabel = TEMP_NON_VAT_PRINT ? "VAT 0%" : (`VAT ${officialVatPctLabel}`.trim() || "VAT");
 
+  // When TEMP_NON_VAT_PRINT, compute per-line VAT so line prices appear VAT-inclusive.
+  // The total VAT is distributed proportionally across lines based on their base amounts.
+  const lineTaxMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!TEMP_NON_VAT_PRINT || officialTaxUsd <= 0) return map;
+    const lines = detail?.lines || [];
+    if (!lines.length) return map;
+    const baseTotal = lines.reduce((s, l) => s + Math.max(0, toNum(l.line_total_usd)), 0);
+    if (baseTotal <= 0) return map;
+    // Use cent-level allocation to avoid rounding drift.
+    const targetCents = Math.round(officialTaxUsd * 100);
+    let usedCents = 0;
+    const entries = lines.map((l, i) => {
+      const base = Math.max(0, toNum(l.line_total_usd));
+      const raw = (targetCents * base) / baseTotal;
+      const cents = Math.floor(raw);
+      usedCents += cents;
+      return { id: l.id || `ln-${i}`, cents, remainder: raw - cents };
+    });
+    // Distribute remaining cents by largest remainder.
+    let remaining = targetCents - usedCents;
+    entries.sort((a, b) => b.remainder - a.remainder);
+    for (let i = 0; remaining > 0 && i < entries.length; i++, remaining--) {
+      entries[i].cents += 1;
+    }
+    for (const e of entries) map.set(e.id, e.cents / 100);
+    return map;
+  }, [detail, officialTaxUsd]);
+
+  /** Get VAT-inclusive line total for display when TEMP_NON_VAT_PRINT is on. */
+  const lineAmountUsd = (l: InvoiceLine) => {
+    const base = toNum(l.line_total_usd);
+    return base + (lineTaxMap.get(l.id) ?? 0);
+  };
+
+  /** Get VAT-inclusive unit price for display when TEMP_NON_VAT_PRINT is on. */
+  const lineUnitPriceUsd = (l: InvoiceLine) => {
+    const base = toNum(l.unit_price_entered_usd ?? l.unit_price_usd);
+    const qty = Math.max(1, Math.abs(toNum(l.qty_entered ?? l.qty)));
+    const tax = lineTaxMap.get(l.id) ?? 0;
+    return base + tax / qty;
+  };
+
   return (
     <div className="print-paper min-h-screen">
       <div className="no-print sticky top-0 z-10 border-b border-black/10 bg-bg-elevated/95 backdrop-blur">
@@ -657,7 +700,7 @@ export default function SalesInvoicePrintPage() {
                         {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
                         {l.uom ? <span className="ml-1 text-black/50">{String(l.uom).trim()}</span> : null}
                       </td>
-                      <td className="py-1 text-right font-mono text-[10px] text-black/70">{fmtUsd(l.line_total_usd)}</td>
+                      <td className="py-1 text-right font-mono text-[10px] text-black/70">{fmtUsd(lineAmountUsd(l))}</td>
                     </tr>
                   ))}
                   {(detail.lines || []).length === 0 ? (
@@ -843,7 +886,7 @@ export default function SalesInvoicePrintPage() {
                             </span>
                           </td>
                           <td className="border-r border-black/20 px-1 py-1 text-right">
-                            {fmtPlainMoney(l.unit_price_entered_usd ?? l.unit_price_usd)}
+                            {fmtPlainMoney(lineUnitPriceUsd(l))}
                           </td>
                           {officialHasLineDiscount ? (
                             <td className="border-r border-black/20 px-1 py-1 text-center">{pctText}</td>
@@ -851,7 +894,7 @@ export default function SalesInvoicePrintPage() {
                           {officialHasLineDiscount ? (
                             <td className="border-r border-black/20 px-1 py-1 text-right">{fmtPlainMoney(l.discount_amount_usd || 0)}</td>
                           ) : null}
-                          <td className="px-1 py-1 text-right">{fmtPlainMoney(l.line_total_usd)}</td>
+                          <td className="px-1 py-1 text-right">{fmtPlainMoney(lineAmountUsd(l))}</td>
                         </tr>
                       );
                     })}
@@ -963,7 +1006,7 @@ export default function SalesInvoicePrintPage() {
                             {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
                             <span className="text-black/60">{String(l.uom || "").trim() || ""}</span>
                           </td>
-                          <td className="px-4 py-2 text-right font-mono text-[11px]">{fmtUsd(l.line_total_usd)}</td>
+                          <td className="px-4 py-2 text-right font-mono text-[11px]">{fmtUsd(lineAmountUsd(l))}</td>
                         </tr>
                       ))}
                       {(detail.lines || []).length === 0 ? (
