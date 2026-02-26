@@ -490,6 +490,7 @@
   let notice = "";
   let error = "";
   let pendingCheckoutMethod = "";
+  let pendingCheckoutCashTendered = 0;
   let pendingManagerAction = null;
   let checkoutIntentId = "";
   let bgSyncWarnAt = 0;
@@ -2092,11 +2093,16 @@
     const totalUsd = baseUsd + taxUsd;
     const totalLbp = baseLbp + taxLbp;
     const paymentMethod = String(payload.payment_method || "cash").trim().toLowerCase();
+    const cashTenderedRaw = payload.cash_tendered != null ? Number(payload.cash_tendered) : null;
+    const cashAmountSettlement = (cashTenderedRaw != null && Number.isFinite(cashTenderedRaw) && cashTenderedRaw > 0)
+      ? cashTenderedRaw
+      : null;
     const payments = buildSalePaymentsForSettlement({
       paymentMethod,
       totalUsd,
       totalLbp,
       settlementCurrency,
+      cashAmountSettlement,
     });
     assertPaymentsWithinTotals({
       paymentMethod,
@@ -7000,16 +7006,19 @@
       }
     }, 45000);
     let payment_method = String(method || "cash").trim().toLowerCase();
+    const isPartialCash = payment_method === "cash" && cashTendered > 0 && cashTendered < checkoutTotal;
     lastSaleSummary = {
-      method: payment_method,
+      method: isPartialCash ? "split" : payment_method,
       total: checkoutTotal,
       cashTendered: cashTendered || 0,
-      changeDue: Math.max(0, (cashTendered || 0) - checkoutTotal),
+      changeDue: isPartialCash ? 0 : Math.max(0, (cashTendered || 0) - checkoutTotal),
+      creditRemainder: isPartialCash ? (checkoutTotal - cashTendered) : 0,
       currency: currencyPrimary,
       lineCount: cart.length,
       customerName: String(activeCustomer?.name || "").trim(),
     };
     pendingCheckoutMethod = "";
+    pendingCheckoutCashTendered = 0;
     pendingManagerAction = null;
     managerApprovalPendingCompanies = [];
     const checkoutIntent = checkoutIntentId || makeIntentId();
@@ -7187,7 +7196,7 @@
       }
 
       const requested_customer_id = (activeCustomer?.id || "").trim() || null;
-      if (payment_method === "credit" && !requested_customer_id) {
+      if ((payment_method === "credit" || isPartialCash) && !requested_customer_id) {
         reportError("Credit sales require a customer.");
         return;
       }
@@ -7319,7 +7328,7 @@
       const inferredPrimary = primaryCompanyFromCart();
       const invForPay = effectiveInvoiceCompany();
       const crossCompanyCredit = !!inferredPrimary && !mixedCompanies && invForPay !== inferredPrimary;
-      if (!flagOfficial && crossCompanyCredit && payment_method === "credit") {
+      if (!flagOfficial && crossCompanyCredit && (payment_method === "credit" || isPartialCash)) {
         reportError("Credit is disabled for cross-company invoices. Use cash/card/transfer, or Flag to invoice Official for review.");
         return;
       }
@@ -7339,13 +7348,13 @@
             return provisionedId;
           }
 
-          if (payment_method === "credit") {
+          if (payment_method === "credit" || isPartialCash) {
             throw new Error(`Customer not found on ${companyKey}. Credit sale requires a valid customer.`);
           }
           return null;
         } catch (e) {
           // For non-credit, don't block checkout if customer link/provision fails.
-          if (payment_method !== "credit") return null;
+          if (payment_method !== "credit" && !isPartialCash) return null;
           throw e;
         }
       };
@@ -7422,6 +7431,7 @@
             cart: mapCartLines(cart),
             customer_id,
             payment_method,
+            cash_tendered: isPartialCash ? cashTendered : undefined,
             receipt_meta,
             pricing_currency: cfg.pricing_currency,
             exchange_rate: cfg.exchange_rate,
@@ -7449,13 +7459,14 @@
       if (mixedCompanies) {
         const groupId = `split-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
         const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
-        if (payment_method === "credit") {
+        if (payment_method === "credit" || isPartialCash) {
           const needsApproval = companiesInOrder.filter((companyKey) => {
             const cfg = cfgFor(companyKey);
             return !!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(companyKey);
           });
           if (needsApproval.length) {
             pendingCheckoutMethod = payment_method;
+            pendingCheckoutCashTendered = cashTendered || 0;
             managerApprovalPendingCompanies = needsApproval;
             adminPinMode = "unlock";
             openAdminPinModal();
@@ -7516,6 +7527,7 @@
                 cart: mapCartLines(lines),
                 customer_id,
                 payment_method,
+                cash_tendered: isPartialCash ? cashTendered : undefined,
                 receipt_meta,
                 pricing_currency: cfg.pricing_currency,
                 exchange_rate: cfg.exchange_rate,
@@ -7605,6 +7617,7 @@
           cart: mapCartLines(cart),
           customer_id,
           payment_method,
+          cash_tendered: isPartialCash ? cashTendered : undefined,
           receipt_meta,
           pricing_currency: cfg.pricing_currency,
           exchange_rate: cfg.exchange_rate,
@@ -7633,6 +7646,7 @@
         openAdminPinModal();
       } else if (p?.error === "manager_approval_required") {
         pendingCheckoutMethod = payment_method;
+        pendingCheckoutCashTendered = cashTendered || 0;
         const fromPayload = String(p?.company_key || "").trim();
         const fromError = String(e?.companyKey || "").trim();
         managerApprovalPendingCompanies = fromPayload
@@ -7910,10 +7924,12 @@
         }, 0);
       }
       const retryMethod = String(pendingCheckoutMethod || "").trim().toLowerCase();
+      const retryCashTendered = pendingCheckoutCashTendered || 0;
       pendingCheckoutMethod = "";
+      pendingCheckoutCashTendered = 0;
       if (retryMethod) {
         setTimeout(() => {
-          handleProcessSale(retryMethod);
+          handleProcessSale(retryMethod, retryCashTendered);
         }, 0);
       }
     } catch (e) {
@@ -8947,6 +8963,7 @@
   busy={loading || checkoutInFlight}
   lineCount={cart.length}
   customerName={activeCustomer?.name || ""}
+  hasCustomer={!!(activeCustomer?.id)}
   onConfirm={(method, cashTendered) => handleProcessSale(method, cashTendered)}
   onCancel={() => showPaymentModal = false}
 />

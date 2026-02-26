@@ -20,6 +20,7 @@ export function buildSalePaymentsForSettlement({
   totalUsd = 0,
   totalLbp = 0,
   settlementCurrency = "USD",
+  cashAmountSettlement = null,
 } = {}) {
   const method = String(paymentMethod || "cash").trim().toLowerCase() || "cash";
   const settled = normalizeSettlementCurrency(settlementCurrency);
@@ -28,6 +29,18 @@ export function buildSalePaymentsForSettlement({
 
   if (method === "credit") {
     return [{ method: "credit", amount_usd: 0, amount_lbp: 0 }];
+  }
+
+  // Partial cash: cashAmountSettlement is the amount paid now in settlement currency.
+  // The backend auto-calculates the unpaid remainder as credit.
+  const partial = cashAmountSettlement != null && Number.isFinite(cashAmountSettlement) && cashAmountSettlement > 0;
+  if (partial) {
+    if (settled === "LBP") {
+      const amt = roundLbp(Math.min(cashAmountSettlement, lbp));
+      return [{ method, amount_usd: 0, amount_lbp: amt }];
+    }
+    const amt = roundUsd(Math.min(cashAmountSettlement, usd));
+    return [{ method, amount_usd: amt, amount_lbp: 0 }];
   }
 
   if (settled === "LBP") {

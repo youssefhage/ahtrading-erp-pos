@@ -7,6 +7,7 @@
   export let busy = false;
   export let lineCount = 0;
   export let customerName = "";
+  export let hasCustomer = false;
   export let onConfirm = (method, cashTendered) => {};
   export let onCancel = () => {};
 
@@ -73,7 +74,15 @@
   $: tTotal = Number(total) || 0;
   $: changeDue = Math.max(0, totalPaid - tTotal);
   $: amountShort = Math.max(0, tTotal - totalPaid);
-  $: sufficient = view !== "cash" || totalPaid >= tTotal;
+  $: isPartialCredit = view === "cash" && totalPaid > 0 && totalPaid < tTotal && hasCustomer;
+  $: creditRemainder = Math.max(0, tTotal - totalPaid);
+  $: creditRemainderSecondary = (() => {
+    if (!hasDual || exchangeRate <= 0 || creditRemainder <= 0) return 0;
+    return isLbp
+      ? creditRemainder / exchangeRate
+      : creditRemainder * exchangeRate;
+  })();
+  $: sufficient = view !== "cash" || totalPaid >= tTotal || isPartialCredit;
 
   // Change in secondary currency (for display alongside primary)
   $: changeDueSecondary = (() => {
@@ -386,7 +395,7 @@
                 </div>
               {/if}
 
-              <!-- Change / Short / Exact indicator -->
+              <!-- Change / Short / Partial Credit / Exact indicator -->
               {#if sufficient && changeDue > 0}
                 <div class="flex items-center justify-between p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30">
                   <span class="text-sm font-bold text-emerald-600">Change</span>
@@ -395,6 +404,23 @@
                     {#if hasDual && changeDueSecondary > 0}
                       <span class="block text-sm num-readable font-semibold text-muted mt-0.5">
                         {fmtSecondary(changeDueSecondary)}
+                      </span>
+                    {/if}
+                  </div>
+                </div>
+              {:else if isPartialCredit}
+                <div class="flex items-center justify-between p-3 rounded-xl bg-amber-500/15 border border-amber-500/30">
+                  <div class="flex items-center gap-2">
+                    <div class="p-1 rounded-full bg-amber-500 text-white">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <span class="text-sm font-bold text-amber-600">On Credit</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-2xl num-readable font-extrabold text-ink">{fmtPrimary(creditRemainder)}</span>
+                    {#if hasDual && creditRemainderSecondary > 0}
+                      <span class="block text-sm num-readable font-semibold text-muted mt-0.5">
+                        {fmtSecondary(creditRemainderSecondary)}
                       </span>
                     {/if}
                   </div>
