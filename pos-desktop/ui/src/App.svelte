@@ -9374,6 +9374,10 @@
             {@const detail = detailRow?.detail || null}
             {@const invoice = detail?.invoice || null}
             {@const lines = Array.isArray(detail?.lines) ? detail.lines : []}
+            {@const _dSubtotal = toNum(invoice?.subtotal_usd, 0)}
+            {@const _dTaxUsd = Math.max(0, (invoice ? toNum(invoice?.total_usd, 0) : toNum(row?.total_usd, 0)) - _dSubtotal)}
+            {@const _dVatPct = _dSubtotal > 0 ? _dTaxUsd / _dSubtotal : 0}
+            {@const _dVatLabel = parseFloat((_dVatPct * 100).toFixed(2))}
             {@const statusText = String(row?.status || "unknown").trim() || "unknown"}
             {@const busy = shiftInvoiceActionBusyKey === key}
             {@const totalUsd = invoice ? toNum(invoice?.total_usd, 0) : toNum(row?.total_usd, 0)}
@@ -9487,13 +9491,19 @@
                     {:else}
                       <div class="max-h-44 overflow-auto divide-y divide-ink/10 rounded-lg border border-ink/10 bg-ink/5">
                         {#each lines as ln}
-                          <div class="px-3 py-2 flex items-center justify-between gap-3 text-[12px]">
+                          {@const _lnBase = toNum(ln?.line_total_usd, 0)}
+                          {@const _lnVat = Math.round(_lnBase * _dVatPct * 100) / 100}
+                          {@const _lnTotal = _lnBase + _lnVat}
+                          <div class="px-3 py-2 flex items-start justify-between gap-3 text-[12px]">
                             <div class="min-w-0">
                               <div class="text-ink font-semibold truncate">{String(ln?.item_name || ln?.item_sku || "Item")}</div>
                               <div class="text-[11px] text-muted">Qty {toNum(ln?.qty_entered, toNum(ln?.qty, 0))} {String(ln?.uom || "").trim() || ""}</div>
                             </div>
-                            <div class="text-right font-mono text-ink/90 shrink-0">
-                              USD {_fmtMoney(toNum(ln?.line_total_usd, 0), 2)}
+                            <div class="text-right shrink-0">
+                              <div class="font-mono text-ink/90">USD {_fmtMoney(_lnTotal, 2)}</div>
+                              {#if _dVatPct > 0}
+                                <div class="text-[10px] text-muted font-mono mt-0.5">excl. {_fmtMoney(_lnBase, 2)} + {_dVatLabel}% VAT {_fmtMoney(_lnVat, 2)}</div>
+                              {/if}
                             </div>
                           </div>
                         {/each}

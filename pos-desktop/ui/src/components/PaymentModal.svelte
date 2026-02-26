@@ -10,6 +10,8 @@
   export let onConfirm = (method, cashTendered) => {};
   export let onCancel = () => {};
 
+  // ── View state: "choose" → "cash" | "credit" ─────────────────────
+  let view = "choose"; // "choose" | "cash" | "credit"
   let paymentMethod = "cash";
   let cashPrimary = "";
   let cashSecondary = "";
@@ -52,16 +54,14 @@
     return `$${amt}`;
   }
 
-  // ── Payment methods (hide Card & Transfer) ────────────────────────
+  // ── Payment methods ────────────────────────────────────────────────
   $: allowedMethods = mode === "return" ? ["cash"] : ["cash", "credit"];
-  $: if (!allowedMethods.includes(paymentMethod)) paymentMethod = "cash";
 
   // ── Numeric values & calculations ─────────────────────────────────
   $: pNum = Number(cashPrimary) || 0;
   $: sNum = Number(cashSecondary) || 0;
 
-  // Convert secondary → primary equivalent
-  // exchangeRate is always USD-to-LBP
+  // Convert secondary → primary equivalent (exchangeRate is USD-to-LBP)
   $: sEquiv = (() => {
     if (!hasDual || sNum <= 0 || exchangeRate <= 0) return 0;
     return isLbp
@@ -73,7 +73,7 @@
   $: tTotal = Number(total) || 0;
   $: changeDue = Math.max(0, totalPaid - tTotal);
   $: amountShort = Math.max(0, tTotal - totalPaid);
-  $: sufficient = paymentMethod !== "cash" || totalPaid >= tTotal;
+  $: sufficient = view !== "cash" || totalPaid >= tTotal;
 
   // Change in secondary currency (for display alongside primary)
   $: changeDueSecondary = (() => {
@@ -83,19 +83,45 @@
       : changeDue * exchangeRate;  // primary USD → change in LBP
   })();
 
-  // ── Focus primary input on cash selection ─────────────────────────
-  $: if (paymentMethod === "cash" && primaryInputEl) {
-    setTimeout(() => primaryInputEl?.focus?.(), 50);
+  // ── Focus primary input when entering cash view ───────────────────
+  $: if (view === "cash" && primaryInputEl) {
+    setTimeout(() => primaryInputEl?.focus?.(), 80);
   }
 
-  // ── Reset when modal opens → default to exact amount ──────────────
+  // ── Reset when modal opens ────────────────────────────────────────
   $: if (isOpen) {
-    cashPrimary = isLbp ? String(Math.round(Number(total) || 0)) : String(Number(total) || 0);
+    // For returns (cash only), skip straight to the cash calculator
+    if (allowedMethods.length === 1 && allowedMethods[0] === "cash") {
+      view = "cash";
+      paymentMethod = "cash";
+    } else {
+      view = "choose";
+      paymentMethod = "cash";
+    }
+    cashPrimary = "";
     cashSecondary = "";
-    paymentMethod = "cash";
   }
 
   // ── Actions ────────────────────────────────────────────────────────
+  function chooseCash() {
+    paymentMethod = "cash";
+    view = "cash";
+    // Default to exact amount
+    cashPrimary = isLbp ? String(Math.round(tTotal)) : String(tTotal);
+    cashSecondary = "";
+  }
+
+  function chooseCredit() {
+    paymentMethod = "credit";
+    view = "credit";
+  }
+
+  function goBack() {
+    view = "choose";
+    cashPrimary = "";
+    cashSecondary = "";
+  }
+
   function handleConfirm() {
     onConfirm(paymentMethod, paymentMethod === "cash" ? totalPaid : 0);
   }
@@ -109,13 +135,16 @@
     if (!hasDual || exchangeRate <= 0) return;
     cashPrimary = "";
     cashSecondary = isLbp
-      ? String((tTotal / exchangeRate).toFixed(2))          // LBP total → USD
-      : String(Math.round(tTotal * exchangeRate));           // USD total → LBP
+      ? String((tTotal / exchangeRate).toFixed(2))
+      : String(Math.round(tTotal * exchangeRate));
   }
 
   function handleKeydown(e) {
-    if (e.key === "Escape" && !busy) onCancel();
-    if (e.key === "Enter" && sufficient && !busy) handleConfirm();
+    if (e.key === "Escape" && !busy) {
+      if (view !== "choose" && allowedMethods.length > 1) goBack();
+      else onCancel();
+    }
+    if (e.key === "Enter" && sufficient && !busy && view !== "choose") handleConfirm();
   }
 </script>
 
@@ -152,59 +181,126 @@
           </div>
         </div>
 
-        <div class="p-6 flex flex-col items-center gap-5">
-          <!-- Total Amount -->
-          <div class="text-center relative">
-            <div class="absolute inset-0 bg-accent/15 blur-3xl rounded-full"></div>
-            <div class="relative">
-              <span class="text-5xl num-readable font-extrabold text-ink tracking-tighter drop-shadow-lg">
-                {fmtDisplay(total)}
-              </span>
-              <span class="text-lg text-accent font-bold ml-2">{currency}</span>
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- VIEW: Choose Payment Method                                -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        {#if view === "choose"}
+          <div class="p-6 flex flex-col items-center gap-6">
+            <!-- Total Amount (large) -->
+            <div class="text-center relative py-2">
+              <div class="absolute inset-0 bg-accent/15 blur-3xl rounded-full"></div>
+              <div class="relative">
+                <span class="text-5xl num-readable font-extrabold text-ink tracking-tighter drop-shadow-lg">
+                  {fmtDisplay(total)}
+                </span>
+                <span class="text-lg text-accent font-bold ml-2">{currency}</span>
+              </div>
+            </div>
+
+            <!-- Two big method buttons -->
+            <div class="grid grid-cols-2 gap-4 w-full">
+              <button
+                class="group flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-ink/10 bg-surface-highlight/50 hover:bg-emerald-500/12 hover:border-emerald-500/40 active:scale-[0.97] transition-all duration-200"
+                on:click={chooseCash}
+                disabled={busy}
+              >
+                <div class="p-3 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
+                  <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                </div>
+                <span class="font-bold text-base text-ink/90 group-hover:text-emerald-600 transition-colors">Cash</span>
+              </button>
+
+              <button
+                class="group flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-ink/10 bg-surface-highlight/50 hover:bg-amber-500/12 hover:border-amber-500/40 active:scale-[0.97] transition-all duration-200"
+                on:click={chooseCredit}
+                disabled={busy}
+              >
+                <div class="p-3 rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30">
+                  <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <span class="font-bold text-base text-ink/90 group-hover:text-amber-600 transition-colors">Credit</span>
+              </button>
             </div>
           </div>
 
-          <!-- Payment Methods (only show selector when >1 option) -->
-          {#if allowedMethods.length > 1}
-            <div class="grid grid-cols-2 gap-3 w-full">
-              <!-- Cash -->
-              <button
-                class="group relative flex flex-col items-center justify-center gap-2.5 p-4 rounded-2xl border transition-all duration-300
-                  {paymentMethod === 'cash'
-                    ? 'bg-emerald-500/18 border-emerald-500/45 shadow-[0_10px_28px_rgba(16,185,129,0.22)]'
-                    : 'bg-surface-highlight/50 border-ink/10 hover:bg-surface-highlight/60 hover:border-accent/30'}"
-                on:click={() => (paymentMethod = "cash")}
-                disabled={busy}
-              >
-                <div class="p-2.5 rounded-full {paymentMethod === 'cash' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/35' : 'bg-ink/5 text-ink/70 group-hover:bg-accent/15 group-hover:text-accent'} transition-all duration-300">
-                  <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                </div>
-                <span class="font-bold text-sm tracking-wide {paymentMethod === 'cash' ? 'text-emerald-500' : 'text-ink/80 group-hover:text-ink'} transition-colors">Cash</span>
-              </button>
+          <!-- Footer: Cancel only -->
+          <div class="p-5 border-t border-ink/10 bg-surface-highlight/40">
+            <button
+              class="w-full py-3.5 px-5 rounded-xl border border-ink/10 bg-surface-highlight/50 text-ink/75 hover:text-ink hover:bg-surface-highlight/60 font-bold transition-colors"
+              on:click={onCancel}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </div>
 
-              <!-- Credit (sale only) -->
-              {#if allowedMethods.includes("credit")}
-                <button
-                  class="group relative flex flex-col items-center justify-center gap-2.5 p-4 rounded-2xl border transition-all duration-300
-                    {paymentMethod === 'credit'
-                      ? 'bg-amber-500/18 border-amber-500/45 shadow-[0_10px_28px_rgba(245,158,11,0.22)]'
-                      : 'bg-surface-highlight/50 border-ink/10 hover:bg-surface-highlight/60 hover:border-accent/30'}"
-                  on:click={() => (paymentMethod = "credit")}
-                  disabled={busy}
-                >
-                  <div class="p-2.5 rounded-full {paymentMethod === 'credit' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/35' : 'bg-ink/5 text-ink/70 group-hover:bg-accent/15 group-hover:text-accent'} transition-all duration-300">
-                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </div>
-                  <span class="font-bold text-sm tracking-wide {paymentMethod === 'credit' ? 'text-amber-500' : 'text-ink/80 group-hover:text-ink'} transition-colors">Credit</span>
-                </button>
-              {/if}
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- VIEW: Credit Confirmation                                  -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        {:else if view === "credit"}
+          <div class="p-6 flex flex-col items-center gap-5">
+            <!-- Total -->
+            <div class="text-center relative py-2">
+              <div class="absolute inset-0 bg-accent/15 blur-3xl rounded-full"></div>
+              <div class="relative">
+                <span class="text-5xl num-readable font-extrabold text-ink tracking-tighter drop-shadow-lg">
+                  {fmtDisplay(total)}
+                </span>
+                <span class="text-lg text-accent font-bold ml-2">{currency}</span>
+              </div>
             </div>
-          {/if}
 
-          <!-- ─── Cash Received Section ───────────────────────────── -->
-          {#if paymentMethod === "cash"}
+            <!-- Credit badge -->
+            <div class="flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-amber-500/12 border border-amber-500/30">
+              <div class="p-1.5 rounded-full bg-amber-500 text-white">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <span class="font-bold text-amber-600 text-sm">Credit Sale</span>
+            </div>
+          </div>
+
+          <!-- Footer: Back + Complete -->
+          <div class="p-5 border-t border-ink/10 bg-surface-highlight/40 flex gap-3">
+            <button
+              class="flex-1 py-3.5 px-5 rounded-xl border border-ink/10 bg-surface-highlight/50 text-ink/75 hover:text-ink hover:bg-surface-highlight/60 font-bold transition-colors"
+              on:click={goBack}
+              disabled={busy}
+            >
+              Back
+            </button>
+            <button
+              class="flex-[2] py-3.5 px-5 rounded-xl font-bold text-lg tracking-wide transition-all
+                bg-accent bg-gradient-to-r from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98]
+                {busy ? 'opacity-60 pointer-events-none' : ''}"
+              on:click={handleConfirm}
+              disabled={busy}
+            >
+              {#if busy}
+                <span class="flex items-center justify-center gap-2">
+                  <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Processing...
+                </span>
+              {:else}
+                Complete Sale
+              {/if}
+            </button>
+          </div>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- VIEW: Cash Calculator                                      -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        {:else if view === "cash"}
+          <div class="p-5 flex flex-col gap-4">
+            <!-- Compact total reminder -->
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-bold text-muted uppercase tracking-wider">Total</span>
+              <div>
+                <span class="text-2xl num-readable font-extrabold text-ink">{fmtDisplay(total)}</span>
+                <span class="text-sm text-accent font-bold ml-1.5">{currency}</span>
+              </div>
+            </div>
+
             <div class="w-full space-y-3 p-4 rounded-2xl bg-surface-highlight/30 border border-white/5">
-
               <!-- Primary Currency Input -->
               <label class="block">
                 <span class="text-xs font-bold uppercase tracking-wider text-muted mb-1.5 block">
@@ -248,7 +344,7 @@
                 {/each}
               </div>
 
-              <!-- ─── Secondary Currency (dual mode) ──────────────── -->
+              <!-- Secondary Currency (dual mode) -->
               {#if hasDual}
                 <div class="border-t border-ink/8 pt-3 mt-1">
                   <label class="block">
@@ -267,7 +363,6 @@
                     </div>
                   </label>
 
-                  <!-- Secondary Quick Amounts -->
                   <div class="flex flex-wrap gap-2 mt-2">
                     <button
                       type="button"
@@ -291,9 +386,8 @@
                 </div>
               {/if}
 
-              <!-- ─── Change / Short / Exact indicator ────────────── -->
+              <!-- Change / Short / Exact indicator -->
               {#if sufficient && changeDue > 0}
-                <!-- Change due -->
                 <div class="flex items-center justify-between p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30">
                   <span class="text-sm font-bold text-emerald-600">Change</span>
                   <div class="text-right">
@@ -306,49 +400,57 @@
                   </div>
                 </div>
               {:else if sufficient && changeDue === 0 && totalPaid > 0}
-                <!-- Exact match -->
                 <div class="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
                   <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
                   <span class="text-sm font-bold text-emerald-600">Exact amount</span>
                 </div>
               {:else if !sufficient && totalPaid > 0}
-                <!-- Amount short -->
                 <div class="flex items-center justify-between p-3 rounded-xl bg-red-500/15 border border-red-500/30">
                   <span class="text-sm font-bold text-red-600">Short</span>
                   <span class="text-2xl num-readable font-extrabold text-ink">{fmtPrimary(amountShort)}</span>
                 </div>
               {/if}
             </div>
-          {/if}
-        </div>
+          </div>
 
-        <!-- Footer Actions -->
-        <div class="p-5 border-t border-ink/10 bg-surface-highlight/40 flex gap-3">
-          <button
-            class="flex-1 py-3.5 px-5 rounded-xl border border-ink/10 bg-surface-highlight/50 text-ink/75 hover:text-ink hover:bg-surface-highlight/60 font-bold transition-colors"
-            on:click={onCancel}
-            disabled={busy}
-          >
-            Cancel
-          </button>
-          <button
-            class="flex-[2] py-3.5 px-5 rounded-xl font-bold text-lg tracking-wide transition-all
-              {sufficient && !busy
-                ? 'bg-accent bg-gradient-to-r from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98]'
-                : 'bg-surface-highlight/60 text-ink/40 cursor-not-allowed'}"
-            on:click={handleConfirm}
-            disabled={!sufficient || busy}
-          >
-            {#if busy}
-              <span class="flex items-center justify-center gap-2">
-                <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                Processing...
-              </span>
+          <!-- Footer: Back + Complete Sale -->
+          <div class="p-5 border-t border-ink/10 bg-surface-highlight/40 flex gap-3">
+            {#if allowedMethods.length > 1}
+              <button
+                class="flex-1 py-3.5 px-5 rounded-xl border border-ink/10 bg-surface-highlight/50 text-ink/75 hover:text-ink hover:bg-surface-highlight/60 font-bold transition-colors"
+                on:click={goBack}
+                disabled={busy}
+              >
+                Back
+              </button>
             {:else}
-              {mode === "return" ? "Confirm Refund" : "Complete Sale"}
+              <button
+                class="flex-1 py-3.5 px-5 rounded-xl border border-ink/10 bg-surface-highlight/50 text-ink/75 hover:text-ink hover:bg-surface-highlight/60 font-bold transition-colors"
+                on:click={onCancel}
+                disabled={busy}
+              >
+                Cancel
+              </button>
             {/if}
-          </button>
-        </div>
+            <button
+              class="flex-[2] py-3.5 px-5 rounded-xl font-bold text-lg tracking-wide transition-all
+                {sufficient && !busy
+                  ? 'bg-accent bg-gradient-to-r from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98]'
+                  : 'bg-surface-highlight/60 text-ink/40 cursor-not-allowed'}"
+              on:click={handleConfirm}
+              disabled={!sufficient || busy}
+            >
+              {#if busy}
+                <span class="flex items-center justify-center gap-2">
+                  <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Processing...
+                </span>
+              {:else}
+                {mode === "return" ? "Confirm Refund" : "Complete Sale"}
+              {/if}
+            </button>
+          </div>
+        {/if}
       </div>
     </div>
   </div>
@@ -362,7 +464,6 @@
     from { opacity: 0; transform: scale(0.95); }
     to { opacity: 1; transform: scale(1); }
   }
-  /* Hide native number input spinners */
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
