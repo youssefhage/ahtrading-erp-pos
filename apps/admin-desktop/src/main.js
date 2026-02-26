@@ -60,12 +60,28 @@ async function checkUpdates() {
   }
 }
 
-// Quiet auto-update on launch (helps fast iteration). If offline, do nothing.
-setTimeout(() => {
-  check()
-    .then((update) => update && update.downloadAndInstall().catch(() => {}))
-    .catch(() => {});
-}, 1200);
+// Silent auto-update: download, install, and restart without user action.
+async function silentAutoUpdate() {
+  try {
+    const update = await check();
+    if (!update) return;
+    await update.downloadAndInstall();
+    // Restart automatically so the admin never has to act.
+    try {
+      const invoke = globalThis?.__TAURI_INTERNALS__?.invoke;
+      if (typeof invoke === "function") await invoke("restart_app", {});
+    } catch {
+      // If restart fails the update is still installed — it'll apply on next launch.
+    }
+  } catch {
+    // Offline or transient error — next check will retry.
+  }
+}
+
+// Check on launch (1.2 s delay) and every 30 minutes after that.
+setTimeout(() => silentAutoUpdate(), 1200);
+setInterval(() => silentAutoUpdate(), 30 * 60 * 1000);
+window.addEventListener("online", () => silentAutoUpdate());
 
 el("openBtn").addEventListener("click", openAdmin);
 el("resetBtn").addEventListener("click", reset);

@@ -243,10 +243,16 @@ fn print_pdf_base64(pdf_base64: String, printer: Option<String>, copies: Option<
   }
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
+  app.request_restart();
+  Ok(())
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .invoke_handler(tauri::generate_handler![list_printers, print_text, print_pdf_base64])
+    .invoke_handler(tauri::generate_handler![list_printers, print_text, print_pdf_base64, restart_app])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

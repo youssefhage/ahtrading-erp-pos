@@ -16,12 +16,15 @@ const KEY_PORT_UNOFFICIAL = "pos.desktop.portUnofficial";
 const UPDATER_CHECK_TIMEOUT_MS = 20_000;
 const UPDATER_RECHECK_MIN_MS = 5 * 60 * 1000;
 const UPDATER_BACKGROUND_INTERVAL_MS = 30 * 60 * 1000;
+const UPDATER_AUTO_INSTALL_DELAY_MS = 3 * 60 * 1000; // wait 3 min after launch before auto-installing
 const KEY_UPDATER_LAST_CHECK = "pos.desktop.updater.lastCheckAt";
 
 let APP_VERSION = "unknown";
 let availableUpdate = null;
 let updaterCheckInFlight = null;
 let updaterBackgroundTimer = null;
+let updaterAutoInstallInFlight = false;
+const updaterLaunchTime = Date.now();
 let updaterLastCheckAt = 0;
 try { updaterLastCheckAt = Number(localStorage.getItem(KEY_UPDATER_LAST_CHECK) || 0) || 0; } catch {}
 
@@ -161,6 +164,37 @@ function showUpdateNotification(update) {
   if (btn) btn.disabled = !version;
 }
 
+async function autoInstallIfAvailable(update) {
+  const version = getUpdateVersion(update);
+  if (!version) return;
+  if ((Date.now() - updaterLaunchTime) < UPDATER_AUTO_INSTALL_DELAY_MS) {
+    persistLog("info", `[updater] auto-install deferred (grace period) for ${version}`);
+    showUpdateNotification(update);
+    return;
+  }
+  if (updaterAutoInstallInFlight) return;
+  updaterAutoInstallInFlight = true;
+  persistLog("info", `[updater] auto-installing ${version}…`);
+  try {
+    await updaterDownloadAndInstall(update, (evt) => {
+      if (String(evt?.event || "") === "Finished") {
+        persistLog("info", `[updater] auto-install download complete, installing…`);
+      }
+    });
+    persistLog("info", `[updater] auto-install done, restarting…`);
+    showUpdateNotification(null);
+    try { await tauriInvoke("restart_app"); } catch {
+      persistLog("warn", `[updater] auto-restart failed, showing notification`);
+      showUpdateNotification(update);
+    }
+  } catch (e) {
+    persistLog("warn", `[updater] auto-install failed: ${e instanceof Error ? e.message : String(e)}`);
+    showUpdateNotification(update);
+  } finally {
+    updaterAutoInstallInFlight = false;
+  }
+}
+
 async function checkForUpdates({ silent = false, force = false } = {}) {
   if (updaterCheckInFlight) return await updaterCheckInFlight;
   if (!force && updaterLastCheckAt > 0 && (Date.now() - updaterLastCheckAt) < UPDATER_RECHECK_MIN_MS) return availableUpdate;
@@ -175,8 +209,12 @@ async function checkForUpdates({ silent = false, force = false } = {}) {
         if (!silent) setStatus("You are up to date.");
         return null;
       }
-      showUpdateNotification(update);
-      if (!silent) setStatus(`Update available: ${version}. Click Download Update.`);
+      if (!silent) {
+        showUpdateNotification(update);
+        setStatus(`Update available: ${version}. Click Download Update.`);
+      } else {
+        autoInstallIfAvailable(update).catch(() => {});
+      }
       return update;
     } catch (e) {
       if (!silent) setStatus(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
