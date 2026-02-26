@@ -1644,6 +1644,30 @@
 
   const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""} ${e?.description || ""} ${e?.short_name || ""}`.toLowerCase();
 
+  /** Score an item against a lowercased query – higher = more relevant */
+  const _itemSearchScore = (e, q) => {
+    const sku  = (e?.sku  || "").toLowerCase();
+    const name = (e?.name || "").toLowerCase();
+    const barcode = (e?.barcode || "").toLowerCase();
+    const shortName = (e?.short_name || "").toLowerCase();
+    if (sku === q) return 1000;           // exact SKU
+    if (barcode === q) return 950;        // exact barcode
+    if (name === q) return 900;           // exact name
+    if (sku.startsWith(q)) return 800;    // SKU prefix
+    if (name.startsWith(q)) return 700;   // name starts with query
+    if (shortName.startsWith(q)) return 650;
+    // word-boundary match in name (e.g. "Pure Salt" matches "salt")
+    if (name.includes(` ${q}`) || name.includes(`-${q}`)) return 600;
+    if (sku.includes(q)) return 500;      // SKU contains
+    if (name.includes(q)) return 400;     // name contains
+    if (barcode.includes(q)) return 300;  // barcode contains
+    if (shortName.includes(q)) return 200;
+    // description / other fields
+    const hay = String(e?._hay || _itemHay(e));
+    if (hay.includes(q)) return 100;
+    return 0;
+  };
+
   const _buildBarcodeIndex = (list) => {
     const m = new Map();
     for (const b of list || []) {
@@ -1770,18 +1794,18 @@
   $: scanSuggestions = (() => {
     const q = scanTerm.trim().toLowerCase();
     if (!q) return [];
-    const out = [];
-    const pushMatches = (list) => {
+    const scored = [];
+    const collectMatches = (list) => {
       for (const e of list || []) {
         if (!e) continue;
-        const hay = String(e?._hay || _itemHay(e));
-        if (hay.includes(q)) out.push(e);
-        if (out.length >= 24) break;
+        const s = _itemSearchScore(e, q);
+        if (s > 0) scored.push({ item: e, score: s });
       }
     };
-    pushMatches(itemsOriginTagged);
-    pushMatches(itemsOtherTagged);
-    return out.slice(0, 24);
+    collectMatches(itemsOriginTagged);
+    collectMatches(itemsOtherTagged);
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 24).map((r) => r.item);
   })();
 
   $: allItems = ([]).concat(items || [], unofficialItems || []);
@@ -1912,7 +1936,8 @@
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch (_) { data = text ? { raw: text } : null; }
       if (!res.ok) {
-        const msg = data?.detail || data?.error || res.statusText || `HTTP ${res.status}`;
+        const detail = data?.detail;
+        const msg = (typeof detail === "string" ? detail : detail?.message) || data?.error || res.statusText || `HTTP ${res.status}`;
         const err = new Error(String(msg));
         err.status = res.status;
         err.payload = data;
@@ -2243,10 +2268,10 @@
     const processEventId = String(meta?.existing_event_id || meta?.event_id || eventId).trim() || eventId;
 
     // process-one eagerly creates the invoice from the already-submitted event.
-    // If it fails transiently (5xx, timeout, network), the cloud will process
-    // the event later through its normal queue — so we return a deferred result.
-    // If it fails permanently (4xx data error), the event is stuck and we must
-    // surface the error so the cashier knows something is wrong.
+    // The submit already succeeded at this point, so the event IS in the cloud
+    // outbox and will be retried by the background worker (up to 5 attempts).
+    // We only rethrow if the event is permanently "dead" (all retries exhausted);
+    // otherwise we return a deferred result so the checkout completes.
     let processed = null;
     try {
       processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
@@ -2254,9 +2279,15 @@
         body: { event_id: processEventId, force: true },
       });
     } catch (processErr) {
-      const isTransient = !_isPermanentCloudError(processErr);
-      if (isTransient) {
-        // Submit succeeded, cloud will process it later.
+      // Parse the response body to check if the backend marked the event "dead"
+      // (exhausted all retries) vs "failed" (will be retried by the worker).
+      const errPayload = processErr?.payload || processErr?.body || {};
+      const detail = errPayload?.detail || {};
+      const eventStatus = String(detail?.status || errPayload?.status || "").toLowerCase();
+      const isDead = eventStatus === "dead";
+
+      if (!isDead) {
+        // Submit succeeded; event is in the cloud outbox and will be retried.
         return {
           event_id: processEventId,
           edge_accepted: true,
@@ -2266,7 +2297,7 @@
           process_deferred: true,
         };
       }
-      // Permanent error — rethrow so the checkout reports it properly.
+      // Event is permanently dead — rethrow so the checkout reports it.
       throw processErr;
     }
     const out = {
@@ -7124,52 +7155,82 @@
         if (!ensureCashierForCompanies(returnCompanies, "return")) return;
         if (!ensureShiftForCompanies(returnCompanies, "return")) return;
         if (mixedCompanies) {
+          // ── Atomic split return ──────────────────────────────────
+          // Same all-or-nothing pattern as split sale: submit all in
+          // parallel, auto-retry, clear cart only when every company
+          // succeeds, keep entire cart intact on failure.
           const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
-          const done = [];
-          const failed = [];
-          for (const companyKey of companiesInOrder) {
+          const submissions = companiesInOrder.map((companyKey) => {
             const lines = cart.filter((c) => c.companyKey === companyKey);
-            if (!lines.length) continue;
-            try {
-              const res = await returnForCompany(companyKey, lines);
-              done.push({ companyKey, event_id: res?.event_id || "ok" });
-              queueSyncPush(companyKey);
-              cart = cart.filter((c) => c.companyKey !== companyKey);
-              try {
-                if (_companyUsesCloudTransport(companyKey)) {
-                  try {
-                    await _printReturnByEventWeb(companyKey, res?.event_id || "", null, { thermal: companyKey !== "official" });
-                  } catch (_) {
-                    await _printLastReturnWeb(companyKey, null, { thermal: companyKey !== "official" });
-                  }
-                } else {
-                  window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
-                }
-              } catch (_) {}
-            } catch (e) {
-              const pe = e?.payload;
-              if (pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required") throw e;
-              failed.push({ companyKey, error: e?.message || String(e) });
+            if (!lines.length) return null;
+            return {
+              companyKey,
+              fire: () => returnForCompany(companyKey, lines),
+            };
+          }).filter(Boolean);
+
+          const classifyResults = (subs, settled) =>
+            subs.map((s, i) => {
+              const r = settled[i];
+              if (r.status === "fulfilled") {
+                return { companyKey: s.companyKey, ok: true, res: r.value };
+              }
+              const err = r.reason;
+              const pe = err?.payload;
+              const isFatal = pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required";
+              return { companyKey: s.companyKey, ok: false, error: err, isFatal };
+            });
+
+          let outcomes = classifyResults(submissions, await Promise.allSettled(submissions.map((s) => s.fire())));
+          const fatal = outcomes.find((o) => !o.ok && o.isFatal);
+          if (fatal) throw fatal.error;
+
+          // Auto-retry failed companies (idempotency makes this safe).
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const retryable = outcomes.filter((o) => !o.ok);
+            if (!retryable.length) break;
+            await new Promise((r) => setTimeout(r, 1500));
+            const retrySubs = retryable.map((o) => submissions.find((s) => s.companyKey === o.companyKey)).filter(Boolean);
+            const retryOutcomes = classifyResults(retrySubs, await Promise.allSettled(retrySubs.map((s) => s.fire())));
+            const retryFatal = retryOutcomes.find((o) => !o.ok && o.isFatal);
+            if (retryFatal) throw retryFatal.error;
+            for (const ro of retryOutcomes) {
+              const idx = outcomes.findIndex((o) => o.companyKey === ro.companyKey);
+              if (idx !== -1) outcomes[idx] = ro;
             }
           }
+
+          for (const o of outcomes) { if (o.ok) queueSyncPush(o.companyKey); }
           await fetchData();
-          if (failed.length) {
-            const okText = done.length
-              ? `✓ ${done.map((d) => _companyLabel(d.companyKey)).join(", ")} returned. `
-              : "";
-            const failText = failed.map((f) => `${_companyLabel(f.companyKey)}: ${f.error}`).join(" | ");
-            const remainingLines = cart.length;
-            const retryHint = remainingLines > 0
-              ? ` ${remainingLines} item(s) remain in cart — retry or remove them.`
-              : "";
-            reportError(`${okText}Failed: ${failText}.${retryHint}`);
-            return;
+
+          if (outcomes.every((o) => o.ok)) {
+            cart = [];
+            activeCustomer = null;
+            returnSourceContext = null;
+            checkoutIntentId = "";
+            reportNotice("Return complete.");
+            showSaleComplete = true;
+            setTimeout(() => { showSaleComplete = false; }, 4000);
+            // Fire-and-forget return receipt printing.
+            for (const o of outcomes) {
+              markPrintWindowConsumed(o.companyKey);
+              const printReturn = async () => {
+                if (_companyUsesCloudTransport(o.companyKey)) {
+                  try {
+                    await _printReturnByEventWeb(o.companyKey, o.res?.event_id || "", null, { thermal: o.companyKey !== "official" });
+                  } catch (_) {
+                    await _printLastReturnWeb(o.companyKey, null, { thermal: o.companyKey !== "official" });
+                  }
+                } else {
+                  window.open(_agentReceiptUrl(o.companyKey), "_blank", "noopener,noreferrer");
+                }
+              };
+              printReturn().catch((err) => { console.warn(`[POS] return print failed (${o.companyKey}):`, err?.message || err); });
+            }
+          } else {
+            for (const companyKey of companiesInOrder) markPrintWindowConsumed(companyKey);
+            reportError("Return failed — tap Pay to retry.");
           }
-          cart = [];
-          activeCustomer = null;
-          returnSourceContext = null;
-          checkoutIntentId = "";
-          reportNotice(`Split return complete: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
           return;
         }
 
@@ -7499,80 +7560,117 @@
           }
         }
 
-        const done = [];
-        const failed = [];
-        for (const companyKey of companiesInOrder) {
+        // ── Atomic split checkout ──────────────────────────────────
+        // All companies submit in parallel.  The cart is treated as ONE
+        // unit: either every company succeeds and the cart clears, or
+        // the entire cart stays intact so the employee can simply retry.
+        // Idempotency keys make retrying safe — already-accepted sales
+        // replay harmlessly.
+
+        // 1. Build submission descriptors (prepare, don't fire yet).
+        const submissions = companiesInOrder.map((companyKey) => {
           const lines = cart.filter((c) => c.companyKey === companyKey);
-          if (!lines.length) continue;
-
+          if (!lines.length) return null;
           const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
-          const receipt_meta = {
-            pilot: {
-              mode: "split-by-company",
-              split_group_id: groupId,
-              invoice_company: companyKey,
-              line_companies: [companyKey],
-              cross_company: false,
-              flagged_for_adjustment: false,
-              customer_id_requested: requested_customer_id,
-              customer_id_applied: customer_id,
-              note: null
-            }
-          };
-
           const cfg = cfgFor(companyKey);
-          try {
-            const res = await apiCallFor(companyKey, "/sale", {
-              method: "POST",
-              body: {
-                idempotency_key: saleIdempotencyKeyForCompany(checkoutIntent, companyKey),
-                cart: mapCartLines(lines),
-                customer_id,
-                payment_method,
-                cash_tendered: isPartialCash ? cashTendered : undefined,
-                receipt_meta,
-                pricing_currency: cfg.pricing_currency,
-                exchange_rate: cfg.exchange_rate,
-                shift_id: cfg.shift_id || null,
-                cashier_id: cashierIdForCompany(companyKey),
-                skip_stock_moves: false,
-              }
-            });
+          const body = {
+            idempotency_key: saleIdempotencyKeyForCompany(checkoutIntent, companyKey),
+            cart: mapCartLines(lines),
+            customer_id,
+            payment_method,
+            cash_tendered: isPartialCash ? cashTendered : undefined,
+            receipt_meta,
+            pricing_currency: cfg.pricing_currency,
+            exchange_rate: cfg.exchange_rate,
+            shift_id: cfg.shift_id || null,
+            cashier_id: cashierIdForCompany(companyKey),
+            skip_stock_moves: false,
+          };
+          return {
+            companyKey,
+            fire: () => apiCallFor(companyKey, "/sale", { method: "POST", body }),
+          };
+        }).filter(Boolean);
 
-            done.push({ companyKey, event_id: res.event_id || "ok" });
-            queueSyncPush(companyKey);
+        // 2. Classify a batch of Promise.allSettled results.
+        const classifyResults = (subs, settled) =>
+          subs.map((s, i) => {
+            const r = settled[i];
+            if (r.status === "fulfilled") {
+              return { companyKey: s.companyKey, ok: true, res: r.value, deferred: !!r.value?.process_deferred };
+            }
+            const err = r.reason;
+            const pe = err?.payload;
+            const isFatal = pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required";
+            return { companyKey: s.companyKey, ok: false, error: err, isFatal };
+          });
 
-            // Remove only the successfully invoiced lines.
-            cart = cart.filter((c) => c.companyKey !== companyKey);
-            const receiptWin = primePrintWindowFor(companyKey);
-            await printAfterSale(companyKey, res?.event_id || "", receiptWin);
-            markPrintWindowConsumed(companyKey);
-          } catch (e) {
-            const pe = e?.payload;
-            if (pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required") throw e;
-            failed.push({ companyKey, error: e?.message || String(e) });
+        // 3. Fire all companies in parallel.
+        let outcomes = classifyResults(submissions, await Promise.allSettled(submissions.map((s) => s.fire())));
+
+        // Fatal auth errors bubble immediately (PIN modal handles them).
+        const fatal = outcomes.find((o) => !o.ok && o.isFatal);
+        if (fatal) throw fatal.error;
+
+        // 4. Auto-retry failed companies (idempotency makes this safe).
+        const SPLIT_MAX_RETRIES = 2;
+        const SPLIT_RETRY_DELAY_MS = 1500;
+        for (let attempt = 0; attempt < SPLIT_MAX_RETRIES; attempt++) {
+          const retryable = outcomes.filter((o) => !o.ok);
+          if (!retryable.length) break;
+          await new Promise((r) => setTimeout(r, SPLIT_RETRY_DELAY_MS));
+          const retrySubs = retryable.map((o) => submissions.find((s) => s.companyKey === o.companyKey)).filter(Boolean);
+          const retryOutcomes = classifyResults(retrySubs, await Promise.allSettled(retrySubs.map((s) => s.fire())));
+          const retryFatal = retryOutcomes.find((o) => !o.ok && o.isFatal);
+          if (retryFatal) throw retryFatal.error;
+          for (const ro of retryOutcomes) {
+            const idx = outcomes.findIndex((o) => o.companyKey === ro.companyKey);
+            if (idx !== -1) outcomes[idx] = ro;
           }
         }
 
+        // 5. Queue sync pushes for any company whose event IS in the outbox.
+        for (const o of outcomes) { if (o.ok) queueSyncPush(o.companyKey); }
         fetchData();
-        if (failed.length) {
-          const okText = done.length
-            ? `✓ ${done.map((d) => _companyLabel(d.companyKey)).join(", ")} completed. `
-            : "";
-          const failText = failed.map((f) => `${_companyLabel(f.companyKey)}: ${f.error}`).join(" | ");
-          const remainingLines = cart.length;
-          const retryHint = remainingLines > 0
-            ? ` ${remainingLines} item(s) remain in cart — retry checkout or remove them.`
-            : "";
-          reportError(`${okText}Failed: ${failText}.${retryHint}`);
-          return;
+
+        // 6. All-or-nothing: clear cart only when EVERY company succeeded.
+        const allOk = outcomes.every((o) => o.ok);
+
+        if (allOk) {
+          cart = [];
+          activeCustomer = null;
+          checkoutIntentId = "";
+          reportNotice("Sale complete.");
+          showSaleComplete = true;
+          setTimeout(() => { showSaleComplete = false; }, 4000);
+
+          // Fire-and-forget print — never block checkout on printing.
+          // Mark windows consumed BEFORE the async print starts so the
+          // finally-block cleanup (which runs synchronously after return)
+          // won't close windows that printAfterSale is still using.
+          for (const o of outcomes) {
+            markPrintWindowConsumed(o.companyKey);
+            const rw = preopenedPrintWindows[normalizeCompanyKey(o.companyKey)] || null;
+            if (o.deferred) {
+              try { if (rw && !rw.closed) rw.close(); } catch (_) {}
+              continue;
+            }
+            printAfterSale(o.companyKey, o.res?.event_id || "", rw)
+              .catch((err) => { console.warn(`[POS] print failed (${o.companyKey}):`, err?.message || err); });
+          }
+        } else {
+          // Keep entire cart intact — employee can tap Pay to retry.
+          // checkoutIntentId is preserved so retries use the same
+          // idempotency keys (already-succeeded companies replay safely).
+          for (const companyKey of companiesInOrder) {
+            try {
+              const rw = preopenedPrintWindows[normalizeCompanyKey(companyKey)];
+              if (rw && !rw.closed) rw.close();
+            } catch (_) {}
+            markPrintWindowConsumed(companyKey);
+          }
+          reportError("Checkout failed — tap Pay to retry.");
         }
-        cart = [];
-        activeCustomer = null;
-        checkoutIntentId = "";
-        reportNotice(`Split sale queued: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
-        showSaleComplete = true;
-        setTimeout(() => { showSaleComplete = false; }, 4000);
         return;
       }
 
@@ -7631,14 +7729,20 @@
 
       queueSyncPush(invoiceCompany);
 
-      reportNotice(`Sale queued: ${res.event_id || "ok"}`);
+      const deferred = !!res?.process_deferred;
+      const deferredNote = deferred ? " (invoice printing deferred — will process shortly)" : "";
+      reportNotice(`Sale queued: ${res.event_id || "ok"}${deferredNote}`);
       showSaleComplete = true;
       setTimeout(() => { showSaleComplete = false; }, 4000);
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
       fetchData();
-      await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
+      if (!deferred) {
+        await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
+      } else {
+        try { if (receiptWin) receiptWin.close(); } catch (_) {}
+      }
       markPrintWindowConsumed(invoiceCompany);
     } catch(e) {
       const p = e?.payload;

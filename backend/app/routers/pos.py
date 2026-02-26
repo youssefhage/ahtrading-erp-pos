@@ -1322,7 +1322,9 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                         }
 
     if error_detail:
-        raise HTTPException(status_code=409, detail=error_detail)
+        # Return the response body (with event status) alongside the 409 so the
+        # caller can distinguish retryable ("failed") from terminal ("dead").
+        raise HTTPException(status_code=409, detail={"message": error_detail, **(response_payload or {})})
     if response_payload is not None:
         return response_payload
     raise HTTPException(status_code=500, detail="unexpected empty process result")
