@@ -59,16 +59,18 @@ def auto_balance_journal(
     if not rounding_acc:
         raise ValueError("journal is imbalanced; missing ROUNDING account default")
 
-    # If diff is positive, debits exceed credits => add a credit rounding line.
+    # Handle each currency independently — diffs can have opposite signs.
     debit_usd = Decimal("0")
     credit_usd = Decimal("0")
     debit_lbp = Decimal("0")
     credit_lbp = Decimal("0")
-    if diff_usd > 0 or diff_lbp > 0:
-        credit_usd = abs(diff_usd)
-        credit_lbp = abs(diff_lbp)
+    if diff_usd > 0:
+        credit_usd = diff_usd
     else:
         debit_usd = abs(diff_usd)
+    if diff_lbp > 0:
+        credit_lbp = diff_lbp
+    else:
         debit_lbp = abs(diff_lbp)
 
     cur.execute(

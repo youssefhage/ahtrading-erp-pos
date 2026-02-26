@@ -1,11 +1,15 @@
+import logging
 import os
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 import hmac
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from ..db import get_admin_conn, set_company_context
 
@@ -456,6 +460,22 @@ def import_sales_invoice_bundle(
                             e.get("created_at") or datetime.utcnow().isoformat(),
                         ),
                     )
+
+                # Warn on imbalanced GL journals from edge data.
+                synced_journal_ids = {j["id"] for j in (data.gl_journals or []) if j.get("id")}
+                for jid in synced_journal_ids:
+                    cur.execute("""
+                        SELECT
+                            COALESCE(SUM(debit_usd - credit_usd), 0) AS diff_usd,
+                            COALESCE(SUM(debit_lbp - credit_lbp), 0) AS diff_lbp
+                        FROM gl_entries WHERE journal_id = %s::uuid
+                    """, (jid,))
+                    bal = cur.fetchone()
+                    if bal and (abs(bal["diff_usd"]) > Decimal("0.01") or abs(bal["diff_lbp"]) > Decimal("1")):
+                        logger.warning(
+                            "Edge sync: GL journal %s imbalanced after import: diff_usd=%s, diff_lbp=%s",
+                            jid, bal["diff_usd"], bal["diff_lbp"],
+                        )
 
                 # Stock moves (insert last; triggers update summary tables).
                 for m in data.stock_moves or []:

@@ -1471,8 +1471,9 @@
     const fallbackEx = toNum(cfg?.exchange_rate, toNum(config?.exchange_rate, 0));
     const baseLbp = rawBaseLbp === 0 && fallbackEx > 0 ? baseUsd * fallbackEx : rawBaseLbp;
     const vatRate = vatRateForLine(line);
-    const taxUsd = baseUsd * vatRate;
+    // LBP-first: matches _buildSalePayloadWeb and backend tax computation
     const taxLbp = baseLbp * vatRate;
+    const taxUsd = fallbackEx > 0 ? taxLbp / fallbackEx : baseUsd * vatRate;
     return { companyKey, baseUsd, baseLbp, taxUsd, taxLbp };
   };
 

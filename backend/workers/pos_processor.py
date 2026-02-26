@@ -2801,6 +2801,20 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
         (journal_id, ap, total_usd, total_lbp),
     )
 
+    # Auto-balance small rounding diffs (LBP round-trip conversion noise).
+    _auto_balance_journal(cur, company_id, journal_id)
+
+    # GL balance assertion
+    cur.execute("""
+        SELECT
+            COALESCE(SUM(debit_usd), 0) - COALESCE(SUM(credit_usd), 0) AS diff_usd,
+            COALESCE(SUM(debit_lbp), 0) - COALESCE(SUM(credit_lbp), 0) AS diff_lbp
+        FROM gl_entries WHERE journal_id = %s
+    """, (journal_id,))
+    bal = cur.fetchone()
+    if abs(bal["diff_usd"]) > Decimal("0.01") or abs(bal["diff_lbp"]) > Decimal("1"):
+        raise ValueError(f"GL journal {journal_id} imbalanced: diff_usd={bal['diff_usd']}, diff_lbp={bal['diff_lbp']}")
+
     emit_event(
         cur,
         company_id,

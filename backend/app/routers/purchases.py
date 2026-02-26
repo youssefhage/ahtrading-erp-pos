@@ -2726,6 +2726,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     """,
                     (journal_id, grni, total_usd, total_lbp, data.warehouse_id),
                 )
+                auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
 
                 cur.execute(
                     """

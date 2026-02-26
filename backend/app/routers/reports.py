@@ -697,6 +697,8 @@ def vat_report(
                   END AS direction,
                   ARRAY_AGG(DISTINCT tl.source_type ORDER BY tl.source_type) AS source_types,
                   COUNT(*)::int AS line_count,
+                  SUM(tl.base_usd) AS base_usd,
+                  SUM(tl.tax_usd) AS tax_usd,
                   SUM(tl.base_lbp) AS base_lbp,
                   SUM(tl.tax_lbp) AS tax_lbp
                 FROM tax_lines tl
@@ -715,10 +717,16 @@ def vat_report(
             )
             rows = cur.fetchall()
 
+            output_base_usd = Decimal("0")
+            output_tax_usd = Decimal("0")
             output_base_lbp = Decimal("0")
             output_tax_lbp = Decimal("0")
+            input_base_usd = Decimal("0")
+            input_tax_usd = Decimal("0")
             input_base_lbp = Decimal("0")
             input_tax_lbp = Decimal("0")
+            other_base_usd = Decimal("0")
+            other_tax_usd = Decimal("0")
             other_base_lbp = Decimal("0")
             other_tax_lbp = Decimal("0")
 
@@ -728,24 +736,39 @@ def vat_report(
                 r["direction_label"] = "Output VAT" if direction == "output" else ("Input VAT" if direction == "input" else "Other")
                 r["source_types"] = [str(v) for v in (r.get("source_types") or [])]
                 r["line_count"] = int(r.get("line_count") or 0)
+                r["base_usd"] = Decimal(str(r.get("base_usd") or 0))
+                r["tax_usd"] = Decimal(str(r.get("tax_usd") or 0))
                 r["base_lbp"] = Decimal(str(r.get("base_lbp") or 0))
                 r["tax_lbp"] = Decimal(str(r.get("tax_lbp") or 0))
                 if direction == "output":
+                    output_base_usd += r["base_usd"]
+                    output_tax_usd += r["tax_usd"]
                     output_base_lbp += r["base_lbp"]
                     output_tax_lbp += r["tax_lbp"]
                 elif direction == "input":
+                    input_base_usd += r["base_usd"]
+                    input_tax_usd += r["tax_usd"]
                     input_base_lbp += r["base_lbp"]
                     input_tax_lbp += r["tax_lbp"]
                 else:
+                    other_base_usd += r["base_usd"]
+                    other_tax_usd += r["tax_usd"]
                     other_base_lbp += r["base_lbp"]
                     other_tax_lbp += r["tax_lbp"]
 
             summary = {
+                "output_base_usd": output_base_usd,
+                "output_tax_usd": output_tax_usd,
                 "output_base_lbp": output_base_lbp,
                 "output_tax_lbp": output_tax_lbp,
+                "input_base_usd": input_base_usd,
+                "input_tax_usd": input_tax_usd,
                 "input_base_lbp": input_base_lbp,
                 "input_tax_lbp": input_tax_lbp,
+                "net_tax_usd": output_tax_usd - input_tax_usd,
                 "net_tax_lbp": output_tax_lbp - input_tax_lbp,
+                "other_base_usd": other_base_usd,
+                "other_tax_usd": other_tax_usd,
                 "other_base_lbp": other_base_lbp,
                 "other_tax_lbp": other_tax_lbp,
                 "rows_count": len(rows),
@@ -761,6 +784,8 @@ def vat_report(
                         "period",
                         "direction",
                         "direction_label",
+                        "base_usd",
+                        "tax_usd",
                         "base_lbp",
                         "tax_lbp",
                         "line_count",
@@ -775,6 +800,8 @@ def vat_report(
                             r["period"],
                             r["direction"],
                             r["direction_label"],
+                            r["base_usd"],
+                            r["tax_usd"],
                             r["base_lbp"],
                             r["tax_lbp"],
                             r["line_count"],
@@ -1740,10 +1767,10 @@ def profit_and_loss(
                 (company_id, start_date, end_date),
             )
             rows = cur.fetchall()
-            revenue_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "revenue"])
-            revenue_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "revenue"])
-            expense_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "expense"])
-            expense_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "expense"])
+            revenue_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "revenue"], Decimal("0"))
+            revenue_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "revenue"], Decimal("0"))
+            expense_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "expense"], Decimal("0"))
+            expense_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "expense"], Decimal("0"))
     return {
                 "start_date": str(start_date),
                 "end_date": str(end_date),
