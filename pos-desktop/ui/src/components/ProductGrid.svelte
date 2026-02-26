@@ -267,23 +267,28 @@
             <!-- Name: full width so it's always readable -->
             <div class={`clamp-2 leading-tight transition-colors duration-200 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
 
-            {#if desc}
-              <div class={`mt-1 text-[11px] leading-snug clamp-2 transition-colors ${isActive ? "text-accent/85" : "text-ink/70 group-hover:text-ink/80"}`}>
-                {desc}
+            <!-- Description + company label -->
+            <div class="mt-1 flex items-start gap-2">
+              <div class="min-w-0 flex-1">
+                {#if desc}
+                  <div class={`text-[11px] leading-snug clamp-2 transition-colors ${isActive ? "text-accent/85" : "text-ink/70 group-hover:text-ink/80"}`}>
+                    {desc}
+                  </div>
+                {/if}
               </div>
-            {/if}
+              {#if companyLabel(item)}
+                <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border shrink-0 ${tonePill(item)}`}>
+                  {companyLabel(item)}
+                </span>
+              {/if}
+            </div>
 
-            <!-- Bottom row: metadata left, price + action right -->
-            <div class="mt-2 flex items-center justify-between gap-2">
+            <!-- Bottom row: SKU left, price + action right -->
+            <div class="mt-1.5 flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
                 <span class={`text-[11px] font-mono tracking-wider transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-ink/60"}`}>
                   {item.sku || "NO SKU"}
                 </span>
-                {#if companyLabel(item)}
-                  <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border shrink-0 ${tonePill(item)}`}>
-                    {companyLabel(item)}
-                  </span>
-                {/if}
                 {#if item.barcode}
                   <span class="text-[10px] text-muted/60 truncate font-mono hidden sm:inline">
                     {item.barcode}
