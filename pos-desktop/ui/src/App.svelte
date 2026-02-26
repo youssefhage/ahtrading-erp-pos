@@ -4752,7 +4752,8 @@
     if (!eventId && !invoiceIdHint) return null;
     const companyKey = normalizeCompanyKey(row?.companyKey || "official");
     const key = _shiftInvoiceKey(row);
-    if (!force && shiftInvoiceDetailsByKey?.[key]) return shiftInvoiceDetailsByKey[key];
+    const cached = shiftInvoiceDetailsByKey?.[key];
+    if (!force && cached && !cached.pending) return cached;
     shiftInvoiceLoadingByKey = { ...(shiftInvoiceLoadingByKey || {}), [key]: true };
     try {
       let res = null;
@@ -4772,7 +4773,20 @@
           body: { invoice_id: invoiceIdHint },
         });
       }
-      if (!res) throw new Error("Unable to resolve this invoice detail yet.");
+      if (!res) {
+        // Event submitted but invoice not yet created (deferred processing).
+        // Show a soft placeholder instead of an intrusive error alert.
+        const pending = {
+          event_id: eventId,
+          invoice_id: null,
+          invoice_no: null,
+          detail: null,
+          pending: true,
+        };
+        shiftInvoiceDetailsByKey = { ...(shiftInvoiceDetailsByKey || {}), [key]: pending };
+        reportNotice("Invoice is still being processed. Try again in a few seconds.");
+        return pending;
+      }
       const detail = res?.detail || null;
       const invoice = detail?.invoice || {};
       const next = {
@@ -7540,7 +7554,10 @@
 
         if (!ensureCashierForCompanies(companiesInOrder, "split sale")) return;
         if (!ensureShiftForCompanies(companiesInOrder, "split sale")) return;
-        for (const companyKey of companiesInOrder) primePrintWindowFor(companyKey);
+        // NOTE: Do NOT pre-open print windows here.  On POS web the blank
+        // window.open() calls create visible browser tabs that confuse
+        // employees.  Instead, printAfterSale opens its own window on-demand
+        // only for non-deferred outcomes.
         _assertSplitTotalsConsistent(
           companiesInOrder.map((companyKey) => ({ companyKey, lines: cart.filter((c) => c.companyKey === companyKey) })),
         );
@@ -7573,6 +7590,19 @@
           if (!lines.length) return null;
           const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
           const cfg = cfgFor(companyKey);
+          const receipt_meta = {
+            pilot: {
+              mode: "split-by-company",
+              split_group_id: groupId,
+              invoice_company: companyKey,
+              line_companies: [companyKey],
+              cross_company: false,
+              flagged_for_adjustment: false,
+              customer_id_requested: requested_customer_id,
+              customer_id_applied: customer_id,
+              note: null,
+            },
+          };
           const body = {
             idempotency_key: saleIdempotencyKeyForCompany(checkoutIntent, companyKey),
             cart: mapCartLines(lines),
@@ -7645,30 +7675,17 @@
           setTimeout(() => { showSaleComplete = false; }, 4000);
 
           // Fire-and-forget print — never block checkout on printing.
-          // Mark windows consumed BEFORE the async print starts so the
-          // finally-block cleanup (which runs synchronously after return)
-          // won't close windows that printAfterSale is still using.
+          // No pre-opened windows in split path (they create visible tabs
+          // on POS web).  printAfterSale opens its own window on-demand.
           for (const o of outcomes) {
-            markPrintWindowConsumed(o.companyKey);
-            const rw = preopenedPrintWindows[normalizeCompanyKey(o.companyKey)] || null;
-            if (o.deferred) {
-              try { if (rw && !rw.closed) rw.close(); } catch (_) {}
-              continue;
-            }
-            printAfterSale(o.companyKey, o.res?.event_id || "", rw)
+            if (o.deferred) continue;
+            printAfterSale(o.companyKey, o.res?.event_id || "", null)
               .catch((err) => { console.warn(`[POS] print failed (${o.companyKey}):`, err?.message || err); });
           }
         } else {
           // Keep entire cart intact — employee can tap Pay to retry.
           // checkoutIntentId is preserved so retries use the same
           // idempotency keys (already-succeeded companies replay safely).
-          for (const companyKey of companiesInOrder) {
-            try {
-              const rw = preopenedPrintWindows[normalizeCompanyKey(companyKey)];
-              if (rw && !rw.closed) rw.close();
-            } catch (_) {}
-            markPrintWindowConsumed(companyKey);
-          }
           reportError("Checkout failed — tap Pay to retry.");
         }
         return;
@@ -9710,6 +9727,8 @@
                 <div class="rounded-lg border border-ink/10 bg-surface/50 p-3 space-y-2">
                   {#if shiftInvoiceLoadingByKey?.[key]}
                     <div class="text-[12px] text-muted">Loading invoice details...</div>
+                  {:else if detailRow?.pending}
+                    <div class="text-[12px] text-muted">Invoice is still being processed. Tap <strong class="text-ink/80">View Details</strong> again in a few seconds.</div>
                   {:else if !detail}
                     <div class="text-[12px] text-muted">Detail unavailable. Try Refresh then View Details again.</div>
                   {:else}
