@@ -154,7 +154,7 @@
     }
   };
   const _writeStorage = (key, value) => {
-    try { localStorage.setItem(key, String(value)); } catch (_) {}
+    try { localStorage.setItem(key, String(value)); } catch (e) { console.warn("[POS] localStorage write failed:", key, e?.message || e); }
   };
   const _removeStorage = (key) => {
     try { localStorage.removeItem(key); } catch (_) {}
@@ -3471,12 +3471,14 @@
       } catch (e) {
         const retryCount = toNum(row?.retry_count, 0) + 1;
         const permanent = _isPermanentCloudError(e);
-        const statusText = permanent ? "dead" : "failed";
+        const exhausted = retryCount >= 12; // ~20 min total backoff
+        const statusText = (permanent || exhausted) ? "dead" : "failed";
+        if (exhausted && !permanent) console.warn(`[POS] outbox event ${rowEventId} marked dead after ${retryCount} retries.`);
         _patchWebLocalOutboxEvent(key, rowEventId, {
           status: statusText,
           retry_count: retryCount,
           last_error: e?.message || String(e),
-          next_attempt_at: permanent ? null : _nextRetryIso(retryCount),
+          next_attempt_at: (permanent || exhausted) ? null : _nextRetryIso(retryCount),
         });
         _appendWebAudit(key, {
           action: "outbox.retry",
@@ -7689,7 +7691,10 @@
           for (const o of outcomes) {
             if (o.deferred) continue;
             printAfterSale(o.companyKey, o.res?.event_id || "", null)
-              .catch((err) => { console.warn(`[POS] print failed (${o.companyKey}):`, err?.message || err); });
+              .catch((err) => {
+                console.warn(`[POS] print failed (${o.companyKey}):`, err?.message || err);
+                reportNotice(`Print failed for ${_companyLabel(o.companyKey)} — use Reprint from Shift Invoices.`);
+              });
           }
         } else {
           // Keep entire cart intact — employee can tap Pay to retry.
@@ -8226,6 +8231,20 @@
     }
     try {
       loading = true;
+
+      // Best-effort: flush any pending outbox events before closing the shift
+      // so they're associated with the correct shift.
+      const pendingCounts = companiesToClose.map((k) =>
+        _webLocalOutboxRowsFor(k).filter((r) => {
+          const st = String(r?.status || "pending").trim().toLowerCase();
+          return st === "pending" || st === "failed";
+        }).length
+      );
+      const hasPending = pendingCounts.some((n) => n > 0);
+      if (hasPending) {
+        await Promise.allSettled(companiesToClose.map((k) => _flushWebLocalOutbox(k, { limit: 30 }).catch(() => {})));
+      }
+
       const results = await Promise.allSettled(
         companiesToClose.map((k) => apiCallFor(k, "/shift/close", {
           method: "POST",
@@ -10029,7 +10048,7 @@
       class="absolute inset-0 bg-black/80 backdrop-blur-sm"
       type="button"
       aria-label="Close admin PIN modal"
-      on:click={() => { showAdminPinModal = false; pendingCheckoutMethod = ""; pendingCheckoutCashTendered = 0; }}
+      on:click={() => { showAdminPinModal = false; adminPin = ""; pendingCheckoutMethod = ""; pendingCheckoutCashTendered = 0; }}
     ></button>
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
@@ -10052,7 +10071,7 @@
         <div class="flex gap-3">
           <button
             class="flex-1 py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
-            on:click={() => { showAdminPinModal = false; pendingCheckoutMethod = ""; pendingCheckoutCashTendered = 0; }}
+            on:click={() => { showAdminPinModal = false; adminPin = ""; pendingCheckoutMethod = ""; pendingCheckoutCashTendered = 0; }}
             type="button"
           >
             Cancel
