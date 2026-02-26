@@ -1801,26 +1801,15 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
         qty_label = f"{qty} {uom}".strip()
         unit_usd = fmt_usd(ln.get("unit_price_usd"))
         sku = (ln.get("sku") or "").strip() or (ln.get("item_id") or "")
-        line_rows.append(
-            f"""
-            <tr>
-              <td class="name">{e(name)}</td>
-              <td class="qty">{e(qty_label)}</td>
-              <td class="amt">{e(fmt_usd(ln.get("line_total_usd")))}</td>
-            </tr>
-            """
-        )
+        amt = fmt_usd(ln.get("line_total_usd"))
+        detail_html = ""
         if template_id == "detailed":
-            detail_meta = f"{sku} @ {unit_usd} USD"
-            line_rows.append(
-                f"""
-                <tr class="detail">
-                  <td colspan="3">{e(detail_meta)}</td>
-                </tr>
-                """
-            )
+            detail_html = f'<div class="ldetail">{e(sku)} @ {e(unit_usd)} USD</div>'
+        line_rows.append(
+            f'<div class="line"><div class="lname">{e(name)}</div>{detail_html}'
+            f'<div class="lmeta"><span>{e(qty_label)}</span><span class="mono">{e(amt)}</span></div></div>'
+        )
 
-    width_mm = "72mm" if template_id == "compact" else "80mm"
     footer_html = f'<div class="footer">{e(footer_text)}</div>' if footer_text else ""
     company_html = f"<h1>{e(company_name)}</h1>" if (company_name and not hide_company_name) else ""
     vat_row_html = (
@@ -1831,62 +1820,51 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     balance_rows_html = ""
     if customer_balance:
         balance_rows_html = (
-            f'<div class="row"><span class="muted">Previous Balance USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("previous_usd")))}</strong></div>'
-            f'<div class="row"><span class="muted">Previous Balance LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("previous_lbp")))}</strong></div>'
-            f'<div class="row"><span class="muted">Balance After Sale USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("after_usd")))}</strong></div>'
-            f'<div class="row"><span class="muted">Balance After Sale LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("after_lbp")))}</strong></div>'
+            f'<div class="row"><span class="muted">Prev Bal USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("previous_usd")))}</strong></div>'
+            f'<div class="row"><span class="muted">Prev Bal LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("previous_lbp")))}</strong></div>'
+            f'<div class="row"><span class="muted">After Sale USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("after_usd")))}</strong></div>'
+            f'<div class="row"><span class="muted">After Sale LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("after_lbp")))}</strong></div>'
         )
     return f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-	    <title>{e(title)}</title>
-	    <style>
-	      :root {{
-	        --w: {width_mm};
-	        --fg: #111;
-	        --muted: #666;
-	        --border: #ddd;
-	        /* Avoid external font fetches so receipt printing stays fast offline. */
-	        --mono: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", "Liberation Sans", sans-serif;
-	        --sans: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", "Liberation Sans", sans-serif;
-	      }}
+    <title>{e(title)}</title>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
       body {{
-        margin: 0;
-        padding: 4px 3px;
-        color: var(--fg);
-        font-family: var(--sans);
-        width: var(--w);
-        box-sizing: border-box;
+        color: #111;
+        font-family: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", sans-serif;
+        font-size: 10px;
+        overflow-x: hidden;
       }}
-      .muted {{ color: var(--muted); }}
-      .mono {{ font-family: var(--mono); }}
-      h1 {{ font-size: 16px; margin: 0 0 2px; }}
-      h2 {{ font-size: 12px; margin: 0 0 12px; font-weight: 600; }}
-      .meta {{ font-size: 11px; line-height: 1.35; margin-bottom: 10px; }}
-      table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
-      thead th {{ text-align: left; border-bottom: 1px solid var(--border); padding: 6px 0; }}
-      tbody td {{ padding: 6px 0; border-bottom: 1px dashed #eee; vertical-align: top; }}
-      tbody tr.detail td {{ font-size: 10px; color: var(--muted); padding-top: 2px; }}
-      td.qty, th.qty {{ text-align: right; width: 18%; }}
-      td.amt, th.amt {{ text-align: right; width: 28%; }}
-      .totals {{ margin-top: 10px; font-size: 12px; }}
-      .row {{ display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }}
-      .footer {{ margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; }}
-      .actions {{ margin-top: 12px; display: flex; gap: 8px; }}
+      .mono {{ font-variant-numeric: tabular-nums; }}
+      .muted {{ color: #666; }}
+      h1 {{ font-size: 13px; margin-bottom: 1px; }}
+      h2 {{ font-size: 11px; font-weight: 700; margin-bottom: 4px; }}
+      .meta {{ font-size: 9px; line-height: 1.3; margin-bottom: 6px; }}
+      .hdr {{ display: flex; justify-content: space-between; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-bottom: 2px; font-size: 9px; font-weight: 700; }}
+      .line {{ border-bottom: 1px dashed #ddd; padding: 2px 0 3px; }}
+      .lname {{ font-weight: 500; word-break: break-word; }}
+      .ldetail {{ font-size: 8px; color: #888; }}
+      .lmeta {{ display: flex; justify-content: space-between; font-size: 9px; color: #444; }}
+      .totals {{ margin-top: 6px; font-size: 10px; }}
+      .row {{ display: flex; justify-content: space-between; padding: 1px 0; }}
+      .footer {{ margin-top: 6px; font-size: 8px; color: #666; text-align: center; }}
+      .actions {{ margin-top: 8px; display: flex; gap: 6px; }}
       button {{
-        border: 1px solid var(--border);
+        border: 1px solid #ddd;
         background: white;
-        padding: 8px 10px;
-        border-radius: 10px;
-        font-size: 12px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        font-size: 10px;
         cursor: pointer;
       }}
       @media print {{
-        @page {{ size: var(--w) auto; margin: 1.5mm; }}
+        @page {{ margin: 0; }}
+        body {{ width: 100%; }}
         .actions {{ display: none; }}
-        body {{ padding: 0; }}
       }}
     </style>
   </head>
@@ -1897,21 +1875,11 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
       {''.join(meta_rows)}
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th class="qty">Qty</th>
-          <th class="amt">USD</th>
-        </tr>
-      </thead>
-      <tbody>
-        {''.join(line_rows)}
-      </tbody>
-    </table>
+    <div class="hdr"><span>Item</span><span>Qty / USD</span></div>
+    {''.join(line_rows)}
 
     <div class="totals">
-      <div class="row"><span class="muted">Subtotal USD</span><strong class="mono">{e(fmt_usd(totals.get("base_usd")))}</strong></div>
+      <div class="row"><span class="muted">Subtotal</span><strong class="mono">{e(fmt_usd(totals.get("base_usd")))}</strong></div>
       {vat_row_html}
       <div class="row"><span class="muted">Total USD</span><strong class="mono">{e(fmt_usd(totals.get("total_usd")))}</strong></div>
       <div class="row"><span class="muted">Total LBP</span><strong class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</strong></div>

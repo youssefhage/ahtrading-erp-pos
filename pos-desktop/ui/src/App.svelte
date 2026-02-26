@@ -2987,10 +2987,6 @@
     if (thermal) {
       // Thermal receipt — matches agent _receipt_html() style
       const title = (inv?.receipt_type === "return" || inv?.status === "return") ? "Return Receipt" : "Sale Receipt";
-      const receiptTplRaw = String(cfg?.receipt_template || "classic").trim().toLowerCase();
-      const isCompact = receiptTplRaw === "compact";
-      const widthMm = isCompact ? "72mm" : "80mm";
-
       const metaHtml = [
         `<div class="muted">No: <span class="mono">${_escapeHtml(docNo || "-")}</span></div>`,
         `<div class="muted">Date: <span class="mono">${_escapeHtml(docDate || "-")}</span></div>`,
@@ -3003,13 +2999,8 @@
         const qty = toNum(ln?.qty_entered ?? ln?.qty, 0);
         const uom = String(ln?.uom || "").trim();
         const qtyLabel = uom ? `${qty} ${uom}` : String(qty);
-        return `<tr>
-          <td colspan="3" class="iname">${_escapeHtml(name)}</td>
-        </tr><tr>
-          <td class="sub"></td>
-          <td class="qty">${_escapeHtml(qtyLabel)}</td>
-          <td class="amt">${_escapeHtml(_fmtMoney(ln?.line_total_usd, 2))}</td>
-        </tr>`;
+        const amt = _fmtMoney(ln?.line_total_usd, 2);
+        return `<div class="line"><div class="lname">${_escapeHtml(name)}</div><div class="lmeta"><span>${_escapeHtml(qtyLabel)}</span><span class="mono">${_escapeHtml(amt)}</span></div></div>`;
       }).join("");
 
       return `<!doctype html>
@@ -3019,33 +3010,27 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${_escapeHtml(title)}</title>
   <style>
-    :root { --w: ${widthMm}; --fg: #111; --muted: #666; --border: #ddd; --mono: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; --sans: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
-    body { margin: 0; padding: 2px 2px; color: var(--fg); font-family: var(--sans); width: var(--w); box-sizing: border-box; font-size: 10px; }
-    .muted { color: var(--muted); } .mono { font-family: var(--mono); }
-    h2 { font-size: 11px; margin: 0 0 6px; font-weight: 700; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { color: #111; font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-size: 10px; overflow-x: hidden; }
+    .mono { font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    .muted { color: #666; }
+    h2 { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
     .meta { font-size: 9px; line-height: 1.3; margin-bottom: 6px; }
-    table { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
-    thead th { text-align: left; border-bottom: 1px solid var(--border); padding: 2px 0; font-size: 9px; }
-    td.iname { padding: 3px 0 0; font-weight: 500; word-break: break-word; overflow-wrap: anywhere; }
-    td.sub { padding: 0; }
-    tbody td { padding: 0 0 3px; vertical-align: top; }
-    tr:last-child td.amt { border-bottom: 1px dashed #ddd; padding-bottom: 4px; }
-    td.qty, th.qty { text-align: right; width: 22%; white-space: nowrap; }
-    td.amt, th.amt { text-align: right; width: 22%; white-space: nowrap; }
+    .hdr { display: flex; justify-content: space-between; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-bottom: 2px; font-size: 9px; font-weight: 700; }
+    .line { border-bottom: 1px dashed #ddd; padding: 2px 0 3px; }
+    .lname { font-weight: 500; word-break: break-word; }
+    .lmeta { display: flex; justify-content: space-between; font-size: 9px; color: #444; }
     .totals { margin-top: 6px; font-size: 10px; }
-    .row { display: flex; justify-content: space-between; gap: 4px; padding: 1px 0; }
-    .row strong { white-space: nowrap; }
-    .footer { margin-top: 8px; font-size: 9px; color: var(--muted); text-align: center; }
-    @media print { @page { size: var(--w) auto; margin: 1mm; } body { padding: 0; } .no-print { display: none; } }
+    .row { display: flex; justify-content: space-between; padding: 1px 0; }
+    .footer { margin-top: 6px; font-size: 8px; color: #666; text-align: center; }
+    @media print { @page { margin: 0; } body { width: 100%; } .no-print { display: none; } }
   </style>
 </head>
 <body>
   <h2>${_escapeHtml(title)}</h2>
   <div class="meta">${metaHtml}</div>
-  <table>
-    <thead><tr><th>Item</th><th class="qty">Qty</th><th class="amt">USD</th></tr></thead>
-    <tbody>${lineRowsHtml || '<tr><td colspan="3" style="text-align:center;padding:8px;color:#666;">No lines.</td></tr>'}</tbody>
-  </table>
+  <div class="hdr"><span>Item</span><span>Qty / USD</span></div>
+  ${lineRowsHtml || '<div style="text-align:center;padding:6px;color:#666;">No lines.</div>'}
   <div class="totals">
     <div class="row"><span class="muted">Subtotal</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</strong></div>
     ${vatRowHtml}
