@@ -3009,7 +3009,7 @@
     <div class="row"><span class="muted">Total LBP</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 2))}</strong></div>
   </div>
   ${footerHtml}
-  <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</script>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
 </body>
 </html>`;
     }
@@ -3109,7 +3109,7 @@
 
     ${footerHtml}
   </div>
-  <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</script>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
 </body>
 </html>`;
   };
