@@ -11,88 +11,136 @@
     <link rel="stylesheet" href="/updates/site/style.css" />
   </head>
   <body>
-    <main class="wrap">
-      <header class="hdr">
-        <div class="logo">AH</div>
-        <div>
-          <h1>Melqard Apps</h1>
-          <p class="muted">Desktop downloads.</p>
+    <div class="noise"></div>
+
+    <main class="page">
+      <!-- Hero -->
+      <header class="hero">
+        <div class="hero-logo">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="url(#lg)" />
+            <text x="16" y="22" text-anchor="middle" font-size="16" font-weight="800" fill="#111">AH</text>
+            <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#f0c756"/><stop offset="1" stop-color="#d4a030"/></linearGradient></defs>
+          </svg>
+          <span class="hero-wordmark">Melqard</span>
         </div>
+        <h1 class="hero-title">Download Desktop Apps</h1>
+        <p class="hero-sub">Install once. Apps update automatically in the background.</p>
       </header>
 
-      <section class="card">
-        <h2>What To Install</h2>
-        <p class="muted">
-          Install POS for cashiers and Admin for managers. Download once. Apps auto-update in the
-          background (when internet is available).
-        </p>
+      <!-- Platform detect banner -->
+      <div class="platform-hint" id="platformHint" hidden>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.75 3.5a.75.75 0 011.5 0v.5a.75.75 0 01-1.5 0v-.5zM7.25 7a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0V7z"/></svg>
+        <span id="platformHintText"></span>
+      </div>
 
-        <div class="apps">
-          <article class="app appPos">
-            <div class="appHead">
-              <div class="appMark">POS</div>
-              <div class="appTitleBlock">
-                <div class="appTitleRow">
-                  <div class="appTitle">POS Desktop</div>
-                  <span class="tag required">Required</span>
-                </div>
-                <div class="appMeta muted">Install on: every cashier terminal</div>
-              </div>
+      <!-- Apps -->
+      <div class="apps">
+        <!-- POS -->
+        <section class="app-card">
+          <div class="app-card-glow app-card-glow--pos"></div>
+          <div class="app-badge app-badge--pos">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div class="app-info">
+            <div class="app-name-row">
+              <h2 class="app-name">POS Desktop</h2>
+              <span class="pill pill--required">Required</span>
             </div>
-            <p class="appDesc">Runs the local POS agents and opens the cashier UI. Works on LAN during internet outages.</p>
-            <p class="appMeta muted" data-app-version="pos">Version: checking...</p>
-            <div class="appLinks">
-              <a class="btn" data-download="pos-windows" href="/updates/latest-installer/pos/windows">Download for Windows</a>
-              <a class="btn ghost" data-download="pos-macos" href="/updates/latest-installer/pos/macos">Download for macOS</a>
-            </div>
-          </article>
+            <p class="app-desc">Point-of-sale for cashier terminals. Works offline on LAN during internet outages.</p>
+            <p class="app-version" data-app-version="pos">Checking version&hellip;</p>
+          </div>
+          <div class="app-buttons">
+            <a class="dl-btn dl-btn--primary" data-download="pos-windows" href="/updates/latest-installer/pos/windows">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+              Windows
+            </a>
+            <a class="dl-btn dl-btn--secondary" data-download="pos-macos" href="/updates/latest-installer/pos/macos">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              macOS
+            </a>
+          </div>
+          <p class="app-install-hint">Install on every cashier terminal</p>
+        </section>
 
-          <article class="app appAdmin">
-            <div class="appHead">
-              <div class="appMark">AD</div>
-              <div class="appTitleBlock">
-                <div class="appTitleRow">
-                  <div class="appTitle">Admin Desktop</div>
-                  <span class="tag optional">Optional</span>
-                </div>
-                <div class="appMeta muted">Install on: manager computers (or a POS terminal if needed)</div>
-              </div>
+        <!-- Admin -->
+        <section class="app-card">
+          <div class="app-card-glow app-card-glow--admin"></div>
+          <div class="app-badge app-badge--admin">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </div>
+          <div class="app-info">
+            <div class="app-name-row">
+              <h2 class="app-name">Admin Desktop</h2>
+              <span class="pill pill--optional">Optional</span>
             </div>
-            <p class="appDesc">Dedicated Admin app wrapper. You can also open Admin from POS via the Manager button.</p>
-            <p class="appMeta muted" data-app-version="admin">Version: checking...</p>
-            <div class="appLinks">
-              <a class="btn" data-download="admin-windows" href="/updates/latest-installer/admin/windows">Download for Windows</a>
-              <a class="btn ghost" data-download="admin-macos" href="/updates/latest-installer/admin/macos">Download for macOS</a>
-            </div>
-          </article>
-        </div>
-      </section>
+            <p class="app-desc">Management dashboard for inventory, reports, and settings. Also accessible via POS Manager button.</p>
+            <p class="app-version" data-app-version="admin">Checking version&hellip;</p>
+          </div>
+          <div class="app-buttons">
+            <a class="dl-btn dl-btn--primary" data-download="admin-windows" href="/updates/latest-installer/admin/windows">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+              Windows
+            </a>
+            <a class="dl-btn dl-btn--secondary" data-download="admin-macos" href="/updates/latest-installer/admin/macos">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              macOS
+            </a>
+          </div>
+          <p class="app-install-hint">Install on manager workstations</p>
+        </section>
+      </div>
 
-      <section class="card">
-        <h2>New Store Checklist</h2>
-        <ol class="steps">
+      <!-- Setup guide -->
+      <details class="guide">
+        <summary class="guide-toggle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          New store setup guide
+          <svg class="guide-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <ol class="guide-steps">
           <li>Install <strong>POS Desktop</strong> on each cashier terminal and configure credentials in POS Settings.</li>
           <li>No separate setup app is required.</li>
           <li>(Optional) Install <strong>Admin Desktop</strong> for managers, or use the Manager button inside POS.</li>
           <li>Open cloud Admin to configure devices, users, and permissions.</li>
         </ol>
-      </section>
+      </details>
 
-      <section class="card">
-        <h2>Advanced (Updates)</h2>
-        <ol class="steps">
+      <details class="guide">
+        <summary class="guide-toggle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Developer &amp; CI notes
+          <svg class="guide-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <ol class="guide-steps">
           <li>Merge updates to <code>main</code> (or push a <code>desktop-v*</code> tag).</li>
           <li>GitHub Actions builds Windows + macOS installers and updater bundles automatically.</li>
-          <li>
-            CI publishes files into <code>/updates/pos/</code>, <code>/updates/portal/</code> (Admin; alias
-            <code>/updates/admin/</code>) and updates <code>latest.json</code>.
-          </li>
+          <li>CI publishes files into <code>/updates/pos/</code>, <code>/updates/portal/</code> (Admin; alias <code>/updates/admin/</code>) and updates <code>latest.json</code>.</li>
         </ol>
-        <p class="muted">File listings and updater manifests: <code>/updates/pos/</code>, <code>/updates/admin/</code>.</p>
-      </section>
+      </details>
+
+      <footer class="foot">
+        <span>&copy; Melqard</span>
+      </footer>
     </main>
+
     <script>
       (function () {
+        // Platform detection
+        var ua = navigator.userAgent || "";
+        var isMac = /Mac/i.test(ua);
+        var isWin = /Win/i.test(ua);
+        var hint = document.getElementById("platformHint");
+        var hintText = document.getElementById("platformHintText");
+        if (hint && hintText && (isMac || isWin)) {
+          hintText.textContent = "Detected " + (isMac ? "macOS" : "Windows") + " — use the " + (isMac ? "macOS" : "Windows") + " buttons below.";
+          hint.hidden = false;
+        }
+        // Highlight matching platform buttons
+        if (isMac) document.querySelectorAll('[data-download$="-macos"]').forEach(function(el){ el.classList.add("dl-btn--detected"); });
+        if (isWin) document.querySelectorAll('[data-download$="-windows"]').forEach(function(el){ el.classList.add("dl-btn--detected"); });
+
+        // Version + URL resolution
         function setText(app, text) {
           var el = document.querySelector('[data-app-version="' + app + '"]');
           if (el) el.textContent = text;
@@ -115,9 +163,7 @@
               var data = await fetchJson(paths[i]);
               var version = String((data && data.version) || "").trim();
               if (version) return version;
-            } catch (_) {
-              // try next path
-            }
+            } catch (_) {}
           }
           return "";
         }
@@ -132,16 +178,11 @@
             }
             return orderedWindows;
           }
-
           var orderedMac = [];
           if (keys.indexOf("darwin-aarch64") !== -1) orderedMac.push("darwin-aarch64");
           if (keys.indexOf("darwin-x86_64") !== -1) orderedMac.push("darwin-x86_64");
           for (var j = 0; j < keys.length; j++) {
-            if (
-              keys[j].indexOf("darwin") === 0 &&
-              keys[j] !== "darwin-aarch64" &&
-              keys[j] !== "darwin-x86_64"
-            ) {
+            if (keys[j].indexOf("darwin") === 0 && keys[j] !== "darwin-aarch64" && keys[j] !== "darwin-x86_64") {
               orderedMac.push(keys[j]);
             }
           }
@@ -159,9 +200,7 @@
                 var url = String(entry.url || "").trim();
                 if (url) return url;
               }
-            } catch (_) {
-              // try next path
-            }
+            } catch (_) {}
           }
           return "";
         }
@@ -169,7 +208,7 @@
         (async function () {
           var posPaths = ["/updates/pos/latest.json"];
           var posV = await resolveVersion("pos", posPaths);
-          setText("pos", posV ? "Version: v" + posV : "Version: unavailable");
+          setText("pos", posV ? "v" + posV : "Version unavailable");
           var posWinUrl = await resolveDownloadUrl(posPaths, "windows");
           if (posWinUrl) setDownloadHref("pos", "windows", posWinUrl);
           var posMacUrl = await resolveDownloadUrl(posPaths, "macos");
@@ -177,7 +216,7 @@
 
           var adminPaths = ["/updates/admin/latest.json", "/updates/portal/latest.json"];
           var adminV = await resolveVersion("admin", adminPaths);
-          setText("admin", adminV ? "Version: v" + adminV : "Version: unavailable");
+          setText("admin", adminV ? "v" + adminV : "Version unavailable");
           var adminWinUrl = await resolveDownloadUrl(adminPaths, "windows");
           if (adminWinUrl) setDownloadHref("admin", "windows", adminWinUrl);
           var adminMacUrl = await resolveDownloadUrl(adminPaths, "macos");
