@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "cwd": "apps/admin"
+    },
+    {
+      "name": "pos-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173,
+      "cwd": "pos-desktop/ui"
+    },
+    {
+      "name": "pos-agent",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-u", "agent.py", "--host", "127.0.0.1", "--port", "7070"],
+      "port": 7070,
+      "cwd": "pos-desktop"
+    },
+    {
+      "name": "backend-api",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"],
+      "port": 8001,
+      "cwd": "."
+    }
+  ]
+}

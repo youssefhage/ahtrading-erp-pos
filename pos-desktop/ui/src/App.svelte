@@ -621,6 +621,7 @@
 
   // Screens
   let activeScreen = "pos"; // "pos" | "items" | "settings"
+  let settingsAutoOpenSetup = false;
   let itemLookupQuery = "";
   let itemLookupAutoPick = 0;
   
@@ -685,7 +686,7 @@
   let printingError = "";
   // Official: A4 invoice PDF
   let printOfficial = { printer: "", copies: 1, auto: false, baseUrl: "", template: "official_classic" };
-  let printUnofficial = { printer: "", copies: 1, auto: false, template: "classic", companyName: PRINT_COMPANY_NAME, footerText: "" };
+  let printUnofficial = { printer: "", copies: 1, auto: false, template: "classic", companyName: PRINT_COMPANY_NAME, footerText: "", hideVat: null };
 
   // Cashier
   let showCashierModal = false;
@@ -2905,129 +2906,186 @@
 </html>`;
     }
 
-    const fallbackName = PRINT_COMPANY_NAME;
-    const companyName = normalizeReceiptCompanyName(cfg?.receipt_company_name || fallbackName);
+    // --- Unofficial templates (nameless — no company header) ---
+
     const footerText = String(cfg?.receipt_footer_text || "").trim();
     const docNo = String(inv?.receipt_no || inv?.invoice_no || "").trim();
     const docDate = _fmtDateTime(inv?.created_at || inv?.invoice_date || "");
     const customerName = String(inv?.customer_name || "Walk-in Customer").trim();
-    const invoiceTplRaw = String(cfg?.invoice_template || "official_classic").trim().toLowerCase();
-    const invoiceTpl = (invoiceTplRaw === "official_compact" || invoiceTplRaw === "standard")
-      ? "official_compact"
-      : "official_classic";
-    const receiptTplRaw = String(cfg?.receipt_template || "classic").trim().toLowerCase();
-    const receiptTpl = receiptTplRaw === "compact" ? "compact" : "classic";
-    const useCompact = thermal ? (receiptTpl === "compact") : (invoiceTpl === "official_compact");
-    const paymentHtml = payments.length
-      ? payments
-        .map((p) => {
+    const hideVat = typeof cfg?.receipt_hide_vat === "boolean"
+      ? cfg.receipt_hide_vat
+      : (companyKey !== "official");
+    const footerHtml = footerText ? `<div class="footer">${_escapeHtml(footerText)}</div>` : "";
+    // Unofficial companies have no VAT — omit the row entirely (hideVat defaults true).
+    // Official companies show "VAT 0%" with $0 (not VAT-registered yet).
+    const vatRowHtml = hideVat
+      ? ""
+      : `<div class="row"><span class="muted">VAT 0%</span><strong class="mono">${_escapeHtml(_fmtMoney(0, 2))}</strong></div>`;
+
+    if (thermal) {
+      // Thermal receipt — matches agent _receipt_html() style
+      const title = (inv?.receipt_type === "return" || inv?.status === "return") ? "Return Receipt" : "Sale Receipt";
+      const receiptTplRaw = String(cfg?.receipt_template || "classic").trim().toLowerCase();
+      const isCompact = receiptTplRaw === "compact";
+      const widthMm = isCompact ? "72mm" : "80mm";
+
+      const metaHtml = [
+        `<div class="muted">No: <span class="mono">${_escapeHtml(docNo || "-")}</span></div>`,
+        `<div class="muted">Date: <span class="mono">${_escapeHtml(docDate || "-")}</span></div>`,
+        `<div class="muted">Customer: <span class="mono">${_escapeHtml(customerName)}</span></div>`,
+        `<div class="muted">Payment: <span>${_escapeHtml(String(inv?.payment_method || payments.map((p) => p?.method).filter(Boolean).join(", ") || "-"))}</span></div>`,
+      ].join("\n");
+
+      const lineRowsHtml = lines.map((ln) => {
+        const name = _lineNameForPrint(ln);
+        const qty = toNum(ln?.qty_entered ?? ln?.qty, 0);
+        const uom = String(ln?.uom || "").trim();
+        const qtyLabel = uom ? `${qty} ${uom}` : String(qty);
+        return `<tr>
+          <td class="name">${_escapeHtml(name)}</td>
+          <td class="qty">${_escapeHtml(qtyLabel)}</td>
+          <td class="amt">${_escapeHtml(_fmtMoney(ln?.line_total_usd, 2))}</td>
+        </tr>`;
+      }).join("");
+
+      return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${_escapeHtml(title)}</title>
+  <style>
+    :root { --w: ${widthMm}; --fg: #111; --muted: #666; --border: #ddd; --mono: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; --sans: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+    body { margin: 0; padding: 4px 3px; color: var(--fg); font-family: var(--sans); width: var(--w); box-sizing: border-box; }
+    .muted { color: var(--muted); } .mono { font-family: var(--mono); }
+    h2 { font-size: 12px; margin: 0 0 12px; font-weight: 600; }
+    .meta { font-size: 11px; line-height: 1.35; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { text-align: left; border-bottom: 1px solid var(--border); padding: 6px 0; }
+    tbody td { padding: 6px 0; border-bottom: 1px dashed #eee; vertical-align: top; }
+    td.qty, th.qty { text-align: right; width: 18%; }
+    td.amt, th.amt { text-align: right; width: 28%; }
+    .totals { margin-top: 10px; font-size: 12px; }
+    .row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+    .footer { margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; }
+    @media print { @page { size: var(--w) auto; margin: 1.5mm; } body { padding: 0; } .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <h2>${_escapeHtml(title)}</h2>
+  <div class="meta">${metaHtml}</div>
+  <table>
+    <thead><tr><th>Item</th><th class="qty">Qty</th><th class="amt">USD</th></tr></thead>
+    <tbody>${lineRowsHtml || '<tr><td colspan="3" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>'}</tbody>
+  </table>
+  <div class="totals">
+    <div class="row"><span class="muted">Subtotal USD</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</strong></div>
+    ${vatRowHtml}
+    <div class="row"><span class="muted">Total USD</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))}</strong></div>
+    <div class="row"><span class="muted">Total LBP</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 2))}</strong></div>
+  </div>
+  ${footerHtml}
+  <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</script>
+</body>
+</html>`;
+    }
+
+    // Unofficial A4 invoice — proper layout, no company header
+    const paymentRowsHtml = payments.length
+      ? payments.map((p) => {
           const method = _escapeHtml(String(p?.method || "payment").toUpperCase());
-          const usd = _fmtMoney(p?.amount_usd, 2);
-          const lbp = _fmtMoney(p?.amount_lbp, 2);
-          return `<div>${method}: USD ${usd} | LBP ${lbp}</div>`;
-        })
-        .join("")
-      : "<div>Unpaid / Credit</div>";
+          return `<tr><td>${method}</td><td class="r mono">${_escapeHtml(_fmtMoney(p?.amount_usd, 2))}</td><td class="r mono">${_escapeHtml(_fmtMoney(p?.amount_lbp, 2))}</td></tr>`;
+        }).join("")
+      : '<tr><td colspan="3" style="color:#666;">No payments recorded.</td></tr>';
 
-    const lineRows = thermal
-      ? lines.map((ln) => `
-          <tr>
-            <td>${_escapeHtml(_lineNameForPrint(ln))}</td>
-            <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
-            ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.unit_price_lbp, 2)}</td>`}
-            <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
-          </tr>
-        `).join("")
-      : lines.map((ln, i) => `
-          <tr>
-            ${useCompact ? "" : `<td>${i + 1}</td>`}
-            <td>${_escapeHtml(_lineNameForPrint(ln))}</td>
-            <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
-            ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.unit_price_usd, 2)}</td>`}
-            <td class="r">${_fmtMoney(ln?.line_total_usd, 2)}</td>
-            ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>`}
-          </tr>
-        `).join("");
-
-    const pageSize = thermal ? "80mm auto" : "A4";
-    const margin = thermal ? "4mm" : "10mm";
-    const thCols = thermal
-      ? (useCompact
-        ? "<th>Item</th><th class='r'>Qty</th><th class='r'>LBP</th>"
-        : "<th>Item</th><th class='r'>Qty</th><th class='r'>Unit LBP</th><th class='r'>Line LBP</th>")
-      : (useCompact
-        ? "<th>Item</th><th class='r'>Qty</th><th class='r'>Line USD</th>"
-        : "<th>#</th><th>Item</th><th class='r'>Qty</th><th class='r'>Unit USD</th><th class='r'>Line USD</th><th class='r'>Line LBP</th>");
-    const noLinesColspan = thermal ? (useCompact ? 3 : 4) : (useCompact ? 3 : 6);
-    const subtitle = thermal
-      ? `RECEIPT ${useCompact ? "COMPACT" : "CLASSIC"}`
-      : `INVOICE ${useCompact ? "COMPACT" : "CLASSIC"}`;
-    const metaRows = thermal
-      ? `
-      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
-      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
-      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
-      `
-      : (useCompact
-        ? `
-      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
-      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
-      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
-      `
-        : `
-      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
-      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
-      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
-      <div><strong>Status:</strong> ${_escapeHtml(String(inv?.status || "").toUpperCase() || "-")}</div>
-      `);
+    const a4LineRows = lines.map((ln, i) => {
+      return `<tr>
+        <td class="br c">${i + 1}</td>
+        <td class="br mono">${_escapeHtml(_lineSkuForPrint(ln))}</td>
+        <td class="br">${_escapeHtml(_lineNameForPrint(ln))}</td>
+        <td class="br r mono">${_escapeHtml(toNum(ln?.qty_entered ?? ln?.qty, 0).toLocaleString("en-US", { maximumFractionDigits: 3 }))}</td>
+        <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
+        <td class="br r mono">${_escapeHtml(_fmtMoney(ln?.unit_price_usd, 2))}</td>
+        <td class="r mono">${_escapeHtml(_fmtMoney(ln?.line_total_usd, 2))}</td>
+      </tr>`;
+    }).join("");
 
     return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${_escapeHtml(docNo || "Print")}</title>
+  <title>${_escapeHtml(docNo || "Invoice")}</title>
   <style>
-    @page { size: ${pageSize}; margin: ${margin}; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111; margin: 0; }
-    .wrap { padding: 8px; }
-    .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-    .name { font-weight: 700; font-size: ${thermal ? "14px" : "18px"}; }
-    .muted { color: #555; font-size: 12px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; margin-bottom: 8px; }
-    table { width: 100%; border-collapse: collapse; font-size: ${thermal ? "11px" : "12px"}; }
-    th, td { border-bottom: 1px solid #ddd; padding: 4px 2px; text-align: left; vertical-align: top; }
-    th { font-weight: 700; }
-    .r { text-align: right; }
-    .tot { margin-top: 8px; font-size: 12px; }
-    .tot .row { display: flex; justify-content: space-between; margin: 2px 0; }
-    .tot .bold { font-weight: 700; border-top: 1px solid #111; padding-top: 4px; margin-top: 4px; }
-    .pay { margin-top: 8px; font-size: 12px; }
-    .foot { margin-top: 10px; font-size: 11px; color: #444; text-align: center; }
+    @page { size: A4; margin: 10mm; }
+    body { margin: 0; color: #111; font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-size: 11px; line-height: 1.3; }
+    .page { padding: 4mm; }
+    .mono { font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
+    .title { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 12px; margin-bottom: 16px; }
+    .meta .line { display: grid; grid-template-columns: 100px 1fr; gap: 6px; }
+    table.lines { width: 100%; border-collapse: collapse; border: 1px solid rgba(0,0,0,0.35); font-size: 10px; margin-bottom: 12px; }
+    table.lines th { background: rgba(0,0,0,0.06); border-bottom: 1px solid rgba(0,0,0,0.35); padding: 5px 4px; text-align: left; font-weight: 700; }
+    table.lines td { border-top: 1px solid rgba(0,0,0,0.15); padding: 5px 4px; vertical-align: top; }
+    .br { border-right: 1px solid rgba(0,0,0,0.15); }
+    .r { text-align: right; } .c { text-align: center; }
+    .summary { display: grid; grid-template-columns: 1fr 300px; gap: 16px; margin-top: 12px; }
+    .summary-right { border: 1px solid rgba(0,0,0,0.35); }
+    .summary-right .row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(0,0,0,0.2); padding: 6px 8px; }
+    .summary-right .row:last-child { border-bottom: 0; background: rgba(0,0,0,0.06); font-weight: 700; font-size: 12px; }
+    table.pay { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
+    table.pay th, table.pay td { border-bottom: 1px solid #ddd; padding: 4px 6px; text-align: left; }
+    table.pay th { font-weight: 700; }
+    .footer { margin-top: 16px; font-size: 10px; color: #666; text-align: center; }
+    @media print { .no-print { display: none; } }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="hd">
-      <div class="name">${_escapeHtml(companyName)}</div>
-      <div class="muted">${subtitle}</div>
+  <div class="page">
+    <div class="title">Invoice <span class="mono">${_escapeHtml(docNo || "(draft)")}</span></div>
+
+    <div class="meta">
+      <div class="line"><strong>Date</strong><span class="mono">${_escapeHtml(docDate || "-")}</span></div>
+      <div class="line"><strong>Customer</strong><span>${_escapeHtml(customerName)}</span></div>
+      <div class="line"><strong>Due Date</strong><span class="mono">${_escapeHtml(inv?.due_date ? _fmtDateTime(inv.due_date) : "-")}</span></div>
+      <div class="line"><strong>Status</strong><span>${_escapeHtml(String(inv?.status || "").toUpperCase() || "-")}</span></div>
+      <div class="line"><strong>Currency</strong><span>${_escapeHtml(String(inv?.settlement_currency || inv?.pricing_currency || "USD"))}</span></div>
     </div>
-    <div class="grid">
-      ${metaRows}
-    </div>
-    <table>
-      <thead><tr>${thCols}</tr></thead>
-      <tbody>${lineRows || `<tr><td colspan="${noLinesColspan}">No lines</td></tr>`}</tbody>
+
+    <table class="lines">
+      <thead>
+        <tr>
+          <th class="br c" style="width:30px">#</th>
+          <th class="br">Item</th>
+          <th class="br">Description</th>
+          <th class="br r">Qty</th>
+          <th class="br c">UOM</th>
+          <th class="br r">Unit USD</th>
+          <th class="r">Line USD</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${a4LineRows || '<tr><td colspan="7" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>'}
+      </tbody>
     </table>
-    <div class="tot">
-      <div class="row"><span>Subtotal USD</span><span>USD ${_fmtMoney(inv?.subtotal_usd, 2)}</span></div>
-      <div class="row"><span>VAT USD</span><span>USD ${_fmtMoney(taxUsd, 2)}</span></div>
-      <div class="row"><span>Total USD</span><span>USD ${_fmtMoney(inv?.total_usd, 2)}</span></div>
-      <div class="row bold"><span>Total LBP</span><span>LBP ${_fmtMoney(inv?.total_lbp, 2)}</span></div>
-      <div class="row"><span>VAT LBP</span><span>LBP ${_fmtMoney(taxLbp, 2)}</span></div>
+
+    <div class="summary">
+      <div></div>
+      <div class="summary-right">
+        <div class="row"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</span></div>
+        ${hideVat ? "" : `<div class="row"><span>VAT 0%</span><span class="mono">${_escapeHtml(_fmtMoney(0, 2))}</span></div>`}
+        <div class="row"><span>Total USD</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))}</span></div>
+        <div class="row"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 2))}</span></div>
+      </div>
     </div>
-    <div class="pay"><strong>Payments</strong>${paymentHtml}</div>
-    ${footerText ? `<div class="foot">${_escapeHtml(footerText)}</div>` : ""}
+
+    <table class="pay">
+      <thead><tr><th>Payment</th><th class="r">USD</th><th class="r">LBP</th></tr></thead>
+      <tbody>${paymentRowsHtml}</tbody>
+    </table>
+
+    ${footerHtml}
   </div>
+  <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</script>
 </body>
 </html>`;
   };
@@ -5614,11 +5672,12 @@
       template: String(unCfg.receipt_template || "classic").trim().toLowerCase() || "classic",
       companyName: normalizeReceiptCompanyName(unCfg.receipt_company_name || PRINT_COMPANY_NAME),
       footerText: String(unCfg.receipt_footer_text || "").trim(),
+      hideVat: typeof unCfg.receipt_hide_vat === "boolean" ? unCfg.receipt_hide_vat : null,
     };
 
     const results = await Promise.allSettled([
-      apiCallFor("official", "/printers"),
-      apiCallFor("unofficial", "/printers"),
+      apiCallFor("official", "/printers?refresh=1"),
+      apiCallFor("unofficial", "/printers?refresh=1"),
     ]);
     const rOff = results[0].status === "fulfilled" ? results[0].value : null;
     const rUn = results[1].status === "fulfilled" ? results[1].value : null;
@@ -5660,6 +5719,7 @@
             receipt_template: (printUnofficial.template || "classic").trim().toLowerCase() || "classic",
             receipt_company_name: normalizeReceiptCompanyName((printUnofficial.companyName || "").trim() || PRINT_COMPANY_NAME),
             receipt_footer_text: (printUnofficial.footerText || "").trim(),
+            receipt_hide_vat: typeof printUnofficial.hideVat === "boolean" ? printUnofficial.hideVat : null,
           }
         }),
       ]);
@@ -8090,7 +8150,15 @@
         else activateWebHostUnsupported("Remote web host detected. Using cloud setup mode.");
       }
 
-      fetchData();
+      await fetchData();
+
+      // Auto-redirect to Settings when the agent is unconfigured (first run).
+      const unconfigured = !String(config.company_id || "").trim() && !String(config.device_id || "").trim();
+      if (unconfigured) {
+        activeScreen = "settings";
+        settingsAutoOpenSetup = true;
+      }
+
       scheduleFetch(22000);
       schedulePush(7000);
       schedulePull(45000);
@@ -8700,6 +8768,8 @@
       setupDevices={setupDevices}
       setupRegisterDevice={setupRegisterDevice}
       versionText={runtimeVersionText}
+      autoOpenSetup={settingsAutoOpenSetup}
+      on:setupComplete={() => { settingsAutoOpenSetup = false; activeScreen = "pos"; }}
     />
   {/if}
 </Shell>
@@ -10065,6 +10135,20 @@
                 bind:value={printUnofficial.footerText}
                 maxlength="160"
               />
+            </div>
+            <div>
+              <label class="text-xs text-muted" for="print-unofficial-vat">VAT on receipt</label>
+              <select id="print-unofficial-vat" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm"
+                value={printUnofficial.hideVat === true ? "hide" : printUnofficial.hideVat === false ? "show" : "auto"}
+                on:change={(e) => {
+                  const v = e.target.value;
+                  printUnofficial.hideVat = v === "hide" ? true : v === "show" ? false : null;
+                }}
+              >
+                <option value="auto">Auto (hidden for unofficial)</option>
+                <option value="show">Always show VAT</option>
+                <option value="hide">Always hide VAT</option>
+              </select>
             </div>
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-xs text-muted">
