@@ -352,4 +352,73 @@
   :root[data-theme="light"] .ring-black\/5 {
     --tw-ring-color: rgb(var(--color-border) / 0.35) !important;
   }
+
+  /* ── Light-mode status-color overrides ──────────────────────────
+     Dark-mode uses the pastel 300/400 shades (emerald-300, amber-300,
+     red-300 etc.) which have poor contrast on a light grey surface.
+     Swap them to their darker 600/700 counterparts in light theme. */
+
+  /* Text */
+  :root[data-theme="light"] .text-emerald-300 { color: #047857 !important; }
+  :root[data-theme="light"] .text-emerald-400 { color: #059669 !important; }
+  :root[data-theme="light"] .text-amber-300   { color: #b45309 !important; }
+  :root[data-theme="light"] .text-amber-300\/90 { color: rgba(180, 83, 9, 0.9) !important; }
+  :root[data-theme="light"] .text-amber-400   { color: #d97706 !important; }
+  :root[data-theme="light"] .text-red-300     { color: #dc2626 !important; }
+  :root[data-theme="light"] .text-red-400     { color: #dc2626 !important; }
+  :root[data-theme="light"] .text-red-200     { color: #b91c1c !important; }
+
+  /* Hover text */
+  :root[data-theme="light"] .hover\:text-red-300:hover   { color: #b91c1c !important; }
+  :root[data-theme="light"] .hover\:text-red-400:hover   { color: #b91c1c !important; }
+  :root[data-theme="light"] .hover\:text-emerald-400:hover { color: #047857 !important; }
+
+  /* Backgrounds — slightly stronger fills for better badge legibility */
+  :root[data-theme="light"] .bg-emerald-500\/10,
+  :root[data-theme="light"] .bg-emerald-500\/12,
+  :root[data-theme="light"] .bg-emerald-500\/15,
+  :root[data-theme="light"] .bg-emerald-500\/20 { background-color: rgba(16, 185, 129, 0.12) !important; }
+
+  :root[data-theme="light"] .bg-amber-500\/10,
+  :root[data-theme="light"] .bg-amber-500\/12,
+  :root[data-theme="light"] .bg-amber-500\/15,
+  :root[data-theme="light"] .bg-amber-500\/20 { background-color: rgba(245, 158, 11, 0.12) !important; }
+
+  :root[data-theme="light"] .bg-red-500\/10,
+  :root[data-theme="light"] .bg-red-500\/12,
+  :root[data-theme="light"] .bg-red-500\/15,
+  :root[data-theme="light"] .bg-red-500\/20 { background-color: rgba(239, 68, 68, 0.10) !important; }
+
+  /* Hover backgrounds */
+  :root[data-theme="light"] .hover\:bg-emerald-500\/20:hover,
+  :root[data-theme="light"] .hover\:bg-emerald-500\/30:hover { background-color: rgba(16, 185, 129, 0.20) !important; }
+
+  :root[data-theme="light"] .hover\:bg-amber-500\/20:hover,
+  :root[data-theme="light"] .hover\:bg-amber-500\/22:hover,
+  :root[data-theme="light"] .hover\:bg-amber-500\/30:hover { background-color: rgba(245, 158, 11, 0.20) !important; }
+
+  :root[data-theme="light"] .hover\:bg-red-500\/20:hover,
+  :root[data-theme="light"] .hover\:bg-red-500\/22:hover,
+  :root[data-theme="light"] .hover\:bg-red-500\/30:hover { background-color: rgba(239, 68, 68, 0.18) !important; }
+
+  /* Borders — stronger outlines for legibility */
+  :root[data-theme="light"] .border-emerald-500\/20,
+  :root[data-theme="light"] .border-emerald-500\/25,
+  :root[data-theme="light"] .border-emerald-500\/30,
+  :root[data-theme="light"] .border-emerald-500\/35,
+  :root[data-theme="light"] .border-emerald-500\/40 { border-color: rgba(5, 150, 105, 0.35) !important; }
+
+  :root[data-theme="light"] .border-amber-500\/10,
+  :root[data-theme="light"] .border-amber-500\/20,
+  :root[data-theme="light"] .border-amber-500\/25,
+  :root[data-theme="light"] .border-amber-500\/30,
+  :root[data-theme="light"] .border-amber-500\/35,
+  :root[data-theme="light"] .border-amber-500\/40 { border-color: rgba(217, 119, 6, 0.35) !important; }
+
+  :root[data-theme="light"] .border-red-500\/10,
+  :root[data-theme="light"] .border-red-500\/20,
+  :root[data-theme="light"] .border-red-500\/25,
+  :root[data-theme="light"] .border-red-500\/30,
+  :root[data-theme="light"] .border-red-500\/35,
+  :root[data-theme="light"] .border-red-500\/40 { border-color: rgba(220, 38, 38, 0.30) !important; }
 }
