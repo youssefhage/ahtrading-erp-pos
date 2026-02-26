@@ -1317,7 +1317,11 @@
     if (queued > 0) return `Syncing · queued ${queued}`;
     return "Synced";
   })();
-  $: queuedEventsTotal = ((outbox || []).length + (unofficialOutbox || []).length);
+  $: queuedEventsTotal = (() => {
+    const all = [...(outbox || []), ...(unofficialOutbox || [])];
+    return all.filter((ev) => _queueStatus(ev) !== "dead").length;
+  })();
+  $: queuedEventsTotalIncludingDead = ((outbox || []).length + (unofficialOutbox || []).length);
   $: queueEvents = (() => {
     const withCompany = [];
     for (const ev of (outbox || [])) withCompany.push({ ...(ev || {}), companyKey: "official" });
@@ -3209,20 +3213,38 @@
     return await _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
-  const _openPrintWindowWithUrl = (url, receiptWin = null) => {
+  const _openPrintWindowWithUrl = (url, receiptWin = null, { autoPrint = false } = {}) => {
     const u = String(url || "").trim();
     if (!u) return false;
+    let win = null;
     try {
       if (receiptWin && !receiptWin.closed) {
         receiptWin.location = u;
-        return true;
+        win = receiptWin;
       }
     } catch (_) {}
-    try {
-      window.open(u, "_blank", "noopener,noreferrer");
-      return true;
-    } catch (_) {}
-    return false;
+    if (!win) {
+      try {
+        win = window.open(u, "_blank");
+      } catch (_) {}
+    }
+    if (!win) return false;
+    if (autoPrint) {
+      // PDF viewer needs time to load; poll until ready then trigger print dialog.
+      let attempts = 0;
+      const tryPrint = () => {
+        attempts++;
+        try {
+          if (win.closed) return;
+          win.focus();
+          win.print();
+        } catch (_) {
+          if (attempts < 8) setTimeout(tryPrint, 400);
+        }
+      };
+      setTimeout(tryPrint, 600);
+    }
+    return true;
   };
 
   const _printInvoiceByEventWeb = async (companyKey, eventId, receiptWin = null, { thermal = false } = {}) => {
@@ -4429,8 +4451,7 @@
           const policyTpl = String(detailRes?.detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
           const u = await _invoicePdfUrlFromCfg(companyKey, cfg, invId, policyTpl);
           if (u) {
-            if (receiptWin) receiptWin.location = u;
-            else window.open(u, "_blank", "noopener,noreferrer");
+            _openPrintWindowWithUrl(u, receiptWin, { autoPrint: true });
             return;
           }
         } catch (_) {}
@@ -7878,9 +7899,14 @@
       }
       const o = results[0].status === "fulfilled" ? results[0].value : null;
       const u = results[1].status === "fulfilled" ? results[1].value : null;
-      reportNotice(
-        `Pushed: Off ${o?.sent ?? 0}, Un ${u?.sent ?? 0}`
-      );
+      const totalSent = (o?.sent ?? 0) + (u?.sent ?? 0);
+      if (totalSent === 0 && queueDeadCount > 0) {
+        reportError(`${queueDeadCount} dead event${queueDeadCount === 1 ? "" : "s"} need admin requeue. Nothing to send.`);
+      } else {
+        reportNotice(
+          `Pushed: Off ${o?.sent ?? 0}, Un ${u?.sent ?? 0}`
+        );
+      }
       await fetchData();
     } catch (e) {
       reportError(e.message);
@@ -9426,7 +9452,7 @@
       <div class="px-5 py-4 border-b border-ink/10 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
         <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
           <div class="text-muted uppercase tracking-wide">Total</div>
-          <div class="text-ink font-bold mt-0.5">{queuedEventsTotal}</div>
+          <div class="text-ink font-bold mt-0.5">{queuedEventsTotalIncludingDead}</div>
         </div>
         <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
           <div class="text-muted uppercase tracking-wide">Official</div>
