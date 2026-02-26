@@ -4343,6 +4343,11 @@
         throw err;
       }
       if (_isFetchNetworkError(e)) {
+        // Fallback: if the other company's local agent is unreachable but cloud
+        // device credentials exist, route through cloud instead of erroring.
+        if (companyKey === otherCompanyKey && _hasCloudDeviceConfig(companyKey)) {
+          return await _webApiCallFor(companyKey, path, options);
+        }
         const err = new Error("Local POS agent is unreachable. Restart POS Desktop and verify agent ports in Settings.");
         err.status = 0;
         err.payload = { error: "network", url };
