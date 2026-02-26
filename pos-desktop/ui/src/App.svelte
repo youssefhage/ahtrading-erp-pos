@@ -42,7 +42,7 @@
   const CART_DRAFTS_STORAGE_KEY = "pos_ui_cart_drafts_v1";
   const CART_DRAFT_KEEP_COPY_STORAGE_KEY = "pos_ui_cart_drafts_keep_copy_on_resume";
   const DEFAULT_API_BASE = "/api";
-  const DEFAULT_OTHER_AGENT_URL = "http://localhost:7072";
+  const DEFAULT_OTHER_AGENT_URL = "";
   const WEB_LOCAL_OUTBOX_MAX = 800;
   const WEB_LOCAL_AUDIT_MAX = 500;
   const CART_DRAFTS_MAX = 50;
@@ -236,11 +236,8 @@
   };
 
   const _defaultOtherAgentUrlForCurrentHost = () => {
-    const ctx = _currentLoopbackAgentContext();
-    if (!ctx) return DEFAULT_OTHER_AGENT_URL;
-    if (ctx.currentPort === "7070") return ctx.unofficialOrigin;
-    if (ctx.currentPort === "7072") return ctx.officialOrigin;
-    return DEFAULT_OTHER_AGENT_URL;
+    // Default to empty — unofficial company routes through cloud, not a second local agent.
+    return "";
   };
 
   const _sanitizeOtherAgentUrl = (value) => {
