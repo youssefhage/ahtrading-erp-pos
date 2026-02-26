@@ -48,7 +48,7 @@
               <span class="pill pill--required">Required</span>
             </div>
             <p class="app-desc">Point-of-sale for cashier terminals. Works offline on LAN during internet outages.</p>
-            <p class="app-version" data-app-version="pos">Checking version&hellip;</p>
+            <p class="app-version" data-app-version="pos">Latest build</p>
           </div>
           <div class="app-buttons">
             <a class="dl-btn dl-btn--primary" data-download="pos-windows" href="/updates/latest-installer/pos/windows">
@@ -75,7 +75,7 @@
               <span class="pill pill--optional">Optional</span>
             </div>
             <p class="app-desc">Management dashboard for inventory, reports, and settings. Also accessible via POS Manager button.</p>
-            <p class="app-version" data-app-version="admin">Checking version&hellip;</p>
+            <p class="app-version" data-app-version="admin">Latest build</p>
           </div>
           <div class="app-buttons">
             <a class="dl-btn dl-btn--primary" data-download="admin-windows" href="/updates/latest-installer/admin/windows">
@@ -152,9 +152,13 @@
         }
 
         async function fetchJson(url) {
-          var res = await fetch(url, { cache: "no-store" });
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          return await res.json();
+          var controller = new AbortController();
+          var tid = setTimeout(function () { controller.abort(); }, 6000);
+          try {
+            var res = await fetch(url, { cache: "no-store", signal: controller.signal });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return await res.json();
+          } finally { clearTimeout(tid); }
         }
 
         async function resolveVersion(app, paths) {
@@ -205,23 +209,22 @@
           return "";
         }
 
-        (async function () {
-          var posPaths = ["/updates/pos/latest.json"];
-          var posV = await resolveVersion("pos", posPaths);
-          setText("pos", posV ? "v" + posV : "Version unavailable");
-          var posWinUrl = await resolveDownloadUrl(posPaths, "windows");
-          if (posWinUrl) setDownloadHref("pos", "windows", posWinUrl);
-          var posMacUrl = await resolveDownloadUrl(posPaths, "macos");
-          if (posMacUrl) setDownloadHref("pos", "macos", posMacUrl);
-
-          var adminPaths = ["/updates/admin/latest.json", "/updates/portal/latest.json"];
-          var adminV = await resolveVersion("admin", adminPaths);
-          setText("admin", adminV ? "v" + adminV : "Version unavailable");
-          var adminWinUrl = await resolveDownloadUrl(adminPaths, "windows");
-          if (adminWinUrl) setDownloadHref("admin", "windows", adminWinUrl);
-          var adminMacUrl = await resolveDownloadUrl(adminPaths, "macos");
-          if (adminMacUrl) setDownloadHref("admin", "macos", adminMacUrl);
-        })();
+        async function loadApp(label, paths) {
+          try {
+            var v = await resolveVersion(label, paths);
+            setText(label, v ? "v" + v : "Latest build");
+            var winUrl = await resolveDownloadUrl(paths, "windows");
+            if (winUrl) setDownloadHref(label, "windows", winUrl);
+            var macUrl = await resolveDownloadUrl(paths, "macos");
+            if (macUrl) setDownloadHref(label, "macos", macUrl);
+          } catch (_) {
+            setText(label, "Latest build");
+          }
+        }
+        Promise.all([
+          loadApp("pos", ["/updates/pos/latest.json"]),
+          loadApp("admin", ["/updates/admin/latest.json", "/updates/portal/latest.json"]),
+        ]).catch(function () {});
       })();
     </script>
   </body>
