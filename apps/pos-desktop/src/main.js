@@ -281,8 +281,7 @@ function buildUnifiedUiUrl(port, otherPort = null) {
   q.set("cb", String(Date.now()));
   q.set("desktop", "1");
   if (APP_VERSION && APP_VERSION !== "unknown") q.set("desktopVersion", APP_VERSION);
-  const other = Number(otherPort);
-  if (Number.isFinite(other) && other > 0) q.set("otherAgentUrl", agentBase(other));
+  // Unofficial company routes through cloud — no second local agent URL needed.
   return `${agentBase(port)}/?${q.toString()}`;
 }
 
