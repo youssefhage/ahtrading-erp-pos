@@ -10,7 +10,7 @@ from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 from ..account_defaults import ensure_company_account_defaults
 from backend.workers import pos_processor
-from ..journal_utils import auto_balance_journal
+from ..journal_utils import auto_balance_journal, assert_journal_balanced, fetch_exchange_rate
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -412,15 +412,18 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 amt_usd = (qty_in if qty_in > 0 else qty_out) * unit_usd
                 amt_lbp = (qty_in if qty_in > 0 else qty_out) * unit_lbp
 
+                fx_rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
+                fx_rate = fx_rate or Decimal("0")
+
                 cur.execute(
                     """
                     INSERT INTO gl_journals
                       (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, 'inventory_adjustment', %s, CURRENT_DATE, 'market', 0, %s, %s)
+                      (gen_random_uuid(), %s, %s, 'inventory_adjustment', %s, CURRENT_DATE, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"ADJ-{str(move_id)[:8]}", move_id, (data.reason or "Inventory adjustment"), user["user_id"]),
+                    (company_id, f"ADJ-{str(move_id)[:8]}", move_id, fx_rate, (data.reason or "Inventory adjustment"), user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -457,6 +460,10 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
 
                 try:
                     auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 
@@ -561,19 +568,23 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
                 amt_usd = Decimal(str(data.qty_out)) * Decimal(str(unit_cost_usd or 0))
                 amt_lbp = Decimal(str(data.qty_out)) * Decimal(str(unit_cost_lbp or 0))
 
+                fx_rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
+                fx_rate = fx_rate or Decimal("0")
+
                 journal_no = _safe_journal_no(cur, company_id, f"EXP-{str(move_id)[:8]}")
                 cur.execute(
                     """
                     INSERT INTO gl_journals
                       (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, 'expiry_writeoff', %s, CURRENT_DATE, 'market', 0, %s, %s)
+                      (gen_random_uuid(), %s, %s, 'expiry_writeoff', %s, CURRENT_DATE, 'market', %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         company_id,
                         journal_no,
                         move_id,
+                        fx_rate,
                         (data.reason or "Expiry write-off").strip(),
                         user["user_id"],
                     ),
@@ -600,6 +611,10 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
 
                 try:
                     auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 
@@ -752,15 +767,18 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                     raise HTTPException(status_code=400, detail="no valid lines (need qty > 0)")
 
                 journal_no = _safe_journal_no(cur, company_id, f"OS-{import_id[:8]}")
+                fx_rate_os, _stale_os = fetch_exchange_rate(cur, company_id, posting_date, "market")
+                fx_rate_os = fx_rate_os or Decimal("0")
+
                 cur.execute(
                     """
                     INSERT INTO gl_journals
                       (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, 'opening_stock', %s, %s, 'market', 0, %s, %s)
+                      (gen_random_uuid(), %s, %s, 'opening_stock', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, journal_no, import_id, posting_date, f"Opening stock import ({created} lines)", user["user_id"]),
+                    (company_id, journal_no, import_id, posting_date, fx_rate_os, f"Opening stock import ({created} lines)", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 

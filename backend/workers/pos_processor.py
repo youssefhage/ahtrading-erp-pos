@@ -466,6 +466,7 @@ def get_avg_cost(cur, company_id: str, item_id: str, warehouse_id: str):
         return Decimal("0"), Decimal("0")
     return Decimal(str(row["avg_cost_usd"] or 0)), Decimal(str(row["avg_cost_lbp"] or 0))
 
+# Canonical versions live in backend/app/journal_utils.py — keep in sync.
 USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
 

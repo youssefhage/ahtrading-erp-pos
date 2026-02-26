@@ -9,15 +9,13 @@ from ..period_locks import assert_period_open
 import json
 import uuid
 from backend.workers import pos_processor
-from ..journal_utils import auto_balance_journal
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
 from ..account_defaults import ensure_company_account_defaults
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
 from ..uom import load_item_uom_context, resolve_line_uom
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
-USD_Q = Decimal("0.0001")
-LBP_Q = Decimal("0.01")
 from ..print_utils import (
     load_print_policy as _load_print_policy,
     effective_sales_invoice_pdf_template as _effective_sales_invoice_pdf_template,
@@ -25,14 +23,6 @@ from ..print_utils import (
     OFFICIAL_COMPANY_ID,
 )
 SALES_INVOICE_CHANNELS = {"pos", "admin", "import", "api"}
-
-
-def q_usd(v: Decimal) -> Decimal:
-    return (v or Decimal("0")).quantize(USD_Q, rounding=ROUND_HALF_UP)
-
-
-def q_lbp(v: Decimal) -> Decimal:
-    return (v or Decimal("0")).quantize(LBP_Q, rounding=ROUND_HALF_UP)
 
 
 def _safe_journal_no(prefix: str, base: str) -> str:
@@ -202,11 +192,8 @@ def _normalize_sales_invoice_channel(value) -> Optional[str]:
 
 
 def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    if exchange_rate and exchange_rate != 0:
-        if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
-        elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
+    """Local wrapper applying quantization after normalize."""
+    usd, lbp = normalize_dual_amounts(usd, lbp, exchange_rate)
     return q_usd(usd), q_lbp(lbp)
 
 
@@ -296,6 +283,7 @@ def _fetch_account_defaults(cur, company_id: str) -> dict:
             "OPENING_STOCK",
             "INV_ADJ",
             "ROUNDING",
+            "FX_GAIN_LOSS",
         ),
     )
 
@@ -400,6 +388,8 @@ class SalesPaymentIn(BaseModel):
     auth_code: Optional[str] = None
     provider: Optional[str] = None
     settlement_currency: Optional[CurrencyCode] = None
+    # Optional: payment exchange rate (if different from invoice rate, triggers FX gain/loss).
+    exchange_rate: Optional[Decimal] = None
 
 @router.get("/payments", dependencies=[Depends(require_permission("sales:read"))])
 def list_sales_payments(
@@ -1787,6 +1777,10 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     auto_balance_journal(cur, company_id, journal_id, warehouse_id=inv.get("warehouse_id"))
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -2302,12 +2296,32 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 )
                 journal_id = cur.fetchone()["id"]
 
+                # FX gain/loss: when payment exchange rate differs from invoice rate,
+                # recognize the LBP difference as FX gain/loss.
+                pay_exchange_rate = Decimal(str(data.exchange_rate)) if data.exchange_rate else None
+                inv_exchange_rate = exchange_rate  # from invoice
+                fx_diff_lbp = Decimal("0")
+                if (
+                    pay_exchange_rate
+                    and inv_exchange_rate
+                    and pay_exchange_rate != inv_exchange_rate
+                    and applied_usd > 0
+                ):
+                    # LBP at payment rate vs LBP at invoice rate
+                    lbp_at_pay_rate = q_lbp(applied_usd * pay_exchange_rate)
+                    lbp_at_inv_rate = applied_lbp  # already computed at invoice rate
+                    fx_diff_lbp = q_lbp(lbp_at_pay_rate - lbp_at_inv_rate)
+                    # Cash/Bank receives at payment rate LBP
+                    cash_lbp = lbp_at_pay_rate
+                else:
+                    cash_lbp = applied_lbp
+
                 cur.execute(
                     """
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment')
                     """,
-                    (journal_id, pay_account, applied_usd, applied_lbp),
+                    (journal_id, pay_account, applied_usd, cash_lbp),
                 )
                 cur.execute(
                     """
@@ -2316,6 +2330,34 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                     """,
                     (journal_id, ar, applied_usd, applied_lbp),
                 )
+
+                # Post FX gain/loss if applicable.
+                if fx_diff_lbp != 0:
+                    fx_account = defaults.get("FX_GAIN_LOSS")
+                    if fx_account:
+                        if fx_diff_lbp > 0:
+                            # FX gain: credit FX_GAIN_LOSS in LBP (cash received more LBP than AR expected)
+                            cur.execute(
+                                """
+                                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                                VALUES (gen_random_uuid(), %s, %s, 0, 0, 0, %s, 'FX gain on payment')
+                                """,
+                                (journal_id, fx_account, abs(fx_diff_lbp)),
+                            )
+                        else:
+                            # FX loss: debit FX_GAIN_LOSS in LBP
+                            cur.execute(
+                                """
+                                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                                VALUES (gen_random_uuid(), %s, %s, 0, 0, %s, 0, 'FX loss on payment')
+                                """,
+                                (journal_id, fx_account, abs(fx_diff_lbp)),
+                            )
+
+                try:
+                    auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 # Optional banking: create a bank transaction matched to this journal (for reconciliation).
                 if data.bank_account_id:

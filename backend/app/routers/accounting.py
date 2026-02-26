@@ -10,20 +10,10 @@ from ..deps import get_company_id, get_current_user, require_permission
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..validation import RateType
+from ..journal_utils import q_usd, q_lbp, assert_journal_balanced, _get_rounding_account
 
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
-
-USD_Q = Decimal("0.0001")
-LBP_Q = Decimal("0.01")
-
-
-def q_usd(v: Decimal) -> Decimal:
-    return (v or Decimal("0")).quantize(USD_Q, rounding=ROUND_HALF_UP)
-
-
-def q_lbp(v: Decimal) -> Decimal:
-    return (v or Decimal("0")).quantize(LBP_Q, rounding=ROUND_HALF_UP)
 
 
 def _sign(v: Decimal) -> int:
@@ -34,47 +24,25 @@ def _sign(v: Decimal) -> int:
     return 0
 
 
-def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateType) -> Decimal:
-    cur.execute(
-        """
-        SELECT usd_to_lbp
-        FROM exchange_rates
-        WHERE company_id = %s AND rate_date = %s AND rate_type = %s
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        (company_id, rate_date, rate_type),
-    )
-    row = cur.fetchone()
-    if row and row["usd_to_lbp"]:
-        return Decimal(str(row["usd_to_lbp"]))
+_stale_rate_warnings: list[str] = []  # populated per-request if rate is stale
 
-    # Fallback: latest known rate for this rate_type.
-    cur.execute(
-        """
-        SELECT usd_to_lbp
-        FROM exchange_rates
-        WHERE company_id = %s AND rate_type = %s
-        ORDER BY rate_date DESC, created_at DESC
-        LIMIT 1
-        """,
-        (company_id, rate_type),
-    )
-    row = cur.fetchone()
-    if row and row["usd_to_lbp"]:
-        return Decimal(str(row["usd_to_lbp"]))
-    raise HTTPException(status_code=400, detail="missing exchange rate")
+
+def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateType) -> Decimal:
+    from ..journal_utils import fetch_exchange_rate as _fetch_fx
+    rate, is_stale = _fetch_fx(cur, company_id, rate_date, rate_type)
+    if rate is None:
+        raise HTTPException(status_code=400, detail="missing exchange rate")
+    if is_stale:
+        _stale_rate_warnings.append(
+            f"Exchange rate for {rate_date} ({rate_type}) is stale — using fallback from >7 days ago"
+        )
+    return rate
 
 
 def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
     cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, doc_type))
     row = cur.fetchone()
     return row["doc_no"]
-
-
-def _get_rounding_account(cur, company_id: str) -> Optional[str]:
-    defaults = ensure_company_account_defaults(cur, company_id, roles=("ROUNDING", "INV_ADJ"))
-    return defaults.get("ROUNDING")
 
 
 class JournalLineIn(BaseModel):
@@ -432,11 +400,6 @@ def create_manual_journal(
                 diff_lbp = q_lbp(total_debit_lbp - total_credit_lbp)
 
                 if diff_usd != 0 or diff_lbp != 0:
-                    sign_usd = _sign(diff_usd)
-                    sign_lbp = _sign(diff_lbp)
-                    if sign_usd and sign_lbp and sign_usd != sign_lbp:
-                        raise HTTPException(status_code=400, detail="journal is imbalanced (USD/LBP signs differ)")
-
                     # Auto-balance small rounding differences using the ROUNDING account default.
                     if abs(diff_usd) > Decimal("0.05") or abs(diff_lbp) > Decimal("5000"):
                         raise HTTPException(status_code=400, detail="journal is imbalanced (too large to auto-balance)")
@@ -445,30 +408,21 @@ def create_manual_journal(
                     if not rounding_acc:
                         raise HTTPException(status_code=400, detail="journal is imbalanced; missing ROUNDING account default")
 
-                    sign = sign_usd or sign_lbp
-                    if sign > 0:
-                        # Need extra credit to match debits.
-                        resolved_lines.append(
-                            {
-                                "account_id": rounding_acc,
-                                "debit_usd": Decimal("0"),
-                                "credit_usd": abs(diff_usd),
-                                "debit_lbp": Decimal("0"),
-                                "credit_lbp": abs(diff_lbp),
-                                "memo": "Rounding (auto-balance)",
-                            }
-                        )
-                    else:
-                        resolved_lines.append(
-                            {
-                                "account_id": rounding_acc,
-                                "debit_usd": abs(diff_usd),
-                                "credit_usd": Decimal("0"),
-                                "debit_lbp": abs(diff_lbp),
-                                "credit_lbp": Decimal("0"),
-                                "memo": "Rounding (auto-balance)",
-                            }
-                        )
+                    # Handle USD and LBP independently — they can have opposite signs.
+                    r_debit_usd = abs(diff_usd) if diff_usd < 0 else Decimal("0")
+                    r_credit_usd = diff_usd if diff_usd > 0 else Decimal("0")
+                    r_debit_lbp = abs(diff_lbp) if diff_lbp < 0 else Decimal("0")
+                    r_credit_lbp = diff_lbp if diff_lbp > 0 else Decimal("0")
+                    resolved_lines.append(
+                        {
+                            "account_id": rounding_acc,
+                            "debit_usd": r_debit_usd,
+                            "credit_usd": r_credit_usd,
+                            "debit_lbp": r_debit_lbp,
+                            "credit_lbp": r_credit_lbp,
+                            "memo": "Rounding (auto-balance)",
+                        }
+                    )
 
                 journal_no = _next_doc_no(cur, company_id, "MJ")
                 cur.execute(

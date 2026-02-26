@@ -13,7 +13,7 @@ from ..payment_guards import assert_not_overpaid
 from ..account_defaults import ensure_company_account_defaults
 import json
 import os
-from ..journal_utils import auto_balance_journal
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
 from ..uom import load_item_uom_context, resolve_line_uom
 from ..importers.supplier_invoice_import import (
@@ -223,13 +223,8 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
     return cur.fetchone()["doc_no"]
 
 def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    # Backward compatibility for clients sending only one currency.
-    if exchange_rate and exchange_rate != 0:
-        if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
-        elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
-    return usd, lbp
+    """Local wrapper delegating to shared normalize_dual_amounts."""
+    return normalize_dual_amounts(usd, lbp, exchange_rate)
 
 
 def _compute_costed_lines(lines_in, exchange_rate: Decimal):
@@ -3152,6 +3147,10 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                     auto_balance_journal(cur, company_id, journal_id, warehouse_id=rec["warehouse_id"])
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -4383,6 +4382,10 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     auto_balance_journal(cur, company_id, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 payment_accounts = _fetch_payment_method_accounts(cur, company_id)
                 immediate_paid_usd = Decimal("0")
@@ -4915,6 +4918,10 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                 )
                 try:
                     auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 

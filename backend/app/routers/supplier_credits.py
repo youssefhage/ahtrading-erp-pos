@@ -9,7 +9,7 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
-from ..journal_utils import q_usd, q_lbp, auto_balance_journal
+from ..journal_utils import q_usd, q_lbp, auto_balance_journal, assert_journal_balanced
 from ..validation import RateType
 
 router = APIRouter(prefix="/purchases/credits", tags=["purchases"])
@@ -707,6 +707,10 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
 
                 try:
                     auto_balance_journal(cur, company_id, journal_id, memo="Rounding (credit note auto-balance)")
+                except ValueError as exv:
+                    raise HTTPException(status_code=400, detail=str(exv))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as exv:
                     raise HTTPException(status_code=400, detail=str(exv))
 

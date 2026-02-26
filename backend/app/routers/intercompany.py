@@ -7,6 +7,7 @@ from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
 from ..account_defaults import ensure_company_account_defaults
+from ..journal_utils import auto_balance_journal, assert_journal_balanced
 
 router = APIRouter(prefix="/intercompany", tags=["intercompany"])
 
@@ -170,6 +171,12 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     (journal_id, inventory, total_cost_usd, total_cost_lbp, data.warehouse_id),
                 )
 
+                try:
+                    auto_balance_journal(cur, data.issue_company_id, journal_id, warehouse_id=data.warehouse_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                assert_journal_balanced(cur, journal_id)
+
     # Sell company: COGS + intercompany AP
     with get_conn() as conn_sell:
         with conn_sell.transaction():
@@ -220,6 +227,12 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     (journal_id, interco_ap, total_cost_usd, total_cost_lbp),
                 )
 
+                try:
+                    auto_balance_journal(cur, data.sell_company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                assert_journal_balanced(cur, journal_id)
+
     # Settlement row
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -255,10 +268,12 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
     _assert_user_perm_in_company(user["user_id"], data.from_company_id, "intercompany:write")
     _assert_user_perm_in_company(user["user_id"], data.to_company_id, "intercompany:write")
 
-    # Payer company: Dr Interco AP, Cr Cash/Bank
+    # Both payer and receiver journals + settlement record in a single connection/transaction.
+    # Since both companies share the same database, we can use one transaction to ensure atomicity.
     with get_conn() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
+                # Payer company: Dr Interco AP, Cr Cash/Bank
                 set_company_context(conn, data.from_company_id)
                 defaults = ensure_company_account_defaults(cur, data.from_company_id, roles=("INTERCO_AP", "CASH", "BANK", "AP"))
                 interco_ap = defaults.get("INTERCO_AP")
@@ -284,14 +299,14 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                         user["user_id"],
                     ),
                 )
-                journal_id = cur.fetchone()["id"]
+                payer_journal_id = cur.fetchone()["id"]
 
                 cur.execute(
                     """
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Intercompany settlement')
                     """,
-                    (journal_id, interco_ap, data.amount_usd, data.amount_lbp),
+                    (payer_journal_id, interco_ap, data.amount_usd, data.amount_lbp),
                 )
 
                 cur.execute(
@@ -299,13 +314,16 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Payment')
                     """,
-                    (journal_id, pay_account, data.amount_usd, data.amount_lbp),
+                    (payer_journal_id, pay_account, data.amount_usd, data.amount_lbp),
                 )
 
-    # Receiver company: Dr Cash/Bank, Cr Interco AR
-    with get_conn() as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
+                try:
+                    auto_balance_journal(cur, data.from_company_id, payer_journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                assert_journal_balanced(cur, payer_journal_id)
+
+                # Receiver company: Dr Cash/Bank, Cr Interco AR
                 set_company_context(conn, data.to_company_id)
                 defaults = ensure_company_account_defaults(cur, data.to_company_id, roles=("INTERCO_AR", "CASH", "BANK", "AR"))
                 interco_ar = defaults.get("INTERCO_AR")
@@ -331,14 +349,14 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                         user["user_id"],
                     ),
                 )
-                journal_id = cur.fetchone()["id"]
+                recv_journal_id = cur.fetchone()["id"]
 
                 cur.execute(
                     """
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Intercompany receipt')
                     """,
-                    (journal_id, recv_account, data.amount_usd, data.amount_lbp),
+                    (recv_journal_id, recv_account, data.amount_usd, data.amount_lbp),
                 )
 
                 cur.execute(
@@ -346,28 +364,31 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Intercompany AR settlement')
                     """,
-                    (journal_id, interco_ar, data.amount_usd, data.amount_lbp),
+                    (recv_journal_id, interco_ar, data.amount_usd, data.amount_lbp),
                 )
 
-    # Settlement record
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            set_company_context(conn, data.from_company_id)
-            cur.execute(
-                """
-                INSERT INTO intercompany_settlements
-                  (id, from_company_id, to_company_id, amount_usd, amount_lbp, exchange_rate, journal_id)
-                VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, NULL)
-                """,
-                (
-                    data.from_company_id,
-                    data.to_company_id,
-                    data.amount_usd,
-                    data.amount_lbp,
-                    data.exchange_rate,
-                ),
-            )
+                try:
+                    auto_balance_journal(cur, data.to_company_id, recv_journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                assert_journal_balanced(cur, recv_journal_id)
+
+                # Settlement record (in same transaction)
+                cur.execute(
+                    """
+                    INSERT INTO intercompany_settlements
+                      (id, from_company_id, to_company_id, amount_usd, amount_lbp, exchange_rate, journal_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, NULL)
+                    """,
+                    (
+                        data.from_company_id,
+                        data.to_company_id,
+                        data.amount_usd,
+                        data.amount_lbp,
+                        data.exchange_rate,
+                    ),
+                )
 
     return {"ok": True}
 
