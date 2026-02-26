@@ -9177,6 +9177,8 @@
             {@const eventType = String(ev?.event_type || "event").trim() || "event"}
             {@const eventId = String(ev?.event_id || ev?.id || "").trim()}
             {@const errorText = String(ev?.error_message || ev?.last_error || "").trim()}
+            {@const retryKey = _queueRetryKey(ev)}
+            {@const retrying = !!retryKey && queueRetryingKeys.has(retryKey)}
             <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2">
               <div class="flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
@@ -9215,9 +9217,9 @@
                     class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
                     type="button"
                     on:click={() => retryQueueEvent(ev)}
-                    disabled={loading || _isQueueRetrying(ev)}
+                    disabled={loading || retrying}
                   >
-                    {_isQueueRetrying(ev) ? "Retrying..." : "Retry"}
+                    {retrying ? "Retrying..." : "Retry"}
                   </button>
                 {/if}
                 <button
@@ -9367,7 +9369,7 @@
         {:else}
           {#each shiftInvoices as row}
             {@const key = _shiftInvoiceKey(row)}
-            {@const detailRow = _shiftInvoiceDetailFor(row)}
+            {@const detailRow = shiftInvoiceDetailsByKey?.[key] || null}
             {@const detail = detailRow?.detail || null}
             {@const invoice = detail?.invoice || null}
             {@const lines = Array.isArray(detail?.lines) ? detail.lines : []}
@@ -9431,7 +9433,7 @@
                   on:click={() => toggleShiftInvoiceDetail(row)}
                   disabled={busy}
                 >
-                  {_shiftInvoiceIsExpanded(row) ? "Hide Details" : "View Details"}
+                  {shiftInvoiceExpandedByKey?.[key] ? "Hide Details" : "View Details"}
                 </button>
                 <button
                   class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
@@ -9468,9 +9470,9 @@
                   Void
                 </button>
               </div>
-              {#if _shiftInvoiceIsExpanded(row)}
+              {#if shiftInvoiceExpandedByKey?.[key]}
                 <div class="rounded-lg border border-ink/10 bg-surface/50 p-3 space-y-2">
-                  {#if _shiftInvoiceIsLoading(row)}
+                  {#if shiftInvoiceLoadingByKey?.[key]}
                     <div class="text-[12px] text-muted">Loading invoice details...</div>
                   {:else if !detail}
                     <div class="text-[12px] text-muted">Detail unavailable. Try Refresh then View Details again.</div>
