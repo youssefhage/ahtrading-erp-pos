@@ -237,7 +237,6 @@ export default function PriceListsPage() {
   }, [load]);
 
   /* ---- List items ---- */
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const openListItems = useCallback(async (listId: string) => {
     setItemsListId(listId);
     setListItems([]);
