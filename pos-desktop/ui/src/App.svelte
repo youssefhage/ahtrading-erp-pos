@@ -3257,6 +3257,21 @@
     return true;
   };
 
+  /**
+   * Fetch a PDF from a local agent URL, convert to a blob: URL (CSP-safe), and
+   * open it in a print window. Used in Tauri where external URLs are blocked.
+   */
+  const _fetchAndPrintPdf = async (pdfUrl, receiptWin = null) => {
+    const res = await fetch(pdfUrl);
+    if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const opened = _openPrintWindowWithUrl(blobUrl, receiptWin, { autoPrint: true });
+    // Revoke after a generous timeout so the browser has time to load the PDF.
+    if (opened) setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch (_) {} }, 60_000);
+    return opened;
+  };
+
   const _printInvoiceByEventWeb = async (companyKey, eventId, receiptWin = null, { thermal = false } = {}) => {
     const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
     const invoiceId = String(resolved?.invoice_id || "").trim();
@@ -4494,8 +4509,11 @@
           await apiCallFor(companyKey, "/invoices/print-by-event", { method: "POST", body: { event_id: eid } });
           try { if (receiptWin) receiptWin.close(); } catch (_) {}
           return;
-        } catch (_) {
-          // Fall through to browser/dialog print fallback.
+        } catch (spoolErr) {
+          // Log the structured error for diagnostics, then fall through to browser/dialog fallback.
+          const step = spoolErr?.payload?.step || "";
+          const detail = spoolErr?.payload?.detail || spoolErr?.message || "";
+          console.warn(`[POS] invoice spool failed at step="${step}": ${detail}`, spoolErr?.payload);
         }
       }
       if (eid) {
@@ -4508,6 +4526,18 @@
           const invId = String(resolved?.invoice_id || "").trim();
           const detailRes = await apiCallFor(companyKey, "/invoices/detail-by-event", { method: "POST", body: { event_id: eid } }).catch(() => null);
           const policyTpl = String(detailRes?.detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
+          // Try local agent PDF proxy first (works in Tauri where external URLs are CSP-blocked).
+          // Uses fetch + blob URL to bypass default-src CSP restrictions on navigation.
+          if (invId && !isCloud) {
+            try {
+              const tpl = policyTpl || String(cfg?.invoice_template || "official_classic").trim().toLowerCase() || "official_classic";
+              const localPdfUrl = `${_agentApiPrefix(companyKey)}/invoices/${encodeURIComponent(invId)}/pdf?template=${encodeURIComponent(tpl)}`;
+              if (await _fetchAndPrintPdf(localPdfUrl, receiptWin)) return;
+            } catch (e) {
+              console.warn("[POS] local PDF proxy fallback failed:", e?.message || e);
+            }
+          }
+          // Fallback: external admin URL (works in browser, may be blocked in Tauri).
           const u = await _invoicePdfUrlFromCfg(companyKey, cfg, invId, policyTpl);
           if (u) {
             _openPrintWindowWithUrl(u, receiptWin, { autoPrint: true });

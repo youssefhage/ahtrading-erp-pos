@@ -4146,6 +4146,29 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_cloud_proxy(parsed, method="GET")
             return
 
+        # Proxy invoice PDF locally so the Tauri WebView can access it
+        # (external admin URLs are blocked by CSP).
+        # GET /api/invoices/<id>/pdf?template=official_classic
+        if parsed.path.startswith("/api/invoices/") and parsed.path.endswith("/pdf"):
+            parts = parsed.path.strip("/").split("/")
+            # ["api", "invoices", "<id>", "pdf"]
+            if len(parts) == 4:
+                invoice_id = parts[2]
+                qs = parse_qs(parsed.query)
+                template = (qs.get("template") or [""])[0].strip() or None
+                try:
+                    pdf_bytes = _fetch_invoice_pdf(cfg, invoice_id, template=template)
+                except Exception as ex:
+                    json_response(self, {"error": "pdf_fetch_failed", "detail": str(ex)}, status=502)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(len(pdf_bytes)))
+                self.send_header("Content-Disposition", f'inline; filename="invoice-{invoice_id}.pdf"')
+                self.end_headers()
+                self.wfile.write(pdf_bytes)
+                return
+
         json_response(self, {'error': 'not found'}, status=404)
 
     def handle_api_post(self, parsed):
@@ -4726,32 +4749,63 @@ class Handler(BaseHTTPRequestHandler):
                 cfg.get("company_id"),
             )
 
+            # Step-by-step with structured error detail so UI can show what went wrong.
+            step = "resolve"
             try:
                 resolved = _resolve_sales_invoice_from_event(cfg, event_id)
-                # Resolve template from live invoice policy unless caller explicitly overrides it.
-                if "template" not in data:
-                    try:
-                        base = _require_api_base(cfg)
-                        detail = fetch_json(
-                            f"{base.rstrip('/')}/pos/sales-invoices/{quote(str(resolved['invoice_id']))}",
-                            headers=device_headers(cfg),
-                        )
-                        if isinstance(detail, dict):
-                            pp = detail.get("print_policy")
-                            if isinstance(pp, dict) and "sales_invoice_pdf_template" in pp:
-                                invoice_template = _effective_invoice_template_id(
-                                    pp.get("sales_invoice_pdf_template"),
-                                    cfg.get("company_id"),
-                                )
-                    except Exception:
-                        # Keep local template fallback if detail lookup fails.
-                        pass
+            except Exception as ex:
+                json_response(
+                    self,
+                    {"error": "print_failed", "step": step, "detail": str(ex), "event_id": event_id, "printer": printer},
+                    status=502,
+                )
+                return
+
+            # Resolve template from live invoice policy unless caller explicitly overrides it.
+            if "template" not in data:
+                try:
+                    base = _require_api_base(cfg)
+                    detail = fetch_json(
+                        f"{base.rstrip('/')}/pos/sales-invoices/{quote(str(resolved['invoice_id']))}",
+                        headers=device_headers(cfg),
+                    )
+                    if isinstance(detail, dict):
+                        pp = detail.get("print_policy")
+                        if isinstance(pp, dict) and "sales_invoice_pdf_template" in pp:
+                            invoice_template = _effective_invoice_template_id(
+                                pp.get("sales_invoice_pdf_template"),
+                                cfg.get("company_id"),
+                            )
+                except Exception:
+                    pass
+
+            step = "fetch_pdf"
+            try:
                 pdf = _fetch_invoice_pdf(cfg, resolved["invoice_id"], template=invoice_template)
+            except Exception as ex:
+                json_response(
+                    self,
+                    {
+                        "error": "print_failed", "step": step, "detail": str(ex),
+                        "event_id": event_id, "invoice_id": resolved.get("invoice_id"),
+                        "printer": printer,
+                        "print_base_candidates": _print_base_candidates(cfg),
+                    },
+                    status=502,
+                )
+                return
+
+            step = "spool"
+            try:
                 _print_pdf_to_printer(pdf, printer=printer, copies=copies)
             except Exception as ex:
                 json_response(
                     self,
-                    {"error": "print_failed", "detail": str(ex), "event_id": event_id, "printer": printer},
+                    {
+                        "error": "print_failed", "step": step, "detail": str(ex),
+                        "event_id": event_id, "invoice_id": resolved.get("invoice_id"),
+                        "printer": printer,
+                    },
                     status=502,
                 )
                 return
