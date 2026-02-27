@@ -103,26 +103,26 @@ export default function IntercompanyPage() {
       },
       {
         id: "source_company_name",
-        accessorFn: (d) => d.source_company_name || d.source_company_id.slice(0, 8),
+        accessorFn: (d) => d.source_company_name || "Unknown",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Source Co" />,
         cell: ({ row }) => (
-          <span className="text-sm">{row.original.source_company_name || row.original.source_company_id.slice(0, 8)}</span>
+          <span className="text-sm">{row.original.source_company_name || "Unknown"}</span>
         ),
       },
       {
         id: "issue_company_name",
-        accessorFn: (d) => d.issue_company_name || d.issue_company_id.slice(0, 8),
+        accessorFn: (d) => d.issue_company_name || "Unknown",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Issue Co" />,
         cell: ({ row }) => (
-          <span className="text-sm">{row.original.issue_company_name || row.original.issue_company_id.slice(0, 8)}</span>
+          <span className="text-sm">{row.original.issue_company_name || "Unknown"}</span>
         ),
       },
       {
         id: "sell_company_name",
-        accessorFn: (d) => d.sell_company_name || d.sell_company_id.slice(0, 8),
+        accessorFn: (d) => d.sell_company_name || "Unknown",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Sell Co" />,
         cell: ({ row }) => (
-          <span className="text-sm">{row.original.sell_company_name || row.original.sell_company_id.slice(0, 8)}</span>
+          <span className="text-sm">{row.original.sell_company_name || "Unknown"}</span>
         ),
       },
       {
@@ -147,21 +147,21 @@ export default function IntercompanyPage() {
       },
       {
         id: "from_company_name",
-        accessorFn: (s) => s.from_company_name || s.from_company_id.slice(0, 8),
+        accessorFn: (s) => s.from_company_name || "Unknown",
         header: ({ column }) => <DataTableColumnHeader column={column} title="From" />,
         cell: ({ row }) => (
           <span className="text-sm">
-            {row.original.from_company_name || row.original.from_company_id.slice(0, 8)}
+            {row.original.from_company_name || "Unknown"}
           </span>
         ),
       },
       {
         id: "to_company_name",
-        accessorFn: (s) => s.to_company_name || s.to_company_id.slice(0, 8),
+        accessorFn: (s) => s.to_company_name || "Unknown",
         header: ({ column }) => <DataTableColumnHeader column={column} title="To" />,
         cell: ({ row }) => (
           <span className="text-sm">
-            {row.original.to_company_name || row.original.to_company_id.slice(0, 8)}
+            {row.original.to_company_name || "Unknown"}
           </span>
         ),
       },

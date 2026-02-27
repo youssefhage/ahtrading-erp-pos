@@ -5,7 +5,7 @@ import { Moon, Sun, Palette } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/business/page-header";
-import { getCompanyId } from "@/lib/api";
+import { apiGet, getCompanyId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type ColorTheme = "light" | "dark";
@@ -105,6 +105,7 @@ function swatchBg(primary: string, dim: string) {
 
 export default function AppearanceSettingsPage() {
   const [companyId, setCompanyId] = useState<string>(() => getCompanyId());
+  const [companyName, setCompanyName] = useState("");
   const [colorTheme, setColorTheme] = useState<ColorTheme>("light");
   const [accentTheme, setAccentTheme] = useState<AccentTheme>("cobalt");
 
@@ -114,6 +115,14 @@ export default function AppearanceSettingsPage() {
     const t = safeReadTheme(nextCompanyId);
     setColorTheme(t.color);
     setAccentTheme(t.accent);
+    if (nextCompanyId) {
+      apiGet<{ companies: Array<{ id: string; name: string }> }>("/companies")
+        .then((res) => {
+          const match = (res.companies || []).find((c) => c.id === nextCompanyId);
+          if (match) setCompanyName(match.name);
+        })
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -150,7 +159,7 @@ export default function AppearanceSettingsPage() {
         description="Choose how the portal looks on this device. Your selection is saved in your browser per active company."
       >
         <p className="text-xs text-muted-foreground">
-          Active company: <code className="font-mono text-sm">{companyId || "not selected"}</code>
+          Active company: <span className="font-medium text-sm">{companyName || companyId || "not selected"}</span>
         </p>
       </PageHeader>
 

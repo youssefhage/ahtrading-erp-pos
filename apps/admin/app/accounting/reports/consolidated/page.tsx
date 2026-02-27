@@ -266,7 +266,6 @@ export default function ConsolidatedReportsPage() {
                 <label key={c.id} className="flex items-center gap-2 text-sm">
                   <Checkbox checked={!!selected[c.id]} onCheckedChange={() => toggleCompany(c.id)} />
                   <span>{c.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{c.id.slice(0, 8)}</span>
                 </label>
               ))}
               {companies.length === 0 && <p className="text-sm text-muted-foreground">No companies.</p>}

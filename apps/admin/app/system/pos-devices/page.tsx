@@ -223,6 +223,7 @@ export default function PosDevicesPage() {
   const [savingEmployeeAssignments, setSavingEmployeeAssignments] = useState(false);
   const [assignCashierSearch, setAssignCashierSearch] = useState("");
   const [assignEmployeeSearch, setAssignEmployeeSearch] = useState("");
+  const [companyName, setCompanyName] = useState("");
 
   const branchById = useMemo(() => new Map(branches.map((b) => [b.id, b])), [branches]);
   const effectiveCloudApiBaseUrl = normalizeApiBaseUrl(setupCloudApiBaseUrl || inferDefaultCloudApiBaseUrl());
@@ -288,6 +289,15 @@ export default function PosDevicesPage() {
     setSetupCloudApiBaseUrl(savedCloud || inferred);
     setSetupEdgeApiBaseUrl(savedEdge);
     load();
+    const cid = getCompanyId();
+    if (cid) {
+      apiGet<{ companies: Array<{ id: string; name: string }> }>("/companies")
+        .then((res) => {
+          const match = (res.companies || []).find((c) => c.id === cid);
+          if (match) setCompanyName(match.name);
+        })
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -936,7 +946,7 @@ export default function PosDevicesPage() {
               <SetupField label="Cloud API URL" value={effectiveCloudApiBaseUrl} />
               <SetupField label="Edge API URL (fallback)" value={effectiveEdgeApiBaseUrl} />
               <SetupField label="api_base_url (legacy)" value={effectiveEdgeApiBaseUrl || effectiveCloudApiBaseUrl} />
-              <SetupField label="Company ID" value={lastSetup.company_id} />
+              <SetupField label="Company" value={companyName || lastSetup.company_id} />
               <SetupField label="Branch ID" value={lastSetup.branch_id || ""} />
               <SetupField label="Branch Name" value={lastSetup.branch_name || ""} />
               <SetupField label="Device Code" value={lastSetup.device_code} />

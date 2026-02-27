@@ -41,7 +41,7 @@ export default function CompanySelectPage() {
   }
 
   const shown = (() => {
-    const base = companies.length ? companies.map((c) => c) : companyIds.map((id) => ({ id, name: id, legal_name: null }));
+    const base = companies.length ? companies.map((c) => c) : companyIds.map((id, i) => ({ id, name: `Company ${i + 1}`, legal_name: null }));
     return filterAndRankByFuzzy(base, q, (c) => `${c.name} ${c.legal_name || ""} ${c.id}`);
   })();
 
@@ -89,7 +89,6 @@ export default function CompanySelectPage() {
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{c.name}</div>
                         {c.legal_name && <div className="truncate text-xs text-muted-foreground">{c.legal_name}</div>}
-                        <code className="mt-1 block truncate text-xs text-muted-foreground font-mono">{c.id}</code>
                       </div>
                       <Button variant="secondary" size="sm" onClick={() => selectCompany(c.id)}>
                         Select
