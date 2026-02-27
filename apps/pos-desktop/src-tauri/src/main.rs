@@ -183,6 +183,13 @@ fn spawn_agent(
   cmd.stdin(Stdio::null())
     .stdout(Stdio::from(log))
     .stderr(Stdio::from(log_err));
+
+  #[cfg(target_os = "windows")]
+  {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+  }
+
   cmd.spawn()
 }
 
@@ -299,14 +306,20 @@ fn ensure_watchdog_running(app: &tauri::AppHandle) {
 fn init_db_with_sidecar(app: &tauri::AppHandle, config_path: &Path, db_path: &Path) -> Result<(), String> {
   let sidecar = find_sidecar_exe(app)
     .ok_or_else(|| "pos-agent sidecar not found (bundle it for production builds)".to_string())?;
-  let out = Command::new(sidecar)
-    .arg("--init-db")
+  let mut cmd = Command::new(sidecar);
+  cmd.arg("--init-db")
     .arg("--config")
     .arg(config_path.to_string_lossy().to_string())
     .arg("--db")
-    .arg(db_path.to_string_lossy().to_string())
-    .output()
-    .map_err(|e| e.to_string())?;
+    .arg(db_path.to_string_lossy().to_string());
+
+  #[cfg(target_os = "windows")]
+  {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+  }
+
+  let out = cmd.output().map_err(|e| e.to_string())?;
 
   if out.status.success() {
     return Ok(());
