@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Plus, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
+import { KeyRound, Plus, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { PageHeader } from "@/components/business/page-header";
@@ -83,9 +83,15 @@ export default function UsersPage() {
   const [editActive, setEditActive] = useState(true);
   const [editSaving, setEditSaving] = useState(false);
 
+  const [resetPwOpen, setResetPwOpen] = useState(false);
+  const [resetPwUserId, setResetPwUserId] = useState("");
+  const [resetPwEmail, setResetPwEmail] = useState("");
+  const [resetPwValue, setResetPwValue] = useState("");
+  const [resetPwSaving, setResetPwSaving] = useState(false);
+
   const loading = status.startsWith("Loading");
-  const statusIsBusy = /^(Loading|Creating|Assigning|Applying|Saving|Removing)\b/.test(status);
-  const statusIsNotice = status.startsWith("User already existed.") || status.startsWith("Email already exists.");
+  const statusIsBusy = /^(Loading|Creating|Assigning|Applying|Saving|Removing|Resetting)\b/.test(status);
+  const statusIsNotice = status.startsWith("User already existed.") || status.startsWith("Email already exists.") || status.startsWith("Password reset successfully");
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -258,6 +264,26 @@ export default function UsersPage() {
     }
   }
 
+  async function resetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetPwUserId) return;
+    if (!resetPwValue || resetPwValue.length < 6) return setStatus("Password must be at least 6 characters");
+    setResetPwSaving(true);
+    setStatus("Resetting password...");
+    try {
+      await apiPost(`/users/${encodeURIComponent(resetPwUserId)}/password`, { password: resetPwValue });
+      setResetPwOpen(false);
+      setResetPwValue("");
+      setStatus("Password reset successfully. User must log in with the new password.");
+      window.setTimeout(() => setStatus(""), 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setResetPwSaving(false);
+    }
+  }
+
   const columns = useMemo<ColumnDef<UserRow>[]>(
     () => [
       {
@@ -319,6 +345,20 @@ export default function UsersPage() {
                 }}
               >
                 Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setResetPwUserId(u.id);
+                  setResetPwEmail(u.email);
+                  setResetPwValue("");
+                  setResetPwOpen(true);
+                }}
+              >
+                <KeyRound className="mr-1 h-3 w-3" />
+                Password
               </Button>
               <Button
                 variant="outline"
@@ -596,6 +636,34 @@ export default function UsersPage() {
             <div className="flex justify-end">
               <Button type="submit" disabled={editSaving}>
                 {editSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetPwOpen} onOpenChange={setResetPwOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for <span className="font-medium">{resetPwEmail}</span>. Their existing sessions will be revoked.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={resetPassword} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">New Password</label>
+              <Input
+                type="password"
+                value={resetPwValue}
+                onChange={(e) => setResetPwValue(e.target.value)}
+                placeholder="Min 6 characters"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={resetPwSaving}>
+                {resetPwSaving ? "Resetting..." : "Reset Password"}
               </Button>
             </div>
           </form>

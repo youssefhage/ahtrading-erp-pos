@@ -951,6 +951,63 @@ def reset_user_mfa(user_id: str, company_id: str = Depends(get_company_id), user
                 return {"ok": True}
 
 
+class AdminPasswordReset(BaseModel):
+    password: str
+
+
+@router.post("/{user_id}/password", dependencies=[Depends(require_permission("users:write"))])
+def admin_reset_password(user_id: str, data: AdminPasswordReset, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Admin operation: set a new password for a user and revoke their existing sessions.
+    """
+    if not data.password or len(data.password) < 6:
+        raise HTTPException(status_code=422, detail="password must be at least 6 characters")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                # Only allow acting on users that belong to this company.
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM user_roles
+                    WHERE user_id = %s AND company_id = %s
+                    LIMIT 1
+                    """,
+                    (user_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="user not found in this company")
+
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET hashed_password = %s,
+                        is_active = true,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (hash_password(data.password), user_id),
+                )
+                # Revoke all sessions so the user must log in with the new password.
+                cur.execute(
+                    """
+                    UPDATE auth_sessions
+                    SET is_active = false
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'users.password.reset', 'user', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], user_id, json.dumps({})),
+                )
+                return {"ok": True}
+
+
 @router.get("/roles", dependencies=[Depends(require_permission("users:read"))])
 def list_roles(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
