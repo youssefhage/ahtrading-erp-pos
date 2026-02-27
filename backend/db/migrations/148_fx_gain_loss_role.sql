@@ -14,7 +14,7 @@ FROM companies c
 JOIN company_coa_accounts a
   ON a.company_id = c.id
   AND a.account_code IN ('6060', '6061', '7060', '7061', '6900', '7900')
-  AND a.is_active = true
+  AND a.is_postable = true
 WHERE NOT EXISTS (
   SELECT 1 FROM company_account_defaults d
   WHERE d.company_id = c.id AND d.role_code = 'FX_GAIN_LOSS'
