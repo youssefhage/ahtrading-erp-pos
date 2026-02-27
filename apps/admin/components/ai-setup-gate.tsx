@@ -20,7 +20,7 @@ export function AiSetupGate(props: { error: unknown }) {
         <CardTitle>AI Not Available</CardTitle>
         <CardDescription>This usually means permissions are missing, or AI features are disabled for your role.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2 text-sm text-fg-muted">
+      <CardContent className="space-y-2 text-sm text-muted-foreground">
         <p>
           Next steps:
         </p>

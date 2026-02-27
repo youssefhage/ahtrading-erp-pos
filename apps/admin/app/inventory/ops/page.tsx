@@ -504,7 +504,7 @@ export default function InventoryOpsPage() {
                   <form onSubmit={submitOpeningImport} className="space-y-4">
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                       <div className="space-y-1 md:col-span-3">
-                        <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+                        <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
                         <SearchableSelect
                           value={openingWarehouseId}
                           onChange={setOpeningWarehouseId}
@@ -517,11 +517,11 @@ export default function InventoryOpsPage() {
                         />
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-fg-muted">Posting Date</label>
+                        <label className="text-xs font-medium text-muted-foreground">Posting Date</label>
                         <Input type="date" value={openingPostingDate} onChange={(e) => setOpeningPostingDate(e.target.value)} />
                       </div>
                       <div className="space-y-1 md:col-span-6">
-                        <label className="text-xs font-medium text-fg-muted">Import ID (UUID, for safe retries)</label>
+                        <label className="text-xs font-medium text-muted-foreground">Import ID (UUID, for safe retries)</label>
                         <div className="flex flex-wrap items-center gap-2">
                           <Input value={openingImportId} onChange={(e) => setOpeningImportId(e.target.value)} placeholder="leave blank to auto-generate" />
                           <Button
@@ -538,7 +538,7 @@ export default function InventoryOpsPage() {
                             New ID
                           </Button>
                         </div>
-                        <p className="text-xs text-fg-subtle">
+                        <p className="text-xs text-muted-foreground">
                           If you run the same import twice with the same Import ID, the server will return “already applied”.
                         </p>
                       </div>
@@ -546,9 +546,9 @@ export default function InventoryOpsPage() {
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">CSV</label>
+                        <label className="text-xs font-medium text-muted-foreground">CSV</label>
                         <textarea
-                          className="ui-textarea min-h-[220px]"
+                          className="flex min-h-[220px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
                           value={openingCsv}
                           onChange={(e) => {
                             const next = e.target.value;
@@ -559,7 +559,7 @@ export default function InventoryOpsPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs text-fg-muted">
+                        <div className="rounded-md border border-border bg-card p-3 text-xs text-muted-foreground">
                           <div className="flex items-center justify-between gap-2">
                             <span>Warehouse</span>
                             <span className="font-mono">{whById.get(openingWarehouseId)?.name || "-"}</span>
@@ -583,7 +583,7 @@ export default function InventoryOpsPage() {
                             title="CSV errors"
                             description="Fix the issues below and try again."
                           >
-                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-danger/20 bg-danger/5 p-2 text-xs leading-4 text-danger">
+                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs leading-4 text-destructive">
                               {openingErrors}
                             </pre>
                           </Banner>
@@ -596,7 +596,7 @@ export default function InventoryOpsPage() {
                             title="Import result"
                             description={openingResult.already_applied ? "This import ID was already applied." : "Import applied successfully."}
                           >
-                            <dl className="grid grid-cols-1 gap-1 text-xs text-fg-muted">
+                            <dl className="grid grid-cols-1 gap-1 text-xs text-muted-foreground">
                               <div className="flex items-center justify-between gap-2">
                                 <dt>Import ID</dt>
                                 <dd className="font-mono text-foreground">{openingResult.import_id}</dd>
@@ -618,7 +618,7 @@ export default function InventoryOpsPage() {
                             {openingResult.warnings?.length ? (
                               <div className="mt-2">
                                 <div className="text-xs font-semibold text-foreground">Warnings</div>
-                                <ul className="mt-1 list-disc pl-5 text-xs text-fg-muted">
+                                <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
                                   {openingResult.warnings.map((w, i) => (
                                     <li key={i}>{w}</li>
                                   ))}
@@ -663,7 +663,7 @@ export default function InventoryOpsPage() {
                   </DialogHeader>
                   <form onSubmit={submitAdjust} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Item</label>
+                      <label className="text-xs font-medium text-muted-foreground">Item</label>
                       <SearchableSelect
                         value={adjust.item_id}
                         onChange={(v) => setAdjust((p) => ({ ...p, item_id: v }))}
@@ -677,7 +677,7 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+                      <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
                       <SearchableSelect
                         value={adjust.warehouse_id}
                         onChange={(v) => setAdjust((p) => ({ ...p, warehouse_id: v }))}
@@ -690,23 +690,23 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Qty In</label>
+                      <label className="text-xs font-medium text-muted-foreground">Qty In</label>
                       <Input value={adjust.qty_in} onChange={(e) => setAdjust((p) => ({ ...p, qty_in: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Qty Out</label>
+                      <label className="text-xs font-medium text-muted-foreground">Qty Out</label>
                       <Input value={adjust.qty_out} onChange={(e) => setAdjust((p) => ({ ...p, qty_out: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Unit Cost USD</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit Cost USD</label>
                       <Input value={adjust.unit_cost_usd} onChange={(e) => setAdjust((p) => ({ ...p, unit_cost_usd: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Unit Cost LL</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit Cost LL</label>
                       <Input value={adjust.unit_cost_lbp} onChange={(e) => setAdjust((p) => ({ ...p, unit_cost_lbp: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-4">
-                      <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                       <Input value={adjust.reason} onChange={(e) => setAdjust((p) => ({ ...p, reason: e.target.value }))} placeholder="shrinkage / damaged / correction" />
                     </div>
                     <div className="md:col-span-6 flex justify-end">
@@ -739,7 +739,7 @@ export default function InventoryOpsPage() {
                   </DialogHeader>
                   <form onSubmit={submitTransfer} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Item</label>
+                      <label className="text-xs font-medium text-muted-foreground">Item</label>
                       <SearchableSelect
                         value={transfer.item_id}
                         onChange={(v) => setTransfer((p) => ({ ...p, item_id: v }))}
@@ -753,7 +753,7 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">From Warehouse</label>
+                      <label className="text-xs font-medium text-muted-foreground">From Warehouse</label>
                       <SearchableSelect
                         value={transfer.from_warehouse_id}
                         onChange={(v) => setTransfer((p) => ({ ...p, from_warehouse_id: v }))}
@@ -766,7 +766,7 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">From Location (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">From Location (optional)</label>
                       <SearchableSelect
                         value={transfer.from_location_id}
                         onChange={(v) => setTransfer((p) => ({ ...p, from_location_id: v }))}
@@ -782,7 +782,7 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">To Warehouse</label>
+                      <label className="text-xs font-medium text-muted-foreground">To Warehouse</label>
                       <SearchableSelect
                         value={transfer.to_warehouse_id}
                         onChange={(v) => setTransfer((p) => ({ ...p, to_warehouse_id: v }))}
@@ -795,7 +795,7 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">To Location (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">To Location (optional)</label>
                       <SearchableSelect
                         value={transfer.to_location_id}
                         onChange={(v) => setTransfer((p) => ({ ...p, to_location_id: v }))}
@@ -811,19 +811,19 @@ export default function InventoryOpsPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Qty</label>
+                      <label className="text-xs font-medium text-muted-foreground">Qty</label>
                       <Input value={transfer.qty} onChange={(e) => setTransfer((p) => ({ ...p, qty: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                       <Input value={transfer.reason} onChange={(e) => setTransfer((p) => ({ ...p, reason: e.target.value }))} placeholder="putaway / rebalancing" />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Unit Cost USD (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit Cost USD (optional)</label>
                       <Input value={transfer.unit_cost_usd} onChange={(e) => setTransfer((p) => ({ ...p, unit_cost_usd: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Unit Cost LL (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit Cost LL (optional)</label>
                       <Input value={transfer.unit_cost_lbp} onChange={(e) => setTransfer((p) => ({ ...p, unit_cost_lbp: e.target.value }))} />
                     </div>
                     <div className="md:col-span-6 flex justify-end">
@@ -855,7 +855,7 @@ export default function InventoryOpsPage() {
                   <form onSubmit={submitCycleCount} className="space-y-4">
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       <div className="space-y-1 md:col-span-1">
-                        <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+                        <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
                         <SearchableSelect
                           value={cycleWarehouseId}
                           onChange={setCycleWarehouseId}
@@ -868,23 +868,23 @@ export default function InventoryOpsPage() {
                         />
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                        <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                         <Input value={cycleReason} onChange={(e) => setCycleReason(e.target.value)} placeholder="month-end count / spot check" />
                       </div>
                     </div>
 
-                    <div className="ui-table-scroll">
-                      <table className="ui-table">
-                        <thead className="ui-thead">
+                    <div className="overflow-auto rounded-md border">
+                      <table className="w-full text-sm">
+                        <thead className="border-b bg-muted/50">
                           <tr>
-                            <th className="px-3 py-2">Item</th>
-                            <th className="px-3 py-2 text-right">Counted Qty</th>
-                            <th className="px-3 py-2 text-right">Actions</th>
+                            <th className="px-3 py-2 text-left font-medium">Item</th>
+                            <th className="px-3 py-2 text-right font-medium">Counted Qty</th>
+                            <th className="px-3 py-2 text-right font-medium">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {cycleLines.map((l, idx) => (
-                            <tr key={idx} className="ui-tr-hover">
+                            <tr key={idx} className="border-b last:border-0 hover:bg-muted/30">
                               <td className="px-3 py-2">
                                 <SearchableSelect
                                   value={l.item_id}
@@ -892,7 +892,7 @@ export default function InventoryOpsPage() {
                                   placeholder="Select item..."
                                   searchPlaceholder="Search items..."
                                   maxOptions={120}
-                                  controlClassName="ui-select ui-control-sm"
+                                  controlClassName=""
                                   options={[
                                     { value: "", label: "Select item..." },
                                     ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),

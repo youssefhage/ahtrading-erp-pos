@@ -1,16 +1,20 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { CurrencyDisplay } from "@/components/business/currency-display";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Badge } from "@/components/ui/badge";
 
 type LandedCostRow = {
   id: string;
@@ -26,141 +30,118 @@ type LandedCostRow = {
   posted_at?: string | null;
 };
 
+function toNum(v: unknown) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
 function Inner() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
   const [rows, setRows] = useState<LandedCostRow[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
 
-  const filtered = useMemo(() => {
-    return (rows || []).filter((r) => {
-      if (statusFilter && r.status !== statusFilter) return false;
-      return true;
-    });
-  }, [rows, statusFilter]);
+  const filtered = useMemo(() => rows.filter((r) => !statusFilter || r.status === statusFilter), [rows, statusFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
     try {
       const res = await apiGet<{ landed_costs: LandedCostRow[] }>("/inventory/landed-costs");
       setRows(res.landed_costs || []);
-    } catch (e) {
+    } catch {
       setRows([]);
-      setErr(e);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const columns = useMemo(() => {
-    const cols: Array<DataTableColumn<LandedCostRow>> = [
-      {
-        id: "landed_cost",
-        header: "Landed Cost",
-        sortable: true,
-        accessor: (r) => r.landed_cost_no || "",
-        cell: (r) => (
-          <div className="flex flex-col">
-            <Link className="ui-link font-medium" href={`/inventory/landed-costs/${encodeURIComponent(r.id)}`}>
-              {r.landed_cost_no || "(draft)"}
-            </Link>
-            {r.memo ? <div className="mt-0.5 text-xs text-fg-muted">{r.memo}</div> : null}
-          </div>
+  const columns = useMemo<ColumnDef<LandedCostRow>[]>(() => [
+    {
+      accessorKey: "landed_cost_no",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Landed Cost" />,
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <Link className="font-medium text-primary hover:underline" href={`/inventory/landed-costs/${encodeURIComponent(row.original.id)}`}>
+            {row.original.landed_cost_no || "(draft)"}
+          </Link>
+          {row.original.memo && <span className="mt-0.5 text-xs text-muted-foreground">{row.original.memo}</span>}
+        </div>
+      ),
+    },
+    {
+      id: "goods_receipt",
+      accessorFn: (r) => r.goods_receipt_no || r.goods_receipt_id || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Goods Receipt" />,
+      cell: ({ row }) =>
+        row.original.goods_receipt_id ? (
+          <Link className="text-primary hover:underline" href={`/purchasing/goods-receipts/${encodeURIComponent(row.original.goods_receipt_id)}`}>
+            {row.original.goods_receipt_no || row.original.goods_receipt_id.slice(0, 8)}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">-</span>
         ),
-      },
-      {
-        id: "goods_receipt",
-        header: "Goods Receipt",
-        sortable: true,
-        accessor: (r) => r.goods_receipt_no || r.goods_receipt_id || "",
-        cell: (r) =>
-          r.goods_receipt_id ? (
-            <Link className="ui-link" href={`/purchasing/goods-receipts/${encodeURIComponent(r.goods_receipt_id)}`}>
-              {r.goods_receipt_no || r.goods_receipt_id.slice(0, 8)}
-            </Link>
-          ) : (
-            "-"
-          ),
-      },
-      { id: "status", header: "Status", sortable: true, accessor: (r) => r.status, cell: (r) => <StatusChip value={r.status} /> },
-      {
-        id: "total_usd",
-        header: "Total USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.total_usd || 0),
-        cell: (r) => <span className="ui-tone-usd">{fmtUsd(r.total_usd)}</span>,
-      },
-      {
-        id: "total_lbp",
-        header: "Total LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.total_lbp || 0),
-        cell: (r) => <span className="ui-tone-lbp">{fmtLbp(r.total_lbp)}</span>,
-      },
-    ];
-    return cols;
-  }, []);
+    },
+    {
+      id: "status",
+      accessorFn: (r) => r.status,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      id: "total_usd",
+      accessorFn: (r) => toNum(r.total_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total USD" />,
+      cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.total_usd)} currency="USD" />,
+    },
+    {
+      id: "total_lbp",
+      accessorFn: (r) => toNum(r.total_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total LBP" />,
+      cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.total_lbp)} currency="LBP" />,
+    },
+  ], []);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Landed Costs</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${filtered.length} document(s)`}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button type="button" onClick={() => router.push("/inventory/landed-costs/new")}>
-            New Draft
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Landed Costs"
+        description="Allocate freight, customs, and handling to posted goods receipts"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button size="sm" onClick={() => router.push("/inventory/landed-costs/new")}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Draft
+            </Button>
+          </>
+        }
+      >
+        <Badge variant="outline">{filtered.length} documents</Badge>
+      </PageHeader>
 
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Documents</CardTitle>
-          <CardDescription>Allocate freight/customs/handling to a posted goods receipt.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <DataTable<LandedCostRow>
-            tableId="inventory.landed_costs.list"
-            rows={filtered}
-            columns={columns}
-            getRowId={(r) => r.id}
-            initialSort={{ columnId: "landed_cost", dir: "desc" }}
-            globalFilterPlaceholder="Search landed cost / GRN / memo"
-            toolbarLeft={
-              <select className="ui-select h-9 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                <option value="">All statuses</option>
-                <option value="draft">Draft</option>
-                <option value="posted">Posted</option>
-                <option value="canceled">Canceled</option>
-              </select>
-            }
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={columns}
+        data={filtered}
+        isLoading={loading}
+        searchPlaceholder="Search landed cost / GRN / memo..."
+        toolbarActions={
+          <select className="h-9 rounded-md border bg-background px-3 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="posted">Posted</option>
+            <option value="canceled">Canceled</option>
+          </select>
+        }
+      />
     </div>
   );
 }
 
 export default function LandedCostsListPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner />
     </Suspense>
   );

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiGet, apiPatch, apiPost, ApiError, getCompanyId } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
 import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
@@ -70,7 +70,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [locations, setLocations] = useState<WarehouseLocation[]>([]);
@@ -86,7 +86,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const [wRes, detailRes, fx] = await Promise.all([
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
@@ -104,7 +104,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 
       if (detailRes) {
         if ((detailRes as any)?.receipt?.status !== "draft") {
-          setErr(new ApiError(409, "HTTP 409: only draft receipts can be edited", { detail: "only draft receipts can be edited" }));
+          setErr("HTTP 409: only draft receipts can be edited");
           return;
         }
 
@@ -166,7 +166,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
         setLines([]);
       }
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -234,11 +234,11 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
-    if (!selectedSupplier?.id) return setErr(new ApiError(422, "HTTP 422: supplier is required", { detail: "supplier is required" }));
-    if (!warehouseId) return setErr(new ApiError(422, "HTTP 422: warehouse is required", { detail: "warehouse is required" }));
+    setErr("");
+    if (!selectedSupplier?.id) return setErr("HTTP 422: supplier is required");
+    if (!warehouseId) return setErr("HTTP 422: warehouse is required");
     const ex = toNum(exchangeRate);
-    if (!ex) return setErr(new ApiError(422, "HTTP 422: exchange_rate is required", { detail: "exchange_rate is required" }));
+    if (!ex) return setErr("HTTP 422: exchange_rate is required");
 
     const validLines = (lines || []).filter((l) => l.item_id && toNum(l.qty) > 0);
 
@@ -272,7 +272,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
         router.push(`/purchasing/goods-receipts/${encodeURIComponent(receiptId)}`);
       }
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSaving(false);
     }
@@ -283,7 +283,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          <p className="text-sm text-fg-muted">Capture received quantities and batches before posting.</p>
+          <p className="text-sm text-muted-foreground">Capture received quantities and batches before posting.</p>
         </div>
         <Button type="button" variant="outline" onClick={() => router.push("/purchasing/goods-receipts")} disabled={saving}>
           Back
@@ -301,16 +301,16 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Supplier</label>
+                <label className="text-xs font-medium text-muted-foreground">Supplier</label>
                 {selectedSupplier ? (
-                  <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-elevated px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm text-foreground">
-                        {selectedSupplier.code ? <span className="font-mono text-xs text-fg-muted">{selectedSupplier.code}</span> : null}
-                        {selectedSupplier.code ? <span className="text-fg-muted"> · </span> : null}
+                        {selectedSupplier.code ? <span className="font-mono text-xs text-muted-foreground">{selectedSupplier.code}</span> : null}
+                        {selectedSupplier.code ? <span className="text-muted-foreground"> · </span> : null}
                         <span className="font-medium">{selectedSupplier.name}</span>
                       </div>
-                      <div className="truncate font-mono text-xs text-fg-subtle">{selectedSupplier.id}</div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">{selectedSupplier.id}</div>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSupplier(null)} disabled={saving || loading}>
                       Change
@@ -321,7 +321,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                 )}
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+                <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
                 <SearchableSelect
                   value={warehouseId}
                   onChange={setWarehouseId}
@@ -335,25 +335,25 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD to LL)</label>
+                <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD to LL)</label>
                 <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={saving || loading} inputMode="numeric" />
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Supplier Ref (optional)</label>
+                <label className="text-xs font-medium text-muted-foreground">Supplier Ref (optional)</label>
                 <Input value={supplierRef} onChange={(e) => setSupplierRef(e.target.value)} placeholder="Packing list / delivery note..." disabled={saving || loading} />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Purchase Order ID (optional)</label>
+                <label className="text-xs font-medium text-muted-foreground">Purchase Order ID (optional)</label>
                 <Input value={purchaseOrderId} onChange={(e) => setPurchaseOrderId(e.target.value)} placeholder="UUID" disabled={saving || loading} />
               </div>
             </div>
 
-            <div className="ui-table-scroll">
-              <table className="ui-table">
-                <thead className="ui-thead">
+            <div className="overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50">
 	                  <tr>
 	                    <th className="px-3 py-2">Item</th>
 	                    <th className="px-3 py-2 text-right">Qty</th>
@@ -369,15 +369,15 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                 </thead>
                 <tbody>
                   {lines.map((l, idx) => (
-                    <tr key={idx} className="ui-tr-hover">
+                    <tr key={idx} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-3 py-2">
                         {l.item ? (
-                          <div className="rounded-md border border-border bg-bg-elevated px-3 py-2">
+                          <div className="rounded-md border border-border bg-card px-3 py-2">
                             <div className="truncate text-sm text-foreground">
-                              <span className="font-mono text-xs text-fg-muted">{l.item.sku}</span> · {l.item.name}
+                              <span className="font-mono text-xs text-muted-foreground">{l.item.sku}</span> · {l.item.name}
                             </div>
                             <div className="mt-0.5 flex items-center justify-between gap-2">
-                              <div className="truncate font-mono text-xs text-fg-subtle">{l.item_id}</div>
+                              <div className="truncate font-mono text-xs text-muted-foreground">{l.item_id}</div>
                               <Button type="button" size="sm" variant="outline" onClick={() => updateLine(idx, { item_id: "", item: null })} disabled={saving || loading}>
                                 Clear
                               </Button>
@@ -445,7 +445,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                   ))}
 		                  {!lines.length ? (
 		                    <tr>
-		                      <td className="px-3 py-3 text-sm text-fg-muted" colSpan={10}>
+		                      <td className="px-3 py-3 text-sm text-muted-foreground" colSpan={10}>
 		                        No items yet.
 		                      </td>
 		                    </tr>

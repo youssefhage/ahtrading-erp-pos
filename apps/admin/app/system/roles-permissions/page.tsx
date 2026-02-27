@@ -1,15 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, Shield, ShieldCheck, Trash2 } from "lucide-react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ConfirmButton } from "@/components/confirm-button";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type RoleRow = { id: string; name: string; assigned_users?: number; template_code?: string | null };
 type PermissionRow = { id: string; code: string; description: string };
@@ -48,7 +53,7 @@ export default function RolesPermissionsPage() {
     try {
       const [r, p] = await Promise.all([
         apiGet<{ roles: RoleRow[] }>("/users/roles"),
-        apiGet<{ permissions: PermissionRow[] }>("/users/permissions")
+        apiGet<{ permissions: PermissionRow[] }>("/users/permissions"),
       ]);
       let nextRoles = r.roles || [];
       if (!nextRoles.length && !seededDefaultsOnceRef.current) {
@@ -94,7 +99,7 @@ export default function RolesPermissionsPage() {
     setStatus("Loading role permissions...");
     try {
       const res = await apiGet<{ permissions: { code: string; description: string }[] }>(
-        `/users/roles/${roleId}/permissions`
+        `/users/roles/${roleId}/permissions`,
       );
       setRolePerms(res.permissions || []);
       setStatus("");
@@ -146,7 +151,7 @@ export default function RolesPermissionsPage() {
     try {
       await apiPost("/users/roles/permissions", {
         role_id: selectedRoleId,
-        permission_code: assignPermCode
+        permission_code: assignPermCode,
       });
       setGrantOpen(false);
       await loadRolePerms(selectedRoleId);
@@ -159,303 +164,336 @@ export default function RolesPermissionsPage() {
     }
   }
 
-  const saveRoleName = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editRoleId) return;
-    if (!editRoleName.trim()) return setStatus("role name is required");
-    setEditSaving(true);
-    setStatus("Saving role...");
-    try {
-      await apiPatch(`/users/roles/${encodeURIComponent(editRoleId)}`, { name: editRoleName.trim() });
-      setEditRoleOpen(false);
+  const saveRoleName = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editRoleId) return;
+      if (!editRoleName.trim()) return setStatus("role name is required");
+      setEditSaving(true);
+      setStatus("Saving role...");
+      try {
+        await apiPatch(`/users/roles/${encodeURIComponent(editRoleId)}`, { name: editRoleName.trim() });
+        setEditRoleOpen(false);
+        await load();
+        setStatus("");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus(message);
+      } finally {
+        setEditSaving(false);
+      }
+    },
+    [editRoleId, editRoleName, load],
+  );
+
+  const deleteRole = useCallback(
+    async (role: RoleRow) => {
+      if (role.assigned_users && role.assigned_users > 0) {
+        setStatus(`Role "${role.name}" is assigned to ${role.assigned_users} user(s) and cannot be deleted until unassigned.`);
+        return;
+      }
+      setStatus("Deleting role...");
+      await apiDelete(`/users/roles/${encodeURIComponent(role.id)}`);
+      if (selectedRoleId === role.id) setSelectedRoleId("");
       await load();
       setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setEditSaving(false);
-    }
-  }, [editRoleId, editRoleName, load]);
+    },
+    [load, selectedRoleId],
+  );
 
-  const deleteRole = useCallback(async (role: RoleRow) => {
-    const msg = role.assigned_users
-      ? `Role "${role.name}" is assigned to ${role.assigned_users} user(s) and cannot be deleted until unassigned.`
-      : `Delete role "${role.name}"?`;
-    if (role.assigned_users && role.assigned_users > 0) {
-      setStatus(msg);
-      return;
-    }
-    setStatus("Deleting role...");
-    await apiDelete(`/users/roles/${encodeURIComponent(role.id)}`);
-    if (selectedRoleId === role.id) setSelectedRoleId("");
-    await load();
-    setStatus("");
-  }, [load, selectedRoleId]);
+  const revokePermission = useCallback(
+    async (code: string) => {
+      if (!selectedRoleId) return;
+      setStatus("Revoking permission...");
+      try {
+        await apiDelete(`/users/roles/${encodeURIComponent(selectedRoleId)}/permissions/${encodeURIComponent(code)}`);
+        await loadRolePerms(selectedRoleId);
+        setStatus("");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus(message);
+      }
+    },
+    [loadRolePerms, selectedRoleId],
+  );
 
-  const revokePermission = useCallback(async (code: string) => {
-    if (!selectedRoleId) return;
-    setStatus("Revoking permission...");
-    try {
-      await apiDelete(`/users/roles/${encodeURIComponent(selectedRoleId)}/permissions/${encodeURIComponent(code)}`);
-      await loadRolePerms(selectedRoleId);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
-  }, [loadRolePerms, selectedRoleId]);
-
-  const rolePermColumns = useMemo((): Array<DataTableColumn<{ code: string; description: string }>> => {
-    return [
+  const rolePermColumns = useMemo<ColumnDef<{ code: string; description: string }>[]>(
+    () => [
       {
-        id: "code",
-        header: "Code",
-        sortable: true,
-        mono: true,
-        accessor: (p) => p.code,
-        cell: (p) => <span className="font-mono text-xs">{p.code}</span>,
+        accessorKey: "code",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.code}</span>,
       },
       {
-        id: "description",
-        header: "Description",
-        sortable: true,
-        accessor: (p) => p.description,
-        cell: (p) => <span className="text-sm">{p.description}</span>,
+        accessorKey: "description",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.description}</span>,
       },
       {
         id: "actions",
         header: "Actions",
-        accessor: () => "",
-        globalSearch: false,
-        align: "right",
-        cell: (p) => (
-          <ConfirmButton
-            variant="outline"
-            size="sm"
-            title={`Revoke "${p.code}"?`}
-            description="This removes the permission from the selected role."
-            confirmText="Revoke"
-            confirmVariant="destructive"
-            onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-            onConfirm={() => revokePermission(p.code)}
-          >
-            Revoke
-          </ConfirmButton>
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <ConfirmDialog
+              title={`Revoke "${row.original.code}"?`}
+              description="This removes the permission from the selected role."
+              confirmLabel="Revoke"
+              variant="destructive"
+              onConfirm={() => revokePermission(row.original.code)}
+              trigger={
+                <Button variant="outline" size="sm">
+                  Revoke
+                </Button>
+              }
+            />
+          </div>
         ),
       },
-    ];
-  }, [revokePermission]);
+    ],
+    [revokePermission],
+  );
 
-  const allPermColumns = useMemo((): Array<DataTableColumn<PermissionRow>> => {
-    return [
+  const allPermColumns = useMemo<ColumnDef<PermissionRow>[]>(
+    () => [
       {
-        id: "code",
-        header: "Code",
-        sortable: true,
-        mono: true,
-        accessor: (p) => p.code,
-        cell: (p) => <span className="font-mono text-xs">{p.code}</span>,
+        accessorKey: "code",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.code}</span>,
       },
       {
-        id: "description",
-        header: "Description",
-        sortable: true,
-        accessor: (p) => p.description,
-        cell: (p) => <span className="text-sm">{p.description}</span>,
+        accessorKey: "description",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.description}</span>,
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
   return (
-    <Page width="lg" className="px-4 pb-10">
-      {status && !statusIsBusy && !statusIsNotice ? <ErrorBanner error={status} onRetry={load} /> : null}
-
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Roles & Permissions"
         description="Define roles and grant permission codes."
         actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load} disabled={statusIsBusy}>
-            {loading ? "Loading..." : "Refresh"}
-          </Button>
-          <Button variant="outline" onClick={seedDefaults} disabled={seedingDefaults}>
-            {seedingDefaults ? "..." : "Load Standard Roles"}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={!selectedRoleId}
-            onClick={() => {
-              const r = roleById.get(selectedRoleId);
-              if (!r) return;
-              setEditRoleId(r.id);
-              setEditRoleName(r.name || "");
-              setEditRoleOpen(true);
-            }}
-          >
-            Rename Role
-          </Button>
-          <ConfirmButton
-            variant="outline"
-            disabled={!selectedRoleId || Boolean(selectedRole?.assigned_users)}
-            title="Delete Role?"
-            description={
-              selectedRole?.assigned_users
-                ? `This role is assigned to ${selectedRole.assigned_users} user(s). Unassign users first.`
-                : "This deletes the role (and its permissions)."
-            }
-            confirmText="Delete"
-            confirmVariant="destructive"
-            onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-            onConfirm={() => {
-              const r = roleById.get(selectedRoleId);
-              if (!r) return;
-              return deleteRole(r);
-            }}
-          >
-            Delete Role
-          </ConfirmButton>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>New Role</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create Role</DialogTitle>
-                <DialogDescription>Create a company role, then grant permissions.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={createRole} className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Role Name</label>
-                  <Input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} placeholder="Cashier / Manager / Accounting" />
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={creatingRole}>
-                    {creatingRole ? "..." : "Create"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
-            <DialogTrigger asChild>
-              <Button variant="secondary">Grant Permission</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Grant Permission</DialogTitle>
-                <DialogDescription>Grant a permission code to a role.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={assignPermission} className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Role</label>
-                  <select
-                    className="ui-select"
-                    value={selectedRoleId}
-                    onChange={(e) => setSelectedRoleId(e.target.value)}
-                  >
-                    <option value="">Select role...</option>
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}{r.template_code ? " (Standard)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Permission</label>
-                  <select
-                    className="ui-select"
-                    value={assignPermCode}
-                    onChange={(e) => setAssignPermCode(e.target.value)}
-                  >
-                    <option value="">Select permission...</option>
-                    {permissions.map((p) => (
-                      <option key={p.id} value={p.code}>
-                        {p.code}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={assigning}>
-                    {assigning ? "..." : "Grant"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={load} disabled={statusIsBusy}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={seedDefaults} disabled={seedingDefaults}>
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              {seedingDefaults ? "Loading..." : "Load Standard Roles"}
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Role
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Role</DialogTitle>
+                  <DialogDescription>Create a company role, then grant permissions.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createRole} className="grid grid-cols-1 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Role Name</label>
+                    <Input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} placeholder="Cashier / Manager / Accounting" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creatingRole}>
+                      {creatingRole ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
           </div>
         }
       />
 
+      {status && !statusIsBusy && !statusIsNotice && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {statusIsNotice && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="py-3">
+            <p className="text-sm text-primary">{status}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Rename Role Dialog */}
       <Dialog open={editRoleOpen} onOpenChange={setEditRoleOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rename Role</DialogTitle>
             <DialogDescription>Changes the display name only.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveRoleName} className="grid grid-cols-1 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Role Name</label>
+          <form onSubmit={saveRoleName} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Role Name</label>
               <Input value={editRoleName} onChange={(e) => setEditRoleName(e.target.value)} placeholder="Role name" />
             </div>
             <div className="flex justify-end">
               <Button type="submit" disabled={editSaving}>
-                {editSaving ? "..." : "Save"}
+                {editSaving ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
-      <Section title="Role Permissions" description="Pick a role to review its assigned permissions.">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Role</label>
-                <select
-                  className="ui-select"
-                  value={selectedRoleId}
-                  onChange={(e) => setSelectedRoleId(e.target.value)}
-                >
-                  <option value="">Select role...</option>
+      {/* Grant Permission Dialog */}
+      <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Grant Permission</DialogTitle>
+            <DialogDescription>Grant a permission code to a role.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={assignPermission} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Role</label>
+              <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role..." />
+                </SelectTrigger>
+                <SelectContent>
                   {roles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}{r.template_code ? " (Standard)" : ""}
-                    </option>
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                      {r.template_code ? " (Standard)" : ""}
+                    </SelectItem>
                   ))}
-                </select>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Permission</label>
+              <Select value={assignPermCode} onValueChange={setAssignPermCode}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select permission..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {permissions.map((p) => (
+                    <SelectItem key={p.id} value={p.code}>
+                      {p.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={assigning}>
+                {assigning ? "Granting..." : "Grant"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-            <DataTable<{ code: string; description: string }>
-              tableId="system.roles_permissions.role_perms"
-              rows={rolePerms}
-              columns={rolePermColumns}
-              getRowId={(r) => r.code}
-              enablePagination
-              isLoading={loading}
-              emptyText={loading ? "Loading role permissions..." : selectedRoleId ? "No permissions assigned." : "Select a role."}
-              enableGlobalFilter={Boolean(selectedRoleId)}
-              globalFilterPlaceholder="Search permission code / description"
-              initialSort={{ columnId: "code", dir: "asc" }}
-            />
-      </Section>
+      {/* Role Permissions */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                Role Permissions
+              </CardTitle>
+              <CardDescription>Pick a role to review its assigned permissions.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!selectedRoleId}
+                onClick={() => {
+                  const r = roleById.get(selectedRoleId);
+                  if (!r) return;
+                  setEditRoleId(r.id);
+                  setEditRoleName(r.name || "");
+                  setEditRoleOpen(true);
+                }}
+              >
+                Rename
+              </Button>
+              <ConfirmDialog
+                title="Delete Role?"
+                description={
+                  selectedRole?.assigned_users
+                    ? `This role is assigned to ${selectedRole.assigned_users} user(s). Unassign users first.`
+                    : "This deletes the role (and its permissions)."
+                }
+                confirmLabel="Delete"
+                variant="destructive"
+                onConfirm={() => {
+                  const r = roleById.get(selectedRoleId);
+                  if (!r) return;
+                  return deleteRole(r);
+                }}
+                trigger={
+                  <Button variant="outline" size="sm" disabled={!selectedRoleId || Boolean(selectedRole?.assigned_users)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </Button>
+                }
+              />
+              <Button variant="secondary" size="sm" onClick={() => setGrantOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Grant Permission
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="w-full md:w-80">
+            <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select role..." />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                    {r.template_code ? " (Standard)" : ""}
+                    {r.assigned_users ? ` [${r.assigned_users} user(s)]` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      <Section title="All Permissions" description={`${permissions.length} permission code(s)`}>
-            <DataTable<PermissionRow>
-              tableId="system.roles_permissions.all_permissions"
-              rows={permissions}
-              columns={allPermColumns}
-              getRowId={(r) => r.id}
-              enablePagination
-              isLoading={loading}
-              emptyText={loading ? "Loading permissions..." : "No permissions."}
-              globalFilterPlaceholder="Search code / description"
-              initialSort={{ columnId: "code", dir: "asc" }}
-            />
-      </Section>
-    </Page>
+          <DataTable
+            columns={rolePermColumns}
+            data={rolePerms}
+            isLoading={loading}
+            searchPlaceholder="Search permission code / description"
+          />
+        </CardContent>
+      </Card>
+
+      {/* All Permissions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>All Permissions</CardTitle>
+          <CardDescription>
+            {permissions.length} permission code(s) registered in the system.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable columns={allPermColumns} data={permissions} isLoading={loading} searchPlaceholder="Search code / description" />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -1,17 +1,22 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Monitor, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
+import { StatusBadge } from "@/components/business/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
-import { ConfirmButton } from "@/components/confirm-button";
-import { Page, PageHeader, Section } from "@/components/page";
 import { ViewRaw } from "@/components/view-raw";
 
 type DeviceRow = {
@@ -149,7 +154,7 @@ function CopyValueButton(props: { text: string; label?: string; className?: stri
       type="button"
       variant="ghost"
       size="icon"
-      className={props.className || "h-8 w-8 text-fg-muted hover:text-foreground"}
+      className={props.className || "h-8 w-8 text-muted-foreground hover:text-foreground"}
       disabled={disabled}
       onClick={async () => {
         if (disabled) return;
@@ -171,10 +176,10 @@ function CopyValueButton(props: { text: string; label?: string; className?: stri
 
 function SetupField(props: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-bg-sunken/20 p-3">
+    <div className="rounded-md border bg-muted/30 p-3">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-fg-muted">{props.label}</span>
-        <CopyValueButton text={props.value} label={props.label} className="h-7 w-7 text-fg-muted hover:text-foreground" />
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{props.label}</span>
+        <CopyValueButton text={props.value} label={props.label} className="h-7 w-7 text-muted-foreground hover:text-foreground" />
       </div>
       <code className="block break-all text-xs">{props.value || "-"}</code>
     </div>
@@ -341,7 +346,7 @@ export default function PosDevicesPage() {
     }
   }
 
-async function resetToken(device: DeviceRow) {
+  async function resetToken(device: DeviceRow) {
     const companyId = getCompanyId();
     if (!companyId) {
       setStatus("Company is not selected. Go to Change Company first.");
@@ -513,34 +518,143 @@ async function resetToken(device: DeviceRow) {
     }
   }
 
-  return (
-    <Page width="lg" className="px-4 pb-10">
-      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
+  const columns = useMemo<ColumnDef<DeviceRow>[]>(
+    () => [
+      {
+        id: "device_code",
+        accessorFn: (d) => d.device_code,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.device_code}</span>,
+      },
+      {
+        id: "branch",
+        accessorFn: (d) => d.branch_name || d.branch_id || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Branch" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.branch_name || (row.original.branch_id ? row.original.branch_id : "-")}</span>,
+      },
+      {
+        id: "token",
+        accessorFn: (d) => (d.has_token ? "set" : "missing"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Token" />,
+        cell: ({ row }) => (
+          <Badge variant={row.original.has_token ? "secondary" : "warning"}>{row.original.has_token ? "set" : "missing"}</Badge>
+        ),
+      },
+      {
+        id: "health",
+        accessorFn: (d) => `${deviceHealthLabel(d)} ${d.last_seen_at || ""}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Health" />,
+        cell: ({ row }) => {
+          const label = deviceHealthLabel(row.original);
+          return (
+            <span className="text-sm text-muted-foreground">
+              <StatusBadge status={label === "online" ? "active" : label === "idle" ? "pending" : label === "offline" ? "inactive" : "draft"} />
+              {row.original.last_seen_at ? ` ${new Date(row.original.last_seen_at).toLocaleString()}` : ""}
+            </span>
+          );
+        },
+      },
+      {
+        id: "queue",
+        accessorFn: (d) => Number(d.pending_events || 0) + Number(d.failed_events || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Queue" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm text-muted-foreground">
+            P:{row.original.pending_events || 0} F:{row.original.failed_events || 0}
+          </span>
+        ),
+      },
+      {
+        id: "assignments",
+        accessorFn: (d) => Number(d.assigned_employees_count || 0) + Number(d.assigned_cashiers_count || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Assignments" />,
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            E:{row.original.assigned_employees_count || 0} C:{row.original.assigned_cashiers_count || 0} S:{row.original.open_shift_count || 0}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const d = row.original;
+          return (
+            <div className="flex flex-wrap justify-end gap-1">
+              <Button variant="outline" size="sm" onClick={() => openEditDevice(d)} disabled={busy}>
+                Edit
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => openAssignEmployees(d)} disabled={busy}>
+                Employees
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => openAssignCashiers(d)} disabled={busy}>
+                Cashiers
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => resetToken(d)} disabled={busy}>
+                Reset Token
+              </Button>
+              <ConfirmDialog
+                title={`Deactivate "${d.device_code}"?`}
+                description="This revokes its token."
+                confirmLabel="Deactivate"
+                variant="destructive"
+                onConfirm={() => deactivateDevice(d)}
+                trigger={
+                  <Button variant="outline" size="sm" disabled={busy}>
+                    Deactivate
+                  </Button>
+                }
+              />
+              <ConfirmDialog
+                title={`Delete "${d.device_code}"?`}
+                description="Only allowed if it has no linked records."
+                confirmLabel="Delete"
+                variant="destructive"
+                onConfirm={() => deleteDevice(d)}
+                trigger={
+                  <Button variant="outline" size="sm" disabled={busy}>
+                    Delete
+                  </Button>
+                }
+              />
+            </div>
+          );
+        },
+      },
+    ],
+    [busy],
+  );
 
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="POS Devices"
         description="Register devices, edit terminal settings, and control cashier access."
         actions={
-          <>
-            <Button variant="outline" onClick={load} disabled={busy}>
-              {loading ? "Loading..." : "Refresh"}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={load} disabled={busy}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
             <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
               <DialogTrigger asChild>
-                <Button disabled={busy}>Register Device</Button>
+                <Button size="sm" disabled={busy}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Register Device
+                </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Register POS Device</DialogTitle>
                   <DialogDescription>Creates a device and returns a one-time token.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Device Code</label>
+                <form onSubmit={registerDevice} className="grid grid-cols-1 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Device Code</label>
                     <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Branch (optional)</label>
                     <SearchableSelect
                       value={branchId}
                       onChange={setBranchId}
@@ -551,33 +665,45 @@ async function resetToken(device: DeviceRow) {
                         ...branches.map((b) => ({ value: b.id, label: b.name })),
                       ]}
                     />
-                    {branchId ? <div className="text-xs text-fg-subtle">Branch ID: {branchId}</div> : null}
+                    {branchId ? <div className="text-xs text-muted-foreground font-mono">{branchId}</div> : null}
                   </div>
                   <div className="flex justify-end">
                     <Button type="submit" disabled={registering || busy}>
-                      {registering ? "..." : "Register"}
+                      {registering ? "Registering..." : "Register"}
                     </Button>
                   </div>
                 </form>
               </DialogContent>
             </Dialog>
-          </>
+          </div>
         }
       />
 
+      {status && !statusIsBusy && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit POS Device</DialogTitle>
             <DialogDescription>Update code and branch without deleting the device.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveDeviceEdits} className="grid grid-cols-1 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Device Code</label>
+          <form onSubmit={saveDeviceEdits} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Device Code</label>
               <Input value={editDeviceCode} onChange={(e) => setEditDeviceCode(e.target.value)} placeholder="POS-01" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Branch (optional)</label>
               <SearchableSelect
                 value={editBranchId}
                 onChange={setEditBranchId}
@@ -594,13 +720,14 @@ async function resetToken(device: DeviceRow) {
                 Cancel
               </Button>
               <Button type="submit" disabled={savingEdit || busy}>
-                {savingEdit ? "..." : "Save"}
+                {savingEdit ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* Assign Cashiers Dialog */}
       <Dialog
         open={assignOpen}
         onOpenChange={(open) => {
@@ -621,34 +748,33 @@ async function resetToken(device: DeviceRow) {
                 : "Choose who can log in on this device."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-fg-muted">Search cashiers</label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Search cashiers</label>
             <Input
               value={assignCashierSearch}
               onChange={(e) => setAssignCashierSearch(e.target.value)}
               placeholder="Type cashier name..."
             />
           </div>
-          <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border border-border p-3">
+          <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border p-3">
             {filteredAssignCashiers.length ? (
               filteredAssignCashiers.map((c) => (
-                <label key={c.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                <label key={c.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
                   <span className="truncate">{c.name}</span>
                   <span className="flex items-center gap-2">
-                    {c.is_active ? null : <span className="text-xs text-fg-subtle">inactive</span>}
-                    <input
-                      type="checkbox"
+                    {c.is_active ? null : <span className="text-xs text-muted-foreground">inactive</span>}
+                    <Checkbox
                       checked={!!c.assigned}
-                      onChange={(e) => toggleCashierAssignment(c.id, e.target.checked)}
+                      onCheckedChange={(checked) => toggleCashierAssignment(c.id, !!checked)}
                     />
                   </span>
                 </label>
               ))
             ) : (
-              <div className="text-xs text-fg-subtle">
+              <div className="text-xs text-muted-foreground">
                 {assignCashierSearch.trim()
                   ? "No cashiers match your search."
-                  : "No cashiers found. Create cashiers first in System → POS Cashiers."}
+                  : "No cashiers found. Create cashiers first in System > POS Cashiers."}
               </div>
             )}
           </div>
@@ -657,12 +783,13 @@ async function resetToken(device: DeviceRow) {
               Cancel
             </Button>
             <Button type="button" onClick={saveCashierAssignments} disabled={savingAssignments || !assignDevice || busy}>
-              {savingAssignments ? "..." : "Save Assignments"}
+              {savingAssignments ? "Saving..." : "Save Assignments"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* Assign Employees Dialog */}
       <Dialog
         open={assignEmployeesOpen}
         onOpenChange={(open) => {
@@ -683,31 +810,30 @@ async function resetToken(device: DeviceRow) {
                 : "Assign employees allowed on this device. Only linked cashiers can log in."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-fg-muted">Search employees</label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Search employees</label>
             <Input
               value={assignEmployeeSearch}
               onChange={(e) => setAssignEmployeeSearch(e.target.value)}
               placeholder="Type name or email..."
             />
           </div>
-          <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border border-border p-3">
+          <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border p-3">
             {filteredAssignEmployees.length ? (
               filteredAssignEmployees.map((u) => (
-                <label key={u.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                <label key={u.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
                   <span className="truncate">{u.full_name || u.email}</span>
                   <span className="flex items-center gap-2">
-                    {u.is_active ? null : <span className="text-xs text-fg-subtle">inactive</span>}
-                    <input
-                      type="checkbox"
+                    {u.is_active ? null : <span className="text-xs text-muted-foreground">inactive</span>}
+                    <Checkbox
                       checked={!!u.assigned}
-                      onChange={(e) => toggleEmployeeAssignment(u.id, e.target.checked)}
+                      onCheckedChange={(checked) => toggleEmployeeAssignment(u.id, !!checked)}
                     />
                   </span>
                 </label>
               ))
             ) : (
-              <div className="text-xs text-fg-subtle">
+              <div className="text-xs text-muted-foreground">
                 {assignEmployeeSearch.trim() ? "No employees match your search." : "No employees found for this company."}
               </div>
             )}
@@ -717,38 +843,54 @@ async function resetToken(device: DeviceRow) {
               Cancel
             </Button>
             <Button type="button" onClick={saveEmployeeAssignments} disabled={savingEmployeeAssignments || !assignEmployeesDevice || busy}>
-              {savingEmployeeAssignments ? "..." : "Save Assignments"}
+              {savingEmployeeAssignments ? "Saving..." : "Save Assignments"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {devices.length === 0 ? (
-        <Section
-          title="Create Your First POS Device"
-          description="Register a device, then copy a full POS config payload with all required fields."
-          actions={<Button onClick={() => setRegisterOpen(true)} disabled={busy}>Register Device</Button>}
-        >
-          <ol className="list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
-            <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
-            <li>Set Cloud/Edge API URLs once, then copy the generated config JSON.</li>
-            <li>Paste the JSON in POS Desktop Import Config JSON (or copy individual fields in POS Settings), then Save.</li>
-            <li>Sync to verify the agent can connect.</li>
-          </ol>
-        </Section>
+      {/* Empty state */}
+      {devices.length === 0 && !loading ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Monitor className="h-4 w-4" />
+              Create Your First POS Device
+            </CardTitle>
+            <CardDescription>Register a device, then copy a full POS config payload with all required fields.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+              <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
+              <li>Set Cloud/Edge API URLs once, then copy the generated config JSON.</li>
+              <li>Paste the JSON in POS Desktop Import Config JSON (or copy individual fields in POS Settings), then Save.</li>
+              <li>Sync to verify the agent can connect.</li>
+            </ol>
+            <div className="mt-4">
+              <Button onClick={() => setRegisterOpen(true)} disabled={busy}>
+                Register Device
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
 
+      {/* POS Config Bundle */}
       {lastSetup ? (
-        <Section
-          title="POS Config Bundle"
-          description="Everything needed for POS configuration after register/reset. Copy values directly into the POS Settings screen."
-        >
-          <div className="space-y-3 text-sm">
-            <div className="space-y-2 rounded-md border border-border bg-bg-sunken/20 p-3">
-              <div className="text-xs font-medium text-fg-muted">Cloud POS Connectivity</div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Monitor className="h-4 w-4" />
+              POS Config Bundle
+            </CardTitle>
+            <CardDescription>Everything needed for POS configuration after register/reset. Copy values directly into the POS Settings screen.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3 rounded-md border bg-muted/30 p-4">
+              <div className="text-xs font-medium text-muted-foreground">Cloud POS Connectivity</div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Cloud API URL (required)</label>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Cloud API URL (required)</label>
                   <div className="flex items-center gap-2">
                     <Input
                       value={setupCloudApiBaseUrl}
@@ -759,8 +901,8 @@ async function resetToken(device: DeviceRow) {
                   </div>
                   {cloudUrlError ? <div className="text-xs text-destructive">{cloudUrlError}</div> : null}
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Edge/LAN API URL (optional fallback)</label>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Edge/LAN API URL (optional fallback)</label>
                   <div className="flex items-center gap-2">
                     <Input
                       value={setupEdgeApiBaseUrl}
@@ -783,8 +925,8 @@ async function resetToken(device: DeviceRow) {
                   Clear Edge Fallback
                 </Button>
               </div>
-              <p className="text-xs text-fg-subtle">
-                Legacy <code>api_base_url</code> will use <code>{(effectiveEdgeApiBaseUrl || effectiveCloudApiBaseUrl || "-")}</code>.
+              <p className="text-xs text-muted-foreground">
+                Legacy <code>api_base_url</code> will use <code>{effectiveEdgeApiBaseUrl || effectiveCloudApiBaseUrl || "-"}</code>.
               </p>
             </div>
 
@@ -803,9 +945,7 @@ async function resetToken(device: DeviceRow) {
 
             {setupPayload ? (
               <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-medium text-fg-muted">POS Config JSON</div>
-                </div>
+                <div className="text-xs font-medium text-muted-foreground">POS Config JSON</div>
                 <ViewRaw
                   value={setupPayload}
                   label="POS Config JSON"
@@ -817,9 +957,7 @@ async function resetToken(device: DeviceRow) {
 
             {launcherSetupPayload ? (
               <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-medium text-fg-muted">POS Desktop Config JSON</div>
-                </div>
+                <div className="text-xs font-medium text-muted-foreground">POS Desktop Config JSON</div>
                 <ViewRaw
                   value={launcherSetupPayload}
                   label="Desktop Config JSON"
@@ -830,124 +968,31 @@ async function resetToken(device: DeviceRow) {
             ) : null}
 
             {lastSetup.device_token ? null : (
-              <div className="rounded-md border border-border-strong bg-bg-elevated p-3 text-xs text-fg-subtle">
-                Token was not returned (device already existed). Click <strong>Reset Token & Config</strong> on that device to generate a fresh config payload.
+              <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                Token was not returned (device already existed). Click <strong>Reset Token</strong> on that device to generate a fresh config payload.
               </div>
             )}
 
-            <div className="rounded-md border border-border bg-bg-sunken/20 p-3 text-xs text-fg-subtle">
+            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
               Fastest flow: copy <strong>POS Desktop Config JSON</strong> to POS Desktop launcher. Manual flow: paste individual values in POS Settings, then Save and Sync.
             </div>
-          </div>
-        </Section>
+          </CardContent>
+        </Card>
       ) : null}
 
-      <Section title="Devices" description={`${devices.length} device(s)`}>
-          {(() => {
-            const columns: Array<DataTableColumn<DeviceRow>> = [
-              { id: "device_code", header: "Code", accessor: (d) => d.device_code, sortable: true, mono: true, cell: (d) => <span className="text-xs">{d.device_code}</span> },
-              { id: "id", header: "Device ID", accessor: (d) => d.id, mono: true, defaultHidden: true, cell: (d) => <span className="text-xs text-fg-subtle">{d.id}</span> },
-              {
-                id: "branch_id",
-                header: "Branch",
-                accessor: (d) => d.branch_name || d.branch_id || "",
-                cell: (d) => (
-                  <span className="text-xs">
-                    {d.branch_name || (d.branch_id ? d.branch_id : "-")}
-                  </span>
-                ),
-              },
-              { id: "token", header: "Token", accessor: (d) => (d.has_token ? "set" : "missing"), sortable: true, cell: (d) => <span className="text-xs text-fg-muted">{d.has_token ? "set" : "missing"}</span> },
-              {
-                id: "health",
-                header: "Health",
-                accessor: (d) => `${deviceHealthLabel(d)} ${d.last_seen_at || ""}`,
-                sortable: true,
-                cell: (d) => (
-                  <span className="text-xs text-fg-muted">
-                    {deviceHealthLabel(d)}
-                    {d.last_seen_at ? ` · ${new Date(d.last_seen_at).toLocaleString()}` : ""}
-                  </span>
-                ),
-              },
-              {
-                id: "queue",
-                header: "Queue",
-                accessor: (d) => `${d.pending_events || 0}/${d.failed_events || 0}`,
-                cell: (d) => <span className="text-xs text-fg-muted">pending {d.pending_events || 0} · failed {d.failed_events || 0}</span>,
-              },
-              {
-                id: "assignments",
-                header: "Assignments",
-                accessor: (d) => `${d.assigned_employees_count || 0}/${d.assigned_cashiers_count || 0}`,
-                cell: (d) => (
-                  <span className="text-xs text-fg-muted">
-                    employees {d.assigned_employees_count || 0} · cashiers {d.assigned_cashiers_count || 0} · open shifts {d.open_shift_count || 0}
-                  </span>
-                ),
-              },
-              {
-                id: "actions",
-                header: "Actions",
-                accessor: () => "",
-                globalSearch: false,
-                align: "right",
-                cell: (d) => (
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditDevice(d)} disabled={busy}>
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => openAssignEmployees(d)} disabled={busy}>
-                      Assign Employees
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => openAssignCashiers(d)} disabled={busy}>
-                      Assign Cashiers
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => resetToken(d)} disabled={busy}>
-                      Reset Token & Config
-                    </Button>
-                    <ConfirmButton
-                      variant="outline"
-                      size="sm"
-                      title={`Deactivate "${d.device_code}"?`}
-                      description="This revokes its token."
-                      confirmText="Deactivate"
-                      confirmVariant="destructive"
-                      onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-                      onConfirm={() => deactivateDevice(d)}
-                    >
-                      Deactivate
-                    </ConfirmButton>
-                    <ConfirmButton
-                      variant="outline"
-                      size="sm"
-                      title={`Delete "${d.device_code}"?`}
-                      description="Only allowed if it has no linked records."
-                      confirmText="Delete"
-                      confirmVariant="destructive"
-                      onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-                      onConfirm={() => deleteDevice(d)}
-                    >
-                      Delete
-                    </ConfirmButton>
-                  </div>
-                ),
-              },
-            ];
-
-            return (
-              <DataTable<DeviceRow>
-                tableId="system.posDevices"
-                rows={devices}
-                columns={columns}
-                isLoading={loading}
-                emptyText={loading ? "Loading devices..." : "No devices yet."}
-                globalFilterPlaceholder="Search device code / branch / token..."
-                initialSort={{ columnId: "device_code", dir: "asc" }}
-              />
-            );
-          })()}
-      </Section>
-    </Page>
+      {/* Devices Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Monitor className="h-4 w-4" />
+            Devices
+          </CardTitle>
+          <CardDescription>{devices.length} device(s)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable columns={columns} data={devices} isLoading={loading} searchPlaceholder="Search device code / branch / token..." />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

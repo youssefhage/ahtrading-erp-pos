@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { AlertTriangle, HeartPulse, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type AttentionItem = {
   key: string;
@@ -25,15 +29,10 @@ type AttentionResponse = {
   worker_age_seconds?: number | null;
 };
 
-function severityChip(sev: AttentionItem["severity"]) {
-  const cls =
-    sev === "critical"
-      ? "bg-danger/15 text-danger border-danger/25"
-      : sev === "warning"
-        ? "bg-warning/15 text-warning border-warning/25"
-        : "bg-info/15 text-info border-info/25";
+function severityBadge(sev: AttentionItem["severity"]) {
+  const variant = sev === "critical" ? "destructive" : sev === "warning" ? "warning" : "secondary";
   const label = sev === "critical" ? "Critical" : sev === "warning" ? "Warning" : "Info";
-  return <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${cls}`}>{label}</span>;
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function fmtAge(s?: number | null) {
@@ -46,18 +45,18 @@ function fmtAge(s?: number | null) {
 
 function Inner() {
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [data, setData] = useState<AttentionResponse | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const res = await apiGet<AttentionResponse>("/reports/attention");
       setData(res);
     } catch (e) {
       setData(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -76,122 +75,120 @@ function Inner() {
   const failedJobs = data?.failed_jobs || [];
   const workerAgeSeconds = data?.worker_age_seconds ?? null;
 
-  const attentionColumns = useMemo((): Array<DataTableColumn<AttentionItem>> => {
-    return [
+  const attentionColumns = useMemo<ColumnDef<AttentionItem>[]>(
+    () => [
       {
         id: "severity",
-        header: "Severity",
-        sortable: true,
-        accessor: (it) => (it.severity === "critical" ? 0 : it.severity === "warning" ? 1 : 2),
-        cell: (it) => severityChip(it.severity),
+        accessorFn: (it) => (it.severity === "critical" ? 0 : it.severity === "warning" ? 1 : 2),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Severity" />,
+        cell: ({ row }) => severityBadge(row.original.severity),
       },
       {
         id: "label",
-        header: "Signal",
-        sortable: true,
-        accessor: (it) => it.label,
-        cell: (it) => <span className="text-sm">{it.label}</span>,
+        accessorFn: (it) => it.label,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Signal" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.label}</span>,
       },
       {
         id: "count",
-        header: "Count",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (it) => Number(it.count || 0),
-        cell: (it) => <span className="data-mono">{String(it.count || 0)}</span>,
+        accessorFn: (it) => Number(it.count || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Count" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.count || 0)}</span>,
       },
       {
         id: "open",
         header: "Open",
-        align: "right",
-        sortable: false,
-        accessor: (it) => it.href,
-        cell: (it) => (
+        cell: ({ row }) => (
           <Button asChild variant="outline" size="sm">
-            <Link href={it.href}>Open</Link>
+            <Link href={row.original.href}>Open</Link>
           </Button>
         ),
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
-  const failedJobColumns = useMemo((): Array<DataTableColumn<FailedJob>> => {
-    return [
+  const failedJobColumns = useMemo<ColumnDef<FailedJob>[]>(
+    () => [
       {
         id: "job_code",
-        header: "Job",
-        sortable: true,
-        accessor: (j) => j.job_code,
-        cell: (j) => <span className="text-sm">{j.job_code}</span>,
+        accessorFn: (j) => j.job_code,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Job" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.job_code}</span>,
       },
       {
         id: "count",
-        header: "Failures (24h)",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (j) => Number(j.count || 0),
-        cell: (j) => <span className="data-mono">{String(j.count || 0)}</span>,
+        accessorFn: (j) => Number(j.count || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Failures (24h)" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.count || 0)}</span>,
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
   return (
-    <Page width="lg" className="px-4 pb-10">
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Needs Attention"
         description={loading ? "Loading..." : `${sorted.length} signal(s)`}
         actions={
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         }
       />
 
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
+      {err && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{err}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-      <Section title="Today" description="Operational queue: resolve these before posting/cash close.">
-        <DataTable<AttentionItem>
-          tableId="system.attention.today"
-          rows={sorted}
-          columns={attentionColumns}
-          getRowId={(r) => r.key}
-          isLoading={loading}
-          emptyText={loading ? "Loading..." : "All clear."}
-          enablePagination
-          enableGlobalFilter={false}
-          initialSort={{ columnId: "severity", dir: "asc" }}
-        />
-      </Section>
+      {/* Today */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            Today
+          </CardTitle>
+          <CardDescription>Operational queue: resolve these before posting/cash close.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable columns={attentionColumns} data={sorted} isLoading={loading} searchPlaceholder="Search signals..." />
+        </CardContent>
+      </Card>
 
-      <Section title="Background Health" description="Worker heartbeat and failed scheduled jobs in the last 24 hours.">
-        <div className="space-y-3 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
-            <div className="text-fg-muted">Worker last seen</div>
-            <div className="data-mono font-medium">{workerAgeSeconds == null ? "-" : `${fmtAge(workerAgeSeconds)} ago`}</div>
+      {/* Background Health */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <HeartPulse className="h-4 w-4" />
+            Background Health
+          </CardTitle>
+          <CardDescription>Worker heartbeat and failed scheduled jobs in the last 24 hours.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-4 py-3">
+            <div className="text-sm text-muted-foreground">Worker last seen</div>
+            <div className="font-mono text-sm font-medium">{workerAgeSeconds == null ? "-" : `${fmtAge(workerAgeSeconds)} ago`}</div>
           </div>
 
-          <DataTable<FailedJob>
-            tableId="system.attention.failed_jobs"
-            rows={failedJobs}
-            columns={failedJobColumns}
-            getRowId={(r) => r.job_code}
-            isLoading={loading}
-            emptyText={loading ? "Loading..." : "No failed jobs in the last 24 hours."}
-            enablePagination
-            enableGlobalFilter={false}
-            initialSort={{ columnId: "count", dir: "desc" }}
-          />
-        </div>
-      </Section>
-    </Page>
+          <DataTable columns={failedJobColumns} data={failedJobs} isLoading={loading} searchPlaceholder="Search job code..." />
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
 export default function AttentionPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner />
     </Suspense>
   );

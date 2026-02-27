@@ -1,21 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, Pencil, Landmark } from "lucide-react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
-type CoaAccount = {
-  id: string;
-  account_code: string;
-  name_en: string | null;
-};
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
+
+type CoaAccount = { id: string; account_code: string; name_en: string | null };
 
 type BankAccountRow = {
   id: string;
@@ -29,12 +42,17 @@ type BankAccountRow = {
   updated_at: string;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
+
 export default function BankAccountsPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [coa, setCoa] = useState<CoaAccount[]>([]);
 
+  // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -42,6 +60,7 @@ export default function BankAccountsPage() {
   const [glCode, setGlCode] = useState("");
   const [active, setActive] = useState(true);
 
+  // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editId, setEditId] = useState("");
@@ -57,36 +76,57 @@ export default function BankAccountsPage() {
     return m;
   }, [coa]);
 
-  const columns = useMemo((): Array<DataTableColumn<BankAccountRow>> => {
-    return [
-      { id: "name", header: "Name", accessor: (a) => a.name, sortable: true },
-      { id: "currency", header: "Currency", accessor: (a) => a.currency, sortable: true, globalSearch: false, cell: (a) => <span className="text-xs">{a.currency}</span> },
+  const columns = useMemo<ColumnDef<BankAccountRow>[]>(
+    () => [
       {
-        id: "gl",
-        header: "GL",
-        accessor: (a) => `${a.account_code} ${a.name_en || ""}`.trim(),
-        sortable: true,
-        cell: (a) => (
-          <span className="text-xs">
-            <span className="font-mono">{a.account_code}</span> <span className="text-fg-subtle">{a.name_en || ""}</span>
-          </span>
+        id: "name",
+        accessorFn: (a) => a.name,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      },
+      {
+        id: "currency",
+        accessorFn: (a) => a.currency,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Currency" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{row.original.currency}</span>
         ),
       },
-      { id: "is_active", header: "Active", accessor: (a) => (a.is_active ? "active" : "inactive"), sortable: true, globalSearch: false, cell: (a) => <StatusChip value={a.is_active ? "active" : "inactive"} /> },
+      {
+        id: "gl",
+        accessorFn: (a) => `${a.account_code} ${a.name_en || ""}`.trim(),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="GL Account" />,
+        cell: ({ row }) => (
+          <div>
+            <span className="font-mono text-sm">{row.original.account_code}</span>
+            <span className="ml-2 text-xs text-muted-foreground">{row.original.name_en || ""}</span>
+          </div>
+        ),
+      },
+      {
+        id: "is_active",
+        accessorFn: (a) => (a.is_active ? "active" : "inactive"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.is_active ? "active" : "inactive"} />
+        ),
+      },
       {
         id: "actions",
         header: "",
-        accessor: () => "",
-        align: "right",
-        globalSearch: false,
-        cell: (a) => (
-          <Button variant="outline" size="sm" onClick={() => openEdit(a)}>
-            Edit
-          </Button>
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => openEdit(row.original)}>
+              <Pencil className="mr-1 h-3 w-3" />
+              Edit
+            </Button>
+          </div>
         ),
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
   async function load() {
     setLoading(true);
@@ -94,14 +134,13 @@ export default function BankAccountsPage() {
     try {
       const [a, c] = await Promise.all([
         apiGet<{ accounts: BankAccountRow[] }>("/banking/accounts"),
-        apiGet<{ accounts: CoaAccount[] }>("/coa/accounts")
+        apiGet<{ accounts: CoaAccount[] }>("/coa/accounts"),
       ]);
       setAccounts(a.accounts || []);
       setCoa(c.accounts || []);
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -123,7 +162,7 @@ export default function BankAccountsPage() {
         name: name.trim(),
         currency,
         gl_account_id: acc.id,
-        is_active: active
+        is_active: active,
       });
       setCreateOpen(false);
       setName("");
@@ -132,8 +171,7 @@ export default function BankAccountsPage() {
       await load();
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setCreating(false);
     }
@@ -161,145 +199,176 @@ export default function BankAccountsPage() {
         name: editName.trim(),
         currency: editCurrency,
         gl_account_id: acc.id,
-        is_active: editActive
+        is_active: editActive,
       });
       setEditOpen(false);
       await load();
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setEditing(false);
     }
   }
 
   return (
-    <div className="ui-module-shell-narrow">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Banking</p>
-            <h1 className="ui-module-title">Bank Accounts</h1>
-            <p className="ui-module-subtitle">Maintain bank account to GL mapping for payment and reconciliation flows.</p>
-          </div>
-          <div className="ui-module-actions">
-            <Button variant="outline" onClick={load} disabled={loading}>
-              {loading ? "Loading..." : "Refresh"}
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader
+        title="Bank Accounts"
+        description="Maintain bank account to GL mapping for payment and reconciliation flows."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
-          </div>
-        </div>
-      </div>
-      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Accounts</CardTitle>
-          <CardDescription>{accounts.length} bank accounts</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="ui-actions-inline">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>Create Account</Button>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Account
+                </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Create Bank Account</DialogTitle>
-                  <DialogDescription>Each bank account maps to a GL account in your chart of accounts.</DialogDescription>
+                  <DialogDescription>
+                    Each bank account maps to a GL account in your chart of accounts.
+                  </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={createAccount} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                <form onSubmit={createAccount} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Name</Label>
                     <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bank - USD" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Currency</label>
-                      <select className="ui-select" value={currency} onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Currency</Label>
+                      <select
+                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
+                      >
                         <option value="USD">USD</option>
-                        <option value="LBP">LL</option>
+                        <option value="LBP">LBP</option>
                       </select>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
-                      <Input value={glCode} onChange={(e) => setGlCode(e.target.value)} placeholder="e.g. 100100" list="coaCodes" />
+                    <div className="space-y-2">
+                      <Label>GL Account Code</Label>
+                      <Input
+                        value={glCode}
+                        onChange={(e) => setGlCode(e.target.value)}
+                        placeholder="e.g. 100100"
+                        list="coaCodes"
+                      />
                       <datalist id="coaCodes">
                         {coa.slice(0, 2000).map((a) => (
-                          <option key={a.id} value={a.account_code}>
-                            {a.name_en || ""}
-                          </option>
+                          <option key={a.id} value={a.account_code}>{a.name_en || ""}</option>
                         ))}
                       </datalist>
-                      {coaByCode.get(glCode.trim()) ? (
-                        <p className="text-xs text-fg-subtle">{coaByCode.get(glCode.trim())?.name_en || "OK"}</p>
-                      ) : (
-                        <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {coaByCode.get(glCode.trim())?.name_en || "Pick a valid GL account."}
+                      </p>
                     </div>
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-fg-muted">
-                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                    Active
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="create-active"
+                      checked={active}
+                      onCheckedChange={(checked) => setActive(Boolean(checked))}
+                    />
+                    <Label htmlFor="create-active" className="text-sm">Active</Label>
+                  </div>
                   <div className="flex justify-end">
                     <Button type="submit" disabled={creating}>
-                      {creating ? "..." : "Create"}
+                      {creating ? "Creating..." : "Create"}
                     </Button>
                   </div>
                 </form>
               </DialogContent>
             </Dialog>
-          </div>
+          </>
+        }
+      />
 
-          <DataTable<BankAccountRow>
-            tableId="accounting.banking.accounts"
-            rows={accounts}
-            columns={columns}
-            isLoading={loading}
-            initialSort={{ columnId: "name", dir: "asc" }}
-            globalFilterPlaceholder="Search name / GL..."
-            emptyText={loading ? "Loading..." : "No bank accounts yet."}
-          />
+      {status && !statusIsBusy && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Accounts</CardTitle>
+          <p className="text-sm text-muted-foreground">{accounts.length} bank accounts</p>
+        </CardHeader>
+        <CardContent>
+          {!loading && accounts.length === 0 ? (
+            <EmptyState
+              icon={Landmark}
+              title="No bank accounts yet"
+              description="Create a bank account to enable reconciliation."
+              action={{ label: "Create Account", onClick: () => setCreateOpen(true) }}
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={accounts}
+              isLoading={loading}
+              searchPlaceholder="Search name / GL..."
+            />
+          )}
         </CardContent>
       </Card>
 
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Bank Account</DialogTitle>
-            <DialogDescription>Changing the GL mapping affects reconciliation matching.</DialogDescription>
+            <DialogDescription>
+              Changing the GL mapping affects reconciliation matching.
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Name</label>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Currency</label>
-                <select className="ui-select" value={editCurrency} onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Currency</Label>
+                <select
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={editCurrency}
+                  onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}
+                >
                   <option value="USD">USD</option>
-                  <option value="LBP">LL</option>
+                  <option value="LBP">LBP</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
+              <div className="space-y-2">
+                <Label>GL Account Code</Label>
                 <Input value={editGlCode} onChange={(e) => setEditGlCode(e.target.value)} list="coaCodes" />
-                {coaByCode.get(editGlCode.trim()) ? (
-                  <p className="text-xs text-fg-subtle">{coaByCode.get(editGlCode.trim())?.name_en || "OK"}</p>
-                ) : (
-                  <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  {coaByCode.get(editGlCode.trim())?.name_en || "Pick a valid GL account."}
+                </p>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-fg-muted">
-              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
-              Active
-            </label>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="edit-active"
+                checked={editActive}
+                onCheckedChange={(checked) => setEditActive(Boolean(checked))}
+              />
+              <Label htmlFor="edit-active" className="text-sm">Active</Label>
+            </div>
             <div className="flex justify-end">
               <Button type="submit" disabled={editing}>
-                {editing ? "..." : "Save"}
+                {editing ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>

@@ -1,17 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, Link2, Unlink, FileText, ArrowDownUp } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { fmtUsd, fmtLbp } from "@/lib/money";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { CurrencyDisplay } from "@/components/business/currency-display";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { MoneyInput } from "@/components/money-input";
 import { useToast } from "@/components/toast-provider";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type BankAccountRow = {
   id: string;
@@ -22,6 +41,7 @@ type BankAccountRow = {
   name_en: string | null;
   is_active: boolean;
 };
+
 type CoaAccount = { id: string; account_code: string; name_en: string | null };
 
 type BankTxnRow = {
@@ -49,17 +69,26 @@ type JournalRow = {
   created_at: string;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
 function todayIso() {
-    const d = new Date();
+  const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
-function fmt(n: string | number, frac = 2) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
+function n(v: unknown) {
+  const x = Number(v || 0);
+  return Number.isFinite(x) ? x : 0;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function BankingReconciliationPage() {
   const toast = useToast();
@@ -69,11 +98,13 @@ export default function BankingReconciliationPage() {
   const [coaAccounts, setCoaAccounts] = useState<CoaAccount[]>([]);
   const [txns, setTxns] = useState<BankTxnRow[]>([]);
 
+  // Filters
   const [bankAccountId, setBankAccountId] = useState("");
   const [matched, setMatched] = useState<"" | "true" | "false">("false");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  // Create transaction dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [txnBankAccountId, setTxnBankAccountId] = useState("");
@@ -85,6 +116,7 @@ export default function BankingReconciliationPage() {
   const [reference, setReference] = useState("");
   const [counterparty, setCounterparty] = useState("");
 
+  // Match dialog
   const [matchOpen, setMatchOpen] = useState(false);
   const [matching, setMatching] = useState(false);
   const [matchTxnId, setMatchTxnId] = useState("");
@@ -92,6 +124,7 @@ export default function BankingReconciliationPage() {
   const [journalQuery, setJournalQuery] = useState("");
   const [journalHits, setJournalHits] = useState<JournalRow[]>([]);
 
+  // Create journal dialog
   const [createJournalOpen, setCreateJournalOpen] = useState(false);
   const [creatingJournal, setCreatingJournal] = useState(false);
   const [createTxnId, setCreateTxnId] = useState("");
@@ -121,8 +154,7 @@ export default function BankingReconciliationPage() {
       const res = await apiGet<{ transactions: BankTxnRow[] }>(`/banking/transactions?${qs.toString()}`);
       setTxns(res.transactions || []);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingTxns(false);
     }
@@ -133,8 +165,7 @@ export default function BankingReconciliationPage() {
       try {
         await Promise.all([loadBankAccounts(), loadCoa()]);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
+        setError(err instanceof Error ? err.message : String(err));
       }
     })();
   }, []);
@@ -146,14 +177,8 @@ export default function BankingReconciliationPage() {
   async function createTxn(e: React.FormEvent) {
     e.preventDefault();
     if (!txnBankAccountId) return setError("Pick a bank account.");
-    const usd = (() => {
-      const r = parseNumberInput(amountUsd);
-      return r.ok ? r.value : 0;
-    })();
-    const lbp = (() => {
-      const r = parseNumberInput(amountLbp);
-      return r.ok ? r.value : 0;
-    })();
+    const usd = (() => { const r = parseNumberInput(amountUsd); return r.ok ? r.value : 0; })();
+    const lbp = (() => { const r = parseNumberInput(amountLbp); return r.ok ? r.value : 0; })();
     if (usd <= 0 && lbp <= 0) return setError("Enter an amount.");
     setCreating(true);
     setError(null);
@@ -166,7 +191,7 @@ export default function BankingReconciliationPage() {
         amount_lbp: lbp,
         description: description.trim() || null,
         reference: reference.trim() || null,
-        counterparty: counterparty.trim() || null
+        counterparty: counterparty.trim() || null,
       });
       toast.success("Transaction added", "Statement line recorded successfully.");
       setCreateOpen(false);
@@ -180,8 +205,7 @@ export default function BankingReconciliationPage() {
       setCounterparty("");
       await loadTxns();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setCreating(false);
     }
@@ -195,15 +219,18 @@ export default function BankingReconciliationPage() {
     setMatchOpen(true);
   }, []);
 
-  const openCreateJournal = useCallback((txnId: string) => {
-    const t = txns.find((x) => x.id === txnId);
-    if (!t) return;
-    setCreateTxnId(txnId);
-    setOffsetAccountCode("");
-    const baseMemo = [t.description, t.reference, t.counterparty].filter(Boolean).join(" · ");
-    setCreateMemo(baseMemo || "Bank transaction");
-    setCreateJournalOpen(true);
-  }, [txns]);
+  const openCreateJournal = useCallback(
+    (txnId: string) => {
+      const t = txns.find((x) => x.id === txnId);
+      if (!t) return;
+      setCreateTxnId(txnId);
+      setOffsetAccountCode("");
+      const baseMemo = [t.description, t.reference, t.counterparty].filter(Boolean).join(" - ");
+      setCreateMemo(baseMemo || "Bank transaction");
+      setCreateJournalOpen(true);
+    },
+    [txns],
+  );
 
   async function createAndMatchJournal() {
     if (!createTxnId) return;
@@ -237,11 +264,11 @@ export default function BankingReconciliationPage() {
     const lines = inflow
       ? [
           { side: "debit", account_id: bankGlId, amount_usd: usd, amount_lbp: lbp, memo: "Bank" },
-          { side: "credit", account_id: offset.id, amount_usd: usd, amount_lbp: lbp, memo: "Offset" }
+          { side: "credit", account_id: offset.id, amount_usd: usd, amount_lbp: lbp, memo: "Offset" },
         ]
       : [
           { side: "debit", account_id: offset.id, amount_usd: usd, amount_lbp: lbp, memo: "Offset" },
-          { side: "credit", account_id: bankGlId, amount_usd: usd, amount_lbp: lbp, memo: "Bank" }
+          { side: "credit", account_id: bankGlId, amount_usd: usd, amount_lbp: lbp, memo: "Bank" },
         ];
 
     setCreatingJournal(true);
@@ -252,7 +279,7 @@ export default function BankingReconciliationPage() {
         rate_type: "market",
         exchange_rate: null,
         memo,
-        lines
+        lines,
       });
       await apiPost(`/banking/transactions/${createTxnId}/match`, { journal_id: res.id });
       setCreateJournalOpen(false);
@@ -260,8 +287,7 @@ export default function BankingReconciliationPage() {
       await loadTxns();
       toast.success("Matched", `Created ${res.journal_no} and matched successfully.`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setCreatingJournal(false);
     }
@@ -279,21 +305,14 @@ export default function BankingReconciliationPage() {
       qs.set("q", needle);
       qs.set("start_date", "");
       qs.set("end_date", "");
-      const res = await apiGet<{ journals: any[] }>(`/accounting/journals?${qs.toString()}`);
-      const hits = (res.journals || []).slice(0, 15).map((j) => ({
-        id: j.id,
-        journal_no: j.journal_no,
-        journal_date: j.journal_date,
-        memo: j.memo,
-        created_at: j.created_at
-      })) as JournalRow[];
-      setJournalHits(hits);
+      const res = await apiGet<{ journals: JournalRow[] }>(`/accounting/journals?${qs.toString()}`);
+      setJournalHits((res.journals || []).slice(0, 15));
     } catch {
       setJournalHits([]);
     }
   }
 
-  async function match() {
+  async function matchTxn() {
     if (!matchTxnId) return;
     if (!journalId.trim()) return setError("Journal ID is required.");
     setMatching(true);
@@ -304,333 +323,394 @@ export default function BankingReconciliationPage() {
       await loadTxns();
       toast.success("Matched", "Transaction linked to journal.");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setMatching(false);
     }
   }
 
-  const unmatch = useCallback(async (txnId: string) => {
-    setError(null);
-    try {
-      await apiPost(`/banking/transactions/${txnId}/unmatch`, {});
-      await loadTxns();
-      toast.success("Unmatched", "Transaction unlinked.");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    }
-  }, [loadTxns, toast]);
+  const unmatch = useCallback(
+    async (txnId: string) => {
+      setError(null);
+      try {
+        await apiPost(`/banking/transactions/${txnId}/unmatch`, {});
+        await loadTxns();
+        toast.success("Unmatched", "Transaction unlinked.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [loadTxns, toast],
+  );
 
-  const txnColumns = useMemo((): Array<DataTableColumn<BankTxnRow>> => {
-    return [
-      { id: "txn_date", header: "Date", accessor: (t) => t.txn_date, mono: true, sortable: true, globalSearch: false, cell: (t) => <span className="data-mono text-xs">{t.txn_date}</span> },
+  const txnColumns = useMemo<ColumnDef<BankTxnRow>[]>(
+    () => [
+      {
+        id: "txn_date",
+        accessorFn: (t) => t.txn_date,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.txn_date}</span>,
+      },
       {
         id: "bank_account_name",
-        header: "Account",
-        accessor: (t) => `${t.bank_account_name || ""} ${t.description || ""}`.trim(),
-        sortable: true,
-        cell: (t) => (
+        accessorFn: (t) => `${t.bank_account_name || ""} ${t.description || ""}`.trim(),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Account" />,
+        cell: ({ row }) => (
           <div>
-            <div className="text-sm font-medium">{t.bank_account_name}</div>
-            <div className="text-xs text-fg-subtle">{t.description || ""}</div>
-          </div>
-        ),
-      },
-      { id: "direction", header: "Dir", accessor: (t) => t.direction, sortable: true, globalSearch: false, cell: (t) => <span className="text-xs">{t.direction}</span> },
-      { id: "amount_usd", header: "USD", accessor: (t) => Number(t.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (t) => <span className="data-mono ui-tone-usd">{fmt(t.amount_usd)}</span> },
-      { id: "amount_lbp", header: "LL", accessor: (t) => Number(t.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (t) => <span className="data-mono ui-tone-lbp">{fmt(t.amount_lbp, 0)}</span> },
-      { id: "reference", header: "Ref", accessor: (t) => t.reference || "", sortable: true, cell: (t) => <span className="text-xs">{t.reference || "-"}</span> },
-      { id: "matched", header: "Matched", accessor: (t) => (t.matched_journal_id ? "yes" : "no"), sortable: true, globalSearch: false, cell: (t) => <span className="text-xs">{t.matched_journal_id ? "yes" : "no"}</span> },
-      {
-        id: "actions",
-        header: "",
-        accessor: () => "",
-        align: "right",
-        globalSearch: false,
-        cell: (t) => (
-          <div className="flex justify-end gap-2">
-            {!t.matched_journal_id ? (
-              <>
-                <Button variant="outline" size="sm" onClick={() => openCreateJournal(t.id)}>
-                  Create Journal
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => openMatch(t.id)}>
-                  Match
-                </Button>
-              </>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => unmatch(t.id)}>
-                Unmatch
-              </Button>
+            <p className="font-medium text-sm">{row.original.bank_account_name}</p>
+            {row.original.description && (
+              <p className="text-xs text-muted-foreground">{row.original.description}</p>
             )}
           </div>
         ),
       },
-    ];
-  }, [openCreateJournal, openMatch, unmatch]);
+      {
+        id: "direction",
+        accessorFn: (t) => t.direction,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Dir" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.direction} />
+        ),
+      },
+      {
+        id: "amount_usd",
+        accessorFn: (t) => n(t.amount_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD" className="justify-end" />,
+        cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_usd)} currency="USD" />,
+      },
+      {
+        id: "amount_lbp",
+        accessorFn: (t) => n(t.amount_lbp),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" className="justify-end" />,
+        cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_lbp)} currency="LBP" />,
+      },
+      {
+        id: "reference",
+        accessorFn: (t) => t.reference || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Ref" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{row.original.reference || "-"}</span>
+        ),
+      },
+      {
+        id: "matched",
+        accessorFn: (t) => (t.matched_journal_id ? "yes" : "no"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Matched" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.matched_journal_id ? "active" : "draft"} />
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const t = row.original;
+          return (
+            <div className="flex justify-end gap-2">
+              {!t.matched_journal_id ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => openCreateJournal(t.id)}>
+                    <FileText className="mr-1 h-3 w-3" />
+                    Create Journal
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => openMatch(t.id)}>
+                    <Link2 className="mr-1 h-3 w-3" />
+                    Match
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => unmatch(t.id)}>
+                  <Unlink className="mr-1 h-3 w-3" />
+                  Unmatch
+                </Button>
+              )}
+            </div>
+          );
+        },
+      },
+    ],
+    [openCreateJournal, openMatch, unmatch],
+  );
 
   return (
-    <div className="ui-module-shell-narrow">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Banking</p>
-            <h1 className="ui-module-title">Reconciliation</h1>
-            <p className="ui-module-subtitle">Record statement lines and match them to accounting journals.</p>
-          </div>
-        </div>
-      </div>
-      {error ? <ErrorBanner error={error} onRetry={loadTxns} /> : null}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Reconciliation"
+        description="Record statement lines and match them to accounting journals."
+        actions={
+          <Button variant="outline" size="sm" onClick={loadTxns} disabled={loadingTxns}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loadingTxns ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
+      {error && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{error}</p>
+            <Button variant="outline" size="sm" onClick={loadTxns}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
       <Card>
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Limit transactions for faster matching.</CardDescription>
-          </CardHeader>
-          <CardContent className="ui-form-grid-4">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Bank Account</label>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+          <p className="text-sm text-muted-foreground">Limit transactions for faster matching.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            <div className="space-y-2">
+              <Label>Bank Account</Label>
               <select
-                className="ui-select"
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={bankAccountId}
                 onChange={(e) => setBankAccountId(e.target.value)}
               >
                 <option value="">All</option>
                 {bankAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.currency})
-                  </option>
+                  <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
                 ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Matched</label>
+            <div className="space-y-2">
+              <Label>Matched</Label>
               <select
-                className="ui-select"
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={matched}
-                onChange={(e) => setMatched(e.target.value as any)}
+                onChange={(e) => setMatched(e.target.value as "" | "true" | "false")}
               >
                 <option value="">All</option>
                 <option value="false">Unmatched</option>
                 <option value="true">Matched</option>
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">From</label>
+            <div className="space-y-2">
+              <Label>From</Label>
               <Input value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} type="date" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">To</label>
+            <div className="space-y-2">
+              <Label>To</Label>
               <Input value={dateTo} onChange={(e) => setDateTo(e.target.value)} type="date" />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* Transactions */}
       <Card>
-          <CardHeader>
-            <CardTitle>Transactions</CardTitle>
-            <CardDescription>{txns.length} rows</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="ui-actions-inline">
-              <Button variant="outline" onClick={loadTxns} disabled={loadingTxns}>
-                {loadingTxns ? "..." : "Refresh"}
-              </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>Add Transaction</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add Bank Transaction</DialogTitle>
-                    <DialogDescription>Record a statement line, then match it to a journal.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createTxn} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Bank Account</label>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle>Transactions</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">{txns.length} rows</p>
+            </div>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Transaction
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Bank Transaction</DialogTitle>
+                  <DialogDescription>Record a statement line, then match it to a journal.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createTxn} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Bank Account</Label>
+                    <select
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={txnBankAccountId}
+                      onChange={(e) => setTxnBankAccountId(e.target.value)}
+                    >
+                      <option value="">Select...</option>
+                      {bankAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Date</Label>
+                      <Input value={txnDate} onChange={(e) => setTxnDate(e.target.value)} type="date" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Direction</Label>
                       <select
-                        className="ui-select"
-                        value={txnBankAccountId}
-                        onChange={(e) => setTxnBankAccountId(e.target.value)}
+                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        value={direction}
+                        onChange={(e) => setDirection(e.target.value as "inflow" | "outflow")}
                       >
-                        <option value="">Select...</option>
-                        {bankAccounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name} ({a.currency})
-                          </option>
-                        ))}
+                        <option value="inflow">Inflow</option>
+                        <option value="outflow">Outflow</option>
                       </select>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Date</label>
-                        <Input value={txnDate} onChange={(e) => setTxnDate(e.target.value)} type="date" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Direction</label>
-                        <select
-                          className="ui-select"
-                          value={direction}
-                          onChange={(e) => setDirection(e.target.value as any)}
-                        >
-                          <option value="inflow">Inflow</option>
-                          <option value="outflow">Outflow</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <MoneyInput
-                        label="Amount"
-                        currency="USD"
-                        value={amountUsd}
-                        onChange={setAmountUsd}
-                        placeholder="0"
-                        quick={[0, 1, 10]}
-                        disabled={creating}
-                      />
-                      <MoneyInput
-                        label="Amount"
-                        currency="LBP"
-                        value={amountLbp}
-                        onChange={setAmountLbp}
-                        placeholder="0"
-                        quick={[0, 1, 10]}
-                        disabled={creating}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Reference (optional)</label>
-                        <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Cheque / transfer ref" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Counterparty (optional)</label>
-                        <Input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Bank / customer / supplier" />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Description (optional)</label>
-                      <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Statement text" />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            <DataTable<BankTxnRow>
-              tableId="accounting.banking.reconciliation.txns"
-              rows={txns}
-              columns={txnColumns}
-              isLoading={loadingTxns}
-              initialSort={{ columnId: "txn_date", dir: "desc" }}
-              globalFilterPlaceholder="Search account / description / ref..."
-              emptyText="No transactions."
-            />
-          </CardContent>
-        </Card>
-
-      <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Match Transaction</DialogTitle>
-              <DialogDescription>Link a statement line to a journal entry.</DialogDescription>
-            </DialogHeader>
-            <div className="grid grid-cols-1 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Journal ID</label>
-                <Input value={journalId} onChange={(e) => setJournalId(e.target.value)} placeholder="uuid" />
-              </div>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Find Journal</CardTitle>
-                  <CardDescription>Search by journal number or memo (fills Journal ID).</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Input
-                    value={journalQuery}
-                    onChange={(e) => searchJournals(e.target.value)}
-                    placeholder="Search journals..."
-                  />
-                  <div className="max-h-48 overflow-auto rounded-md border border-border">
-                    {journalHits.map((j) => (
-                      <button
-                        key={j.id}
-                        className="flex w-full items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 text-left text-sm hover:bg-bg-sunken/20"
-                        onClick={() => setJournalId(j.id)}
-                        type="button"
-                      >
-                        <div>
-                          <div className="font-mono text-xs">{j.journal_no}</div>
-                          <div className="text-xs text-fg-muted">{j.memo || ""}</div>
-                        </div>
-                        <div className="text-xs text-fg-subtle">{j.journal_date}</div>
-                      </button>
-                    ))}
-                    {journalQuery && journalHits.length === 0 ? (
-                      <div className="px-3 py-3 text-xs text-fg-subtle">No matches.</div>
-                    ) : null}
                   </div>
-                </CardContent>
-              </Card>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setMatchOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={match} disabled={matching}>
-                  {matching ? "..." : "Match"}
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+                  <div className="grid grid-cols-2 gap-4">
+                    <MoneyInput
+                      label="Amount"
+                      currency="USD"
+                      value={amountUsd}
+                      onChange={setAmountUsd}
+                      placeholder="0"
+                      quick={[0, 1, 10]}
+                      disabled={creating}
+                    />
+                    <MoneyInput
+                      label="Amount"
+                      currency="LBP"
+                      value={amountLbp}
+                      onChange={setAmountLbp}
+                      placeholder="0"
+                      quick={[0, 1, 10]}
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Reference (optional)</Label>
+                      <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Cheque / transfer ref" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Counterparty (optional)</Label>
+                      <Input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Bank / customer / supplier" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Description (optional)</Label>
+                    <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Statement text" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!loadingTxns && txns.length === 0 ? (
+            <EmptyState
+              icon={ArrowDownUp}
+              title="No transactions"
+              description="Add a bank transaction to start reconciling."
+              action={{ label: "Add Transaction", onClick: () => setCreateOpen(true) }}
+            />
+          ) : (
+            <DataTable
+              columns={txnColumns}
+              data={txns}
+              isLoading={loadingTxns}
+              searchPlaceholder="Search account / description / ref..."
+              pageSize={50}
+            />
+          )}
+        </CardContent>
+      </Card>
 
-      <Dialog open={createJournalOpen} onOpenChange={setCreateJournalOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Create Journal From Transaction</DialogTitle>
-              <DialogDescription>
-                Creates a manual journal using the bank account GL mapping and matches this transaction automatically.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid grid-cols-1 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Offset Account Code</label>
-                <Input
-                  value={offsetAccountCode}
-                  onChange={(e) => setOffsetAccountCode(e.target.value)}
-                  placeholder="e.g. 400100 (Sales) or 610100 (Expense)"
-                  list="coaCodesReconcile"
-                />
-                <datalist id="coaCodesReconcile">
-                  {coaAccounts.slice(0, 2000).map((a) => (
-                    <option key={a.id} value={a.account_code}>
-                      {a.name_en || ""}
-                    </option>
-                  ))}
-                </datalist>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Memo (optional)</label>
-                <Input value={createMemo} onChange={(e) => setCreateMemo(e.target.value)} placeholder="Statement description" />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setCreateJournalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={createAndMatchJournal} disabled={creatingJournal}>
-                  {creatingJournal ? "..." : "Create + Match"}
-                </Button>
-              </div>
+      {/* Match Dialog */}
+      <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Match Transaction</DialogTitle>
+            <DialogDescription>Link a statement line to a journal entry.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Journal ID</Label>
+              <Input
+                value={journalId}
+                onChange={(e) => setJournalId(e.target.value)}
+                placeholder="uuid"
+                className="font-mono"
+              />
             </div>
-          </DialogContent>
-        </Dialog>
+            <Card className="bg-muted/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Find Journal</CardTitle>
+                <p className="text-xs text-muted-foreground">Search by journal number or memo (fills Journal ID).</p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Input
+                  value={journalQuery}
+                  onChange={(e) => searchJournals(e.target.value)}
+                  placeholder="Search journals..."
+                />
+                <div className="max-h-48 overflow-auto rounded-lg border">
+                  {journalHits.map((j) => (
+                    <button
+                      key={j.id}
+                      className="flex w-full items-start justify-between gap-2 border-b px-3 py-2 text-left text-sm hover:bg-muted/50"
+                      onClick={() => setJournalId(j.id)}
+                      type="button"
+                    >
+                      <div>
+                        <div className="font-mono text-xs">{j.journal_no}</div>
+                        <div className="text-xs text-muted-foreground">{j.memo || ""}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">{j.journal_date}</div>
+                    </button>
+                  ))}
+                  {journalQuery && journalHits.length === 0 && (
+                    <div className="px-3 py-3 text-xs text-muted-foreground">No matches.</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setMatchOpen(false)}>Cancel</Button>
+              <Button onClick={matchTxn} disabled={matching}>
+                {matching ? "Matching..." : "Match"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Journal Dialog */}
+      <Dialog open={createJournalOpen} onOpenChange={setCreateJournalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create Journal From Transaction</DialogTitle>
+            <DialogDescription>
+              Creates a manual journal using the bank account GL mapping and matches this transaction automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Offset Account Code</Label>
+              <Input
+                value={offsetAccountCode}
+                onChange={(e) => setOffsetAccountCode(e.target.value)}
+                placeholder="e.g. 400100 (Sales) or 610100 (Expense)"
+                list="coaCodesReconcile"
+              />
+              <datalist id="coaCodesReconcile">
+                {coaAccounts.slice(0, 2000).map((a) => (
+                  <option key={a.id} value={a.account_code}>{a.name_en || ""}</option>
+                ))}
+              </datalist>
+            </div>
+            <div className="space-y-2">
+              <Label>Memo (optional)</Label>
+              <Input value={createMemo} onChange={(e) => setCreateMemo(e.target.value)} placeholder="Statement description" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCreateJournalOpen(false)}>Cancel</Button>
+              <Button onClick={createAndMatchJournal} disabled={creatingJournal}>
+                {creatingJournal ? "Creating..." : "Create + Match"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

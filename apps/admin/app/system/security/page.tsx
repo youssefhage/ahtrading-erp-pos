@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { KeyRound, RefreshCw, Shield, User } from "lucide-react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { Page, PageHeader, Section } from "@/components/page";
-import { Chip } from "@/components/ui/chip";
+import { PageHeader } from "@/components/business/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type Me = {
@@ -131,107 +132,154 @@ export default function SecurityPage() {
     }
   }
 
+  const busy = loading || savingProfile || setupBusy;
+
   return (
-    <Page width="md" className="px-4 pb-10">
+    <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
         title="Security"
         description="Profile and multi-factor authentication."
         actions={
-          <Button variant="outline" onClick={load} disabled={loading || savingProfile || setupBusy}>
-            {loading ? "Loading..." : "Refresh"}
+          <Button variant="outline" size="sm" onClick={load} disabled={busy}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         }
       />
 
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-      <Section title="Profile" description="These fields help with audit trails and internal ops.">
-          <form onSubmit={saveProfile} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-            <div className="space-y-1 md:col-span-6">
-              <label className="text-xs font-medium text-fg-muted">Email</label>
+      {/* Profile */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="h-4 w-4" />
+            Profile
+          </CardTitle>
+          <CardDescription>These fields help with audit trails and internal ops.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={saveProfile} className="grid grid-cols-1 gap-4 md:grid-cols-6">
+            <div className="space-y-1.5 md:col-span-6">
+              <label className="text-xs font-medium text-muted-foreground">Email</label>
               <Input value={me?.email || ""} disabled />
             </div>
-            <div className="space-y-1 md:col-span-3">
-              <label className="text-xs font-medium text-fg-muted">Full Name</label>
+            <div className="space-y-1.5 md:col-span-3">
+              <label className="text-xs font-medium text-muted-foreground">Full Name</label>
               <Input value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={savingProfile} />
             </div>
-            <div className="space-y-1 md:col-span-3">
-              <label className="text-xs font-medium text-fg-muted">Phone</label>
+            <div className="space-y-1.5 md:col-span-3">
+              <label className="text-xs font-medium text-muted-foreground">Phone</label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} disabled={savingProfile} />
             </div>
             <div className="md:col-span-6 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={load} disabled={savingProfile || loading || setupBusy}>
-                Refresh
-              </Button>
               <Button type="submit" disabled={savingProfile}>
-                {savingProfile ? "..." : "Save"}
+                {savingProfile ? "Saving..." : "Save Profile"}
               </Button>
             </div>
           </form>
-      </Section>
+        </CardContent>
+      </Card>
 
-      <Section title="Active company roles and permissions" description="Computed from your active company role assignment." >
-        <div className="space-y-3">
+      {/* Roles & Permissions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Active Company Roles & Permissions
+          </CardTitle>
+          <CardDescription>Computed from your active company role assignment.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div>
-            <p className="text-xs font-medium text-fg-muted">Roles</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <p className="text-xs font-medium text-muted-foreground mb-2">Roles</p>
+            <div className="flex flex-wrap gap-2">
               {(me?.roles || []).length ? (
-                (me?.roles || []).map((r) => <Chip key={r} variant="primary">{r}</Chip>)
+                (me?.roles || []).map((r) => (
+                  <Badge key={r} variant="default">
+                    {r}
+                  </Badge>
+                ))
               ) : (
-                <span className="text-xs text-fg-subtle">No role mapping found for active company.</span>
+                <span className="text-xs text-muted-foreground">No role mapping found for active company.</span>
               )}
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-fg-muted">Permissions</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <p className="text-xs font-medium text-muted-foreground mb-2">Permissions</p>
+            <div className="flex flex-wrap gap-2">
               {(me?.permissions || []).length ? (
-                (me?.permissions || []).map((perm) => <Chip key={perm} variant="default">{perm}</Chip>)
+                (me?.permissions || []).map((perm) => (
+                  <Badge key={perm} variant="outline">
+                    <span className="font-mono text-xs">{perm}</span>
+                  </Badge>
+                ))
               ) : (
-                <span className="text-xs text-fg-subtle">No permissions loaded for active company.</span>
+                <span className="text-xs text-muted-foreground">No permissions loaded for active company.</span>
               )}
             </div>
           </div>
-        </div>
-      </Section>
+        </CardContent>
+      </Card>
 
-      <Section title="MFA (Authenticator App)" description="Optional, recommended for admin users.">
-        <div className="space-y-4">
-          <div className="text-sm text-fg-muted">
+      {/* MFA */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4" />
+            MFA (Authenticator App)
+          </CardTitle>
+          <CardDescription>Optional, recommended for admin users.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             Status:{" "}
-            <span className="font-mono text-xs">
-              {mfa?.enabled ? "enabled" : mfa?.pending ? "pending" : "disabled"}
-            </span>
+            <Badge variant={mfa?.enabled ? "success" : mfa?.pending ? "warning" : "secondary"}>
+              {mfa?.enabled ? "Enabled" : mfa?.pending ? "Pending" : "Disabled"}
+            </Badge>
           </div>
 
           {!mfa?.enabled ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={startMfaSetup} disabled={setupBusy}>
-                  {setupBusy ? "..." : (mfa?.pending ? "Regenerate Secret" : "Start Setup")}
-                </Button>
-                <Button variant="outline" onClick={load} disabled={setupBusy || loading || savingProfile}>
-                  Refresh
+                  {setupBusy ? "Setting up..." : mfa?.pending ? "Regenerate Secret" : "Start Setup"}
                 </Button>
               </div>
 
-              {setupSecret ? (
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-3 space-y-2">
-                  <div className="text-xs text-fg-muted">Secret (manual entry):</div>
-                  <div className="font-mono text-xs break-all">{setupSecret}</div>
-                  {setupOtpAuth ? (
+              {setupSecret && (
+                <div className="rounded-lg border bg-muted/40 p-4 space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">Secret (manual entry)</div>
+                  <div className="font-mono text-sm break-all select-all">{setupSecret}</div>
+                  {setupOtpAuth && (
                     <>
-                      <div className="text-xs text-fg-muted">otpauth URL:</div>
-                      <div className="font-mono text-xs break-all">{setupOtpAuth}</div>
+                      <div className="text-xs font-medium text-muted-foreground mt-3">otpauth URL</div>
+                      <div className="font-mono text-xs break-all select-all">{setupOtpAuth}</div>
                     </>
-                  ) : null}
+                  )}
                 </div>
-              ) : null}
+              )}
 
-              <form onSubmit={enableMfa} className="flex flex-wrap items-end gap-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Verify Code</label>
-                  <Input value={enableCode} onChange={(e) => setEnableCode(e.target.value)} placeholder="123456" inputMode="numeric" disabled={setupBusy} />
+              <form onSubmit={enableMfa} className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Verify Code</label>
+                  <Input
+                    value={enableCode}
+                    onChange={(e) => setEnableCode(e.target.value)}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    disabled={setupBusy}
+                    className="w-40"
+                  />
                 </div>
                 <Button type="submit" disabled={setupBusy}>
                   Enable MFA
@@ -239,18 +287,25 @@ export default function SecurityPage() {
               </form>
             </div>
           ) : (
-            <form onSubmit={disableMfa} className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Current Code</label>
-                <Input value={disableCode} onChange={(e) => setDisableCode(e.target.value)} placeholder="123456" inputMode="numeric" disabled={setupBusy} />
+            <form onSubmit={disableMfa} className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Current Code</label>
+                <Input
+                  value={disableCode}
+                  onChange={(e) => setDisableCode(e.target.value)}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  disabled={setupBusy}
+                  className="w-40"
+                />
               </div>
               <Button type="submit" variant="destructive" disabled={setupBusy}>
                 Disable MFA
               </Button>
             </form>
           )}
-        </div>
-      </Section>
-    </Page>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

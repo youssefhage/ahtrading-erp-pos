@@ -1,15 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Clock, RefreshCw } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { KpiCard } from "@/components/business/kpi-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
-import { ErrorBanner } from "@/components/error-banner";
+import { Textarea } from "@/components/ui/textarea";
 
 type ShiftRow = {
   id: string;
@@ -143,165 +149,124 @@ export default function PosShiftsPage() {
 
   const deviceById = useMemo(() => new Map(devices.map((d) => [d.id, d])), [devices]);
   const selectedShift = useMemo(() => shifts.find((s) => s.id === selectedShiftId) || null, [shifts, selectedShiftId]);
-  const selectedDeviceCode = selectedShift ? (deviceById.get(selectedShift.device_id)?.device_code || selectedShift.device_id) : "";
+  const selectedDeviceCode = selectedShift ? deviceById.get(selectedShift.device_id)?.device_code || selectedShift.device_id : "";
   const selectedShiftIsOpen = String(selectedShift?.status || "").toLowerCase() === "open";
   const openShiftCount = useMemo(() => shifts.filter((s) => String(s.status).toLowerCase() === "open").length, [shifts]);
   const closedShiftCount = Math.max(0, shifts.length - openShiftCount);
 
-  const shiftColumns = useMemo((): Array<DataTableColumn<ShiftRow>> => {
-    return [
+  const shiftColumns = useMemo<ColumnDef<ShiftRow>[]>(
+    () => [
       {
         id: "opened_at",
-        header: "Opened",
-        sortable: true,
-        mono: true,
-        accessor: (s) => s.opened_at,
-        cell: (s) => <span className="font-mono text-xs">{formatDateTime(s.opened_at)}</span>,
+        accessorFn: (s) => s.opened_at,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Opened" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatDateTime(row.original.opened_at)}</span>,
       },
       {
         id: "device",
-        header: "Device",
-        sortable: true,
-        mono: true,
-        accessor: (s) => deviceById.get(s.device_id)?.device_code || s.device_id,
-        cell: (s) => <span className="font-mono text-xs">{deviceById.get(s.device_id)?.device_code || s.device_id}</span>,
+        accessorFn: (s) => deviceById.get(s.device_id)?.device_code || s.device_id,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Device" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{deviceById.get(row.original.device_id)?.device_code || row.original.device_id}</span>,
       },
       {
         id: "status",
-        header: "Status",
-        sortable: true,
-        accessor: (s) => s.status,
-        cell: (s) => <StatusChip value={s.status} />,
+        accessorFn: (s) => s.status,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         id: "closed_at",
-        header: "Closed",
-        sortable: true,
-        mono: true,
-        accessor: (s) => s.closed_at || "",
-        cell: (s) => <span className="font-mono text-xs">{formatDateOrDash(s.closed_at)}</span>,
+        accessorFn: (s) => s.closed_at || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Closed" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatDateOrDash(row.original.closed_at)}</span>,
       },
       {
         id: "opening_cash_usd",
-        header: "Open USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => toNumber(s.opening_cash_usd),
-        cell: (s) => <span className="font-mono text-xs">{formatUsd(s.opening_cash_usd)}</span>,
+        accessorFn: (s) => toNumber(s.opening_cash_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Open USD" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatUsd(row.original.opening_cash_usd)}</span>,
       },
       {
         id: "expected_cash_usd",
-        header: "Expected USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => toNumber(s.expected_cash_usd),
-        cell: (s) => <span className="font-mono text-xs">{formatUsd(s.expected_cash_usd, { blankWhenNull: true })}</span>,
-      },
-      {
-        id: "closing_cash_usd",
-        header: "Close USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => toNumber(s.closing_cash_usd),
-        cell: (s) => <span className="font-mono text-xs">{formatUsd(s.closing_cash_usd, { blankWhenNull: true })}</span>,
+        accessorFn: (s) => toNumber(s.expected_cash_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Expected USD" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatUsd(row.original.expected_cash_usd, { blankWhenNull: true })}</span>,
       },
       {
         id: "variance_usd",
-        header: "Var USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => toNumber(s.variance_usd),
-        cell: (s) => {
-          if (s.variance_usd === null || s.variance_usd === undefined || s.variance_usd === "") {
-            return <span className="font-mono text-xs text-fg-muted">-</span>;
-          }
-          const v = toNumber(s.variance_usd);
-          const cls = v === 0 ? "text-fg-muted" : v < 0 ? "ui-tone-negative" : "ui-tone-qty";
-          return <span className={`font-mono text-xs ${cls}`}>{formatUsdSigned(v)}</span>;
+        accessorFn: (s) => toNumber(s.variance_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Var USD" />,
+        cell: ({ row }) => {
+          const raw = row.original.variance_usd;
+          if (raw === null || raw === undefined || raw === "") return <span className="font-mono text-sm text-muted-foreground">-</span>;
+          const v = toNumber(raw);
+          const cls = v === 0 ? "text-muted-foreground" : v < 0 ? "text-destructive" : "text-emerald-600";
+          return <span className={`font-mono text-sm ${cls}`}>{formatUsdSigned(v)}</span>;
         },
       },
       {
         id: "actions",
         header: "Actions",
-        align: "right",
-        sortable: false,
-        accessor: (s) => s.id,
-        cell: (s) => {
-          const active = selectedShiftId === s.id;
+        cell: ({ row }) => {
+          const active = selectedShiftId === row.original.id;
           return (
-            <Button variant={active ? "secondary" : "outline"} size="sm" onClick={() => setSelectedShiftId(s.id)}>
-              {active ? "Viewing" : "View Details"}
+            <Button variant={active ? "secondary" : "outline"} size="sm" onClick={() => setSelectedShiftId(row.original.id)}>
+              {active ? "Viewing" : "View"}
             </Button>
           );
         },
       },
-    ];
-  }, [deviceById, selectedShiftId]);
+    ],
+    [deviceById, selectedShiftId],
+  );
 
-  const movementColumns = useMemo((): Array<DataTableColumn<CashMovementRow>> => {
-    return [
+  const movementColumns = useMemo<ColumnDef<CashMovementRow>[]>(
+    () => [
       {
         id: "created_at",
-        header: "Created",
-        sortable: true,
-        mono: true,
-        accessor: (m) => m.created_at,
-        cell: (m) => <span className="font-mono text-xs">{formatDateTime(m.created_at)}</span>,
+        accessorFn: (m) => m.created_at,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatDateTime(row.original.created_at)}</span>,
       },
       {
         id: "device_code",
-        header: "Device",
-        sortable: true,
-        mono: true,
-        accessor: (m) => m.device_code,
-        cell: (m) => <span className="font-mono text-xs">{m.device_code}</span>,
+        accessorFn: (m) => m.device_code,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Device" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.device_code}</span>,
       },
       {
         id: "movement_type",
-        header: "Type",
-        sortable: true,
-        accessor: (m) => m.movement_type,
-        cell: (m) => <span className="text-xs">{humanizeMovementType(m.movement_type)}</span>,
+        accessorFn: (m) => m.movement_type,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+        cell: ({ row }) => <span className="text-sm">{humanizeMovementType(row.original.movement_type)}</span>,
       },
       {
         id: "amount_usd",
-        header: "USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (m) => toNumber(m.amount_usd),
-        cell: (m) => {
-          const amount = toNumber(m.amount_usd);
-          const cls = amount === 0 ? "text-fg-muted" : amount < 0 ? "ui-tone-negative" : "ui-tone-qty";
-          return <span className={`font-mono text-xs ${cls}`}>{formatUsdSigned(amount)}</span>;
+        accessorFn: (m) => toNumber(m.amount_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
+        cell: ({ row }) => {
+          const amount = toNumber(row.original.amount_usd);
+          const cls = amount === 0 ? "text-muted-foreground" : amount < 0 ? "text-destructive" : "text-emerald-600";
+          return <span className={`font-mono text-sm ${cls}`}>{formatUsdSigned(amount)}</span>;
         },
       },
       {
         id: "amount_lbp",
-        header: "LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (m) => toNumber(m.amount_lbp),
-        cell: (m) => (
-          <span className="font-mono text-xs">
-            {toNumber(m.amount_lbp).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-          </span>
+        accessorFn: (m) => toNumber(m.amount_lbp),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{toNumber(row.original.amount_lbp).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
         ),
       },
       {
         id: "notes",
-        header: "Notes",
-        sortable: true,
-        accessor: (m) => m.notes || "",
-        cell: (m) => <span className="text-xs text-fg-muted">{m.notes || "-"}</span>,
+        accessorFn: (m) => m.notes || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Notes" />,
+        cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.notes || "-"}</span>,
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
   async function load() {
     setStatus("Loading...");
@@ -347,10 +312,8 @@ export default function PosShiftsPage() {
 
   function loadExpectedIntoCloseForm() {
     if (!selectedShift) return;
-    const expectedUsd =
-      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_usd : selectedShift.expected_cash_usd;
-    const expectedLbp =
-      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_lbp : selectedShift.expected_cash_lbp;
+    const expectedUsd = recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_usd : selectedShift.expected_cash_usd;
+    const expectedLbp = recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_lbp : selectedShift.expected_cash_lbp;
     setClosingCashUsd(toInputCash(expectedUsd));
     setClosingCashLbp(toInputCash(expectedLbp));
     setCloseFormShiftId(selectedShift.id);
@@ -362,7 +325,6 @@ export default function PosShiftsPage() {
       setStatus("HTTP 400: only open shifts can be closed");
       return;
     }
-
     const usd = Number(closingCashUsd);
     const lbp = Number(closingCashLbp);
     if (!Number.isFinite(usd) || usd < 0) {
@@ -373,12 +335,8 @@ export default function PosShiftsPage() {
       setStatus("HTTP 422: closing cash LBP must be >= 0");
       return;
     }
-
-    const confirmed = window.confirm(
-      `Close shift ${selectedShiftId} for device ${selectedDeviceCode || selectedShift.device_id}?`,
-    );
+    const confirmed = window.confirm(`Close shift ${selectedShiftId} for device ${selectedDeviceCode || selectedShift.device_id}?`);
     if (!confirmed) return;
-
     setClosingShift(true);
     setStatus("Closing shift...");
     try {
@@ -428,10 +386,8 @@ export default function PosShiftsPage() {
       return;
     }
     if (closeFormShiftId === selectedShift.id) return;
-    const expectedUsd =
-      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_usd : selectedShift.expected_cash_usd;
-    const expectedLbp =
-      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_lbp : selectedShift.expected_cash_lbp;
+    const expectedUsd = recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_usd : selectedShift.expected_cash_usd;
+    const expectedLbp = recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_lbp : selectedShift.expected_cash_lbp;
     setClosingCashUsd(toInputCash(expectedUsd));
     setClosingCashLbp(toInputCash(expectedLbp));
     setCloseFormShiftId(selectedShift.id);
@@ -439,244 +395,228 @@ export default function PosShiftsPage() {
   }, [selectedShift, selectedShiftIsOpen, closeFormShiftId, recon]);
 
   return (
-    <Page width="lg" className="px-4 pb-10">
-      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
-
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="POS Shifts"
         description="Shift history, live expected cash, and cash movement drill-down for POS devices."
-        meta={
-          <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
-            <span className="rounded-md border border-border-subtle bg-bg-sunken/30 px-2 py-1">Open: {openShiftCount}</span>
-            <span className="rounded-md border border-border-subtle bg-bg-sunken/30 px-2 py-1">Closed: {closedShiftCount}</span>
-            <span className="rounded-md border border-border-subtle bg-bg-sunken/30 px-2 py-1">Total: {shifts.length}</span>
-          </div>
-        }
         actions={
-          <Button variant="outline" onClick={load} disabled={statusIsBusy}>
-            {loadingShifts ? "Loading..." : "Refresh"}
+          <Button variant="outline" size="sm" onClick={load} disabled={statusIsBusy}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loadingShifts ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         }
-      />
-
-      <Section title="Shifts" description="Latest shifts first. Click any row to inspect its cash movements.">
-        <DataTable<ShiftRow>
-          tableId="system.pos_shifts.shifts"
-          rows={shifts}
-          columns={shiftColumns}
-          getRowId={(r) => r.id}
-          onRowClick={(r) => setSelectedShiftId(r.id)}
-          rowClassName={(r) => (r.id === selectedShiftId ? "bg-bg-sunken/30" : undefined)}
-          isLoading={loadingShifts}
-          emptyText={loadingShifts ? "Loading shifts..." : "No shifts."}
-          globalFilterPlaceholder="Search device / status / id"
-          initialSort={{ columnId: "opened_at", dir: "desc" }}
-        />
-      </Section>
-
-      <Section
-        title="Cash Movements"
-        description={
-          selectedShift ? (
-            <span className="flex flex-wrap items-center gap-2">
-              <span>
-                Selected shift: <span className="font-mono text-xs">{selectedShiftId}</span>
-              </span>
-              <span className="text-fg-subtle">-</span>
-              <span>
-                Device: <span className="font-mono text-xs">{selectedDeviceCode}</span>
-              </span>
-              <span className="text-fg-subtle">-</span>
-              <span>
-                Status: <span className="font-medium">{selectedShift.status}</span>
-              </span>
-            </span>
-          ) : (
-            "Select a shift to view cash movements."
-          )
-        }
       >
-        {selectedShift ? (
-          <div className="rounded-md border border-border-subtle bg-bg-sunken/15 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-medium text-foreground">Selected Shift Summary</div>
-                <div className="text-xs text-fg-subtle">Cash values are in USD for quick reconciliation checks.</div>
-              </div>
-              <StatusChip value={selectedShift.status} />
-            </div>
-            <div className="mt-3 ui-metric-grid md:grid-cols-3">
-              <div className="ui-metric">
-                <div className="ui-metric-label">Device</div>
-                <div className="ui-metric-value">{selectedDeviceCode}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Opened</div>
-                <div className="ui-metric-value">{formatDateTime(selectedShift.opened_at)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Closed</div>
-                <div className="ui-metric-value">{formatDateOrDash(selectedShift.closed_at)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Opening USD</div>
-                <div className="ui-metric-value">{formatUsd(selectedShift.opening_cash_usd)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Expected USD</div>
-                <div className="ui-metric-value">{formatUsd(selectedShift.expected_cash_usd, { blankWhenNull: true })}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Close USD</div>
-                <div className="ui-metric-value">{formatUsd(selectedShift.closing_cash_usd, { blankWhenNull: true })}</div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {selectedShift && selectedShiftIsOpen ? (
-          <div className="mt-3 rounded-md border border-border-subtle bg-bg-sunken/15 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-medium text-foreground">Close Selected Shift</div>
-                <div className="text-xs text-fg-subtle">Enter counted cash, then close this shift from web admin.</div>
-              </div>
-              <Button variant="ghost" size="sm" onClick={loadExpectedIntoCloseForm} disabled={closingShift}>
-                Use Expected Cash
-              </Button>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Closing Cash (USD)</label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  inputMode="decimal"
-                  value={closingCashUsd}
-                  onChange={(e) => setClosingCashUsd(e.target.value)}
-                  disabled={closingShift}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Closing Cash (LBP)</label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="1"
-                  inputMode="numeric"
-                  value={closingCashLbp}
-                  onChange={(e) => setClosingCashLbp(e.target.value)}
-                  disabled={closingShift}
-                />
-              </div>
-            </div>
-            <div className="mt-3 space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Notes (optional)</label>
-              <textarea
-                className="ui-textarea min-h-20 w-full"
-                value={closingNotes}
-                onChange={(e) => setClosingNotes(e.target.value)}
-                disabled={closingShift}
-                placeholder="Shift close notes"
-              />
-            </div>
-            <div className="mt-3 flex justify-end">
-              <Button variant="destructive" onClick={closeSelectedShift} disabled={closingShift}>
-                {closingShift ? "Closing..." : "Close Shift"}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {recon ? (
-          <div className="mt-3 rounded-md border border-border-subtle bg-bg-sunken/20 p-4">
-            <div className="text-sm font-medium text-foreground">Cash Reconciliation</div>
-            <div className="mt-1 text-xs text-fg-subtle">
-              Formula: Expected = Opening + Cash Sales - Cash Refunds + Cash Movements (net)
-            </div>
-            <div className="mt-1 text-xs text-fg-subtle">
-              Cash methods: <span className="font-mono">{(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}</span>
-            </div>
-            <div className="mt-1 text-xs text-fg-subtle">
-              Open shifts show live expected cash; Close and variance finalize only when the shift is closed.
-            </div>
-            <div className="mt-3 ui-metric-grid md:grid-cols-3">
-              <div className="ui-metric">
-                <div className="ui-metric-label">Opening</div>
-                <div className="ui-metric-value">USD {formatUsd(recon.shift.opening_cash_usd)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Cash Sales</div>
-                <div className="ui-metric-value">USD {formatUsd(recon.sales_cash_usd)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Cash Refunds</div>
-                <div className="ui-metric-value">USD {formatUsd(recon.refunds_cash_usd)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Cash Movements (net)</div>
-                <div className="ui-metric-value">USD {formatUsdSigned(recon.cash_movements_net_usd)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Expected (computed)</div>
-                <div className="ui-metric-value">USD {formatUsd(recon.expected_computed_usd)}</div>
-              </div>
-              <div className="ui-metric">
-                <div className="ui-metric-label">Closing (counted)</div>
-                <div className="ui-metric-value">USD {formatUsd(recon.shift.closing_cash_usd, { blankWhenNull: true })}</div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="mt-3 rounded-md border border-border-subtle bg-bg-sunken/10 p-3">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="w-full space-y-1 md:w-56">
-              <label className="text-xs font-medium text-fg-muted">Movements to load</label>
-              <Input
-                type="number"
-                min={1}
-                max={1000}
-                inputMode="numeric"
-                value={movementsLimit}
-                onChange={(e) => setMovementsLimit(e.target.value.replace(/[^0-9]/g, ""))}
-                onBlur={() => setMovementsLimit(normalizeMovementsLimit(movementsLimit))}
-              />
-              <div className="text-xs text-fg-subtle">Use smaller values for faster loading on busy shifts.</div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {[100, 200, 500].map((n) => (
-                <Button
-                  key={n}
-                  variant={movementsLimit === String(n) ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => setMovementsLimit(String(n))}
-                >
-                  {n}
-                </Button>
-              ))}
-              <Button variant="outline" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId || loadingMovements}>
-                {loadingMovements ? "Refreshing..." : "Refresh Movements"}
-              </Button>
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <KpiCard title="Open" value={openShiftCount} />
+          <KpiCard title="Closed" value={closedShiftCount} />
+          <KpiCard title="Total" value={shifts.length} />
         </div>
+      </PageHeader>
 
-        <div className="mt-3">
-          <DataTable<CashMovementRow>
-            tableId="system.pos_shifts.cash_movements"
-            rows={movements}
-            columns={movementColumns}
-            getRowId={(r) => r.id}
-            isLoading={loadingMovements}
-            emptyText={loadingMovements ? "Loading cash movements..." : selectedShiftId ? "No cash movements for this shift." : "Select a shift to view cash movements."}
-            globalFilterPlaceholder="Search device / type / notes"
-            initialSort={{ columnId: "created_at", dir: "desc" }}
+      {status && !statusIsBusy && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Shifts Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Shifts
+          </CardTitle>
+          <CardDescription>Latest shifts first. Click any row to inspect its cash movements.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={shiftColumns}
+            data={shifts}
+            isLoading={loadingShifts}
+            searchPlaceholder="Search device / status / id"
+            onRowClick={(row) => setSelectedShiftId(row.id)}
           />
-        </div>
-      </Section>
-    </Page>
+        </CardContent>
+      </Card>
+
+      {/* Cash Movements */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Cash Movements</CardTitle>
+          <CardDescription>
+            {selectedShift ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <span>
+                  Shift: <span className="font-mono text-sm">{selectedShiftId.slice(0, 8)}...</span>
+                </span>
+                <span className="text-muted-foreground">|</span>
+                <span>
+                  Device: <span className="font-mono text-sm">{selectedDeviceCode}</span>
+                </span>
+                <span className="text-muted-foreground">|</span>
+                <StatusBadge status={selectedShift.status} />
+              </span>
+            ) : (
+              "Select a shift to view cash movements."
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Shift Summary */}
+          {selectedShift && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Selected Shift Summary</div>
+                  <div className="text-xs text-muted-foreground">Cash values are in USD for quick reconciliation checks.</div>
+                </div>
+                <StatusBadge status={selectedShift.status} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Device</div>
+                  <div className="font-mono text-sm font-medium">{selectedDeviceCode}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Opened</div>
+                  <div className="font-mono text-sm font-medium">{formatDateTime(selectedShift.opened_at)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Closed</div>
+                  <div className="font-mono text-sm font-medium">{formatDateOrDash(selectedShift.closed_at)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Opening USD</div>
+                  <div className="font-mono text-sm font-medium">{formatUsd(selectedShift.opening_cash_usd)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Expected USD</div>
+                  <div className="font-mono text-sm font-medium">{formatUsd(selectedShift.expected_cash_usd, { blankWhenNull: true })}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Close USD</div>
+                  <div className="font-mono text-sm font-medium">{formatUsd(selectedShift.closing_cash_usd, { blankWhenNull: true })}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Close Form */}
+          {selectedShift && selectedShiftIsOpen && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Close Selected Shift</div>
+                  <div className="text-xs text-muted-foreground">Enter counted cash, then close this shift from web admin.</div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={loadExpectedIntoCloseForm} disabled={closingShift}>
+                  Use Expected Cash
+                </Button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Closing Cash (USD)</label>
+                  <Input type="number" min={0} step="0.01" inputMode="decimal" value={closingCashUsd} onChange={(e) => setClosingCashUsd(e.target.value)} disabled={closingShift} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Closing Cash (LBP)</label>
+                  <Input type="number" min={0} step="1" inputMode="numeric" value={closingCashLbp} onChange={(e) => setClosingCashLbp(e.target.value)} disabled={closingShift} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Notes (optional)</label>
+                <Textarea value={closingNotes} onChange={(e) => setClosingNotes(e.target.value)} disabled={closingShift} placeholder="Shift close notes" className="min-h-20" />
+              </div>
+              <div className="flex justify-end">
+                <Button variant="destructive" onClick={closeSelectedShift} disabled={closingShift}>
+                  {closingShift ? "Closing..." : "Close Shift"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Reconciliation */}
+          {recon && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="text-sm font-medium">Cash Reconciliation</div>
+              <div className="text-xs text-muted-foreground">
+                Formula: Expected = Opening + Cash Sales - Cash Refunds + Cash Movements (net)
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Cash methods: <span className="font-mono">{(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Opening</div>
+                  <div className="font-mono text-sm font-medium">USD {formatUsd(recon.shift.opening_cash_usd)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Cash Sales</div>
+                  <div className="font-mono text-sm font-medium">USD {formatUsd(recon.sales_cash_usd)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Cash Refunds</div>
+                  <div className="font-mono text-sm font-medium">USD {formatUsd(recon.refunds_cash_usd)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Movements (net)</div>
+                  <div className="font-mono text-sm font-medium">USD {formatUsdSigned(recon.cash_movements_net_usd)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Expected (computed)</div>
+                  <div className="font-mono text-sm font-medium">USD {formatUsd(recon.expected_computed_usd)}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Closing (counted)</div>
+                  <div className="font-mono text-sm font-medium">USD {formatUsd(recon.shift.closing_cash_usd, { blankWhenNull: true })}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Movement Limit Controls */}
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="w-full space-y-1.5 md:w-56">
+                <label className="text-xs font-medium text-muted-foreground">Movements to load</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  inputMode="numeric"
+                  value={movementsLimit}
+                  onChange={(e) => setMovementsLimit(e.target.value.replace(/[^0-9]/g, ""))}
+                  onBlur={() => setMovementsLimit(normalizeMovementsLimit(movementsLimit))}
+                />
+                <div className="text-xs text-muted-foreground">Use smaller values for faster loading on busy shifts.</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {[100, 200, 500].map((n) => (
+                  <Button key={n} variant={movementsLimit === String(n) ? "secondary" : "ghost"} size="sm" onClick={() => setMovementsLimit(String(n))}>
+                    {n}
+                  </Button>
+                ))}
+                <Button variant="outline" size="sm" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId || loadingMovements}>
+                  {loadingMovements ? "Refreshing..." : "Refresh Movements"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Movements Table */}
+          <DataTable
+            columns={movementColumns}
+            data={movements}
+            isLoading={loadingMovements}
+            searchPlaceholder="Search device / type / notes"
+          />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

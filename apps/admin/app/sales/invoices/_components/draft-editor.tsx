@@ -706,8 +706,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     const tone = props.tone || "warn";
     const cls =
       tone === "danger"
-        ? "border-danger/35 bg-danger/10 text-danger"
-        : "border-border-subtle bg-bg-sunken/40 text-fg-muted";
+        ? "border-destructive/35 bg-destructive/10 text-destructive"
+        : "border bg-muted/40 text-muted-foreground";
     return (
       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>
         {props.children}
@@ -753,7 +753,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Customer (optional)</label>
+                <label className="text-xs font-medium text-muted-foreground">Customer (optional)</label>
                 <CustomerTypeahead
                   disabled={loading}
                   onSelect={(c) => {
@@ -767,15 +767,15 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   placeholder="Walk-in or search customer..."
                 />
                 {selectedCustomer ? (
-                  <div className="text-xs text-fg-subtle">
+                  <div className="text-xs text-muted-foreground">
                     Selected: <span className="font-medium text-foreground">{selectedCustomer.name}</span>
                   </div>
                 ) : (
-                  <div className="text-xs text-fg-subtle">Walk-in customer</div>
+                  <div className="text-xs text-muted-foreground">Walk-in customer</div>
                 )}
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+                <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
                 <SearchableSelect
                   value={warehouseId}
                   onChange={setWarehouseId}
@@ -789,14 +789,14 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Invoice Date</label>
+                <label className="text-xs font-medium text-muted-foreground">Invoice Date</label>
                 <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} disabled={loading} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Due Date</label>
+                <label className="text-xs font-medium text-muted-foreground">Due Date</label>
                 <Input
                   type="date"
                   value={dueDate}
@@ -805,7 +805,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                 />
               </div>
               <div className="md:col-span-2 flex items-end">
-                <label className="flex items-center gap-2 text-xs text-fg-muted">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input type="checkbox" checked={autoDueDate} onChange={(e) => setAutoDueDate(e.target.checked)} />
                   Auto-calculate from customer payment terms
                 </label>
@@ -814,11 +814,11 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LBP)</label>
+                <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD→LBP)</label>
                 <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
               </div>
               <div className="md:col-span-2 flex items-end">
-                <label className="flex items-center gap-2 text-xs text-fg-muted">
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input type="checkbox" checked={reserveStock} onChange={(e) => setReserveStock(e.target.checked)} />
                   Reserve stock while draft (affects availability reporting)
                 </label>
@@ -833,7 +833,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                    <CardDescription>Add items, then Post when ready.</CardDescription>
 	                  </div>
 	                  <div className="flex flex-wrap items-end justify-end gap-2">
-                      <label className="inline-flex items-center gap-2 text-xs text-fg-muted">
+                      <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                         <input
                           type="checkbox"
                           checked={showSecondaryCurrency}
@@ -842,7 +842,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                         Show secondary currency (LBP)
                       </label>
 	                    <div className="space-y-1">
-	                      <label className="text-xs font-medium text-fg-muted">Invoice Disc%</label>
+	                      <label className="text-xs font-medium text-muted-foreground">Invoice Disc%</label>
 	                      <Input
 	                        value={invoiceDiscountPct}
 	                        onChange={(e) => setInvoiceDiscountPct(e.target.value)}
@@ -860,7 +860,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-4" : "md:col-span-5"}`}>
-                    <label className="text-xs font-medium text-fg-muted">Item (search by name or barcode)</label>
+                    <label className="text-xs font-medium text-muted-foreground">Item (search by name or barcode)</label>
                     <ItemTypeahead
                       endpoint="/pricing/catalog/typeahead"
                       globalScan
@@ -869,19 +869,19 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       placeholder="Search item name / barcode..."
                     />
                     {addItem ? (
-                      <p className="text-xs text-fg-subtle">
+                      <p className="text-xs text-muted-foreground">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
                       </p>
                     ) : (
-                      <p className="text-xs text-fg-subtle">Tip: scan a barcode or type a few letters of the name, then Enter.</p>
+                      <p className="text-xs text-muted-foreground">Tip: scan a barcode or type a few letters of the name, then Enter.</p>
                     )}
                   </div>
                   <div className="space-y-1 md:col-span-1">
-                    <label className="text-xs font-medium text-fg-muted">Qty</label>
+                    <label className="text-xs font-medium text-muted-foreground">Qty</label>
                     <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-xs font-medium text-fg-muted">UOM</label>
+                    <label className="text-xs font-medium text-muted-foreground">UOM</label>
                     <SearchableSelect
                       value={addUom}
                       onChange={(v) => {
@@ -899,20 +899,20 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-xs font-medium text-fg-muted">Unit USD</label>
+                    <label className="text-xs font-medium text-muted-foreground">Unit USD</label>
                     <Input inputMode="decimal" value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
                   </div>
                   {showSecondaryCurrency ? (
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Unit LBP</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit LBP</label>
                       <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                     </div>
                   ) : null}
                   <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-1" : "md:col-span-2"}`}>
-                    <label className="text-xs font-medium text-fg-muted">Disc%</label>
+                    <label className="text-xs font-medium text-muted-foreground">Disc%</label>
                     <Input inputMode="decimal" value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
                   </div>
-                  <div className="md:col-span-12 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-subtle">
+                  <div className="md:col-span-12 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>
                       Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
                     </span>
@@ -941,7 +941,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                </form>
 
 	                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                  <div className="rounded-md border border bg-card/60 p-2 text-xs text-muted-foreground">
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>Total (ex VAT)</span>
 	                      <span className="font-mono text-foreground">
@@ -952,7 +952,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                      </span>
 	                    </div>
 	                  </div>
-	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                  <div className="rounded-md border border bg-card/60 p-2 text-xs text-muted-foreground">
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>Discount</span>
 	                      <span className="font-mono text-foreground">
@@ -963,7 +963,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                      </span>
 	                    </div>
 	                  </div>
-	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                  <div className="rounded-md border border bg-card/60 p-2 text-xs text-muted-foreground">
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>VAT</span>
 	                      <span className="font-mono text-foreground">
@@ -974,7 +974,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                      </span>
 	                    </div>
 	                  </div>
-	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                  <div className="rounded-md border border bg-card/60 p-2 text-xs text-muted-foreground">
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>Total (inc VAT)</span>
 	                      <span className="font-mono text-foreground">
@@ -987,9 +987,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                  </div>
 	                </div>
 
-	                <div className="ui-table-scroll">
-                  <table className="ui-table">
-                    <thead className="ui-thead">
+	                <div className="overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-muted/50">
 	                      <tr>
 	                        <th className="px-3 py-2">Item</th>
 	                        <th className="px-3 py-2 text-right">Qty</th>
@@ -1031,7 +1031,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                          return out.length ? out : base ? [{ value: base, label: base }] : [];
 	                        })();
 	                        return (
-	                          <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
+	                          <tr key={`${l.item_id}-${idx}`} className="border-b last:border-0 hover:bg-muted/30">
                             <td className="px-3 py-2">
                               <ShortcutLink
                                 href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
@@ -1040,7 +1040,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 <span className="font-mono text-xs">{l.item_sku || l.item_id.slice(0, 8)}</span>
                                 {l.item_name ? <span> · {l.item_name}</span> : null}
                               </ShortcutLink>
-                              <div className="mt-1 text-xs text-fg-subtle">
+                              <div className="mt-1 text-xs text-muted-foreground">
                                 VAT: <span className="font-mono">{vat.label}</span>
                               </div>
                               {issues.uomMissing || issues.vatMissing || issues.costMissing ? (
@@ -1081,7 +1081,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                                    options={uomOpts}
 	                                  />
 	                                </div>
-	                                <span className="text-xs text-fg-subtle font-mono">x{r.qtyFactor}</span>
+	                                <span className="text-xs text-muted-foreground font-mono">x{r.qtyFactor}</span>
 	                              </div>
 	                            </td>
 	                            <td className="px-3 py-2 text-right">
@@ -1122,7 +1122,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 className="h-8 w-20 text-right font-mono text-xs"
                               />
                             </td>
-                            <td className="px-3 py-2 text-xs text-fg-subtle">
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
                               {vat.rate > 0 ? (
                                 <span className="font-mono">{fmtVatPercent(vat.rate)}%</span>
                               ) : (
@@ -1162,7 +1162,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       })}
 	                      {lines.length === 0 ? (
 	                        <tr>
-	                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={showSecondaryCurrency ? 12 : 9}>
+	                          <td className="px-3 py-6 text-center text-muted-foreground" colSpan={showSecondaryCurrency ? 12 : 9}>
 	                            No lines yet.
 	                          </td>
 	                        </tr>

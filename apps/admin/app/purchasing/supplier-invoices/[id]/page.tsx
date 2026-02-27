@@ -220,7 +220,7 @@ function SupplierInvoiceShowInner() {
                 </ShortcutLink>
               </div>
               {l.supplier_item_code || l.supplier_item_name ? (
-                <div className="mt-1 text-xs text-fg-subtle">
+                <div className="mt-1 text-xs text-muted-foreground">
                   Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
                   {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
                 </div>
@@ -243,10 +243,10 @@ function SupplierInvoiceShowInner() {
           <div className="text-right font-mono text-xs">
             <div className="text-foreground">
               {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-              <span className="text-xs text-fg-subtle">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</span>
+              <span className="text-xs text-muted-foreground">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</span>
             </div>
             {Number(l.qty_factor || 1) !== 1 ? (
-              <div className="mt-0.5 text-xs text-fg-subtle">
+              <div className="mt-0.5 text-xs text-muted-foreground">
                 base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
               </div>
             ) : null}
@@ -263,7 +263,7 @@ function SupplierInvoiceShowInner() {
           <span className="font-mono text-xs">
             {l.batch_no || "-"}
             {l.batch_status && l.batch_status !== "available" ? (
-              <span className="ml-2 rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-xs text-fg-muted">
+              <span className="ml-2 rounded-full border border bg-card px-2 py-0.5 text-xs text-muted-foreground">
                 {l.batch_status}
               </span>
             ) : null}
@@ -528,7 +528,7 @@ function SupplierInvoiceShowInner() {
     const secondaryBal = settle === "LBP" ? balUsd : balLbp;
     const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
     const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
-    const primaryTone = settle === "LBP" ? "ui-tone-lbp" : "ui-tone-usd";
+    const primaryTone = settle === "LBP" ? "text-sky-600" : "text-emerald-600";
 
     return {
       paidUsd,
@@ -763,21 +763,21 @@ function SupplierInvoiceShowInner() {
   }
 
   if (loading && !detail) {
-    return <div className="min-h-[50vh] px-2 py-10 text-sm text-fg-muted">Loading...</div>;
+    return <div className="min-h-[50vh] px-2 py-10 text-sm text-muted-foreground">Loading...</div>;
   }
 
   return (
-    <div className="ui-detail-shell">
-      <div className="ui-detail-header">
-        <div className="ui-detail-header-row">
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-4">
           <div>
-            <h1 className="ui-detail-title">{detail?.invoice?.invoice_no || "Supplier Invoice"}</h1>
-            <div className="ui-detail-meta">
-              <span className="ui-detail-meta-id">{detail?.invoice?.id || "-"}</span>
+            <h1 className="text-2xl font-semibold tracking-tight">{detail?.invoice?.invoice_no || "Supplier Invoice"}</h1>
+            <div className="text-sm text-muted-foreground">
+              <span className="font-mono text-xs">{detail?.invoice?.id || "-"}</span>
               {detail ? <StatusChip value={detail.invoice.status} /> : null}
             </div>
           </div>
-          <div className="ui-detail-actions">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => router.push("/purchasing/supplier-invoices")}>
               Back to List
             </Button>
@@ -805,7 +805,7 @@ function SupplierInvoiceShowInner() {
                       <>
                         {" "}
                         ·{" "}
-                        <span className="ui-chip ui-chip-warning">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-0.5 text-xs font-medium text-yellow-700 dark:text-yellow-400">
                           HOLD{detail.invoice.hold_reason ? `: ${detail.invoice.hold_reason}` : ""}
                         </span>
                       </>
@@ -886,10 +886,10 @@ function SupplierInvoiceShowInner() {
               {activeTab === "overview" ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                    <div className="ui-panel p-5 md:col-span-8">
+                    <Card className="md:col-span-8"><CardContent className="p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-[220px]">
-                          <p className="ui-panel-title">Supplier</p>
+                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Supplier</p>
                           <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
                             {detail.invoice.supplier_id ? (
                               <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.invoice.supplier_id)}`} title="Open supplier">
@@ -899,7 +899,7 @@ function SupplierInvoiceShowInner() {
                               "-"
                             )}
                           </p>
-                          <p className="mt-1 text-sm text-fg-muted">
+                          <p className="mt-1 text-sm text-muted-foreground">
                             Created{" "}
                             <span className="data-mono">
                               {formatDateLike(detail.invoice.created_at)}
@@ -908,17 +908,17 @@ function SupplierInvoiceShowInner() {
                         </div>
 
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          <span className="ui-chip ui-chip-default">
-                            <span className="text-fg-subtle">Exchange</span>
+                          <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                            <span className="text-muted-foreground">Exchange</span>
                             <span className="data-mono text-foreground">{supplierOverview?.rate || "-"}</span>
                           </span>
-                          <span className="ui-chip ui-chip-default">
-                            <span className="text-fg-subtle">Status</span>
+                          <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                            <span className="text-muted-foreground">Status</span>
                             <span className="data-mono text-foreground">{detail.invoice.status}</span>
                           </span>
                           {detail.invoice.is_on_hold ? (
-                            <span className="ui-chip ui-chip-default">
-                              <span className="text-fg-subtle">Hold</span>
+                            <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                              <span className="text-muted-foreground">Hold</span>
                               <span className="data-mono text-foreground">{detail.invoice.hold_reason || "on hold"}</span>
                             </span>
                           ) : null}
@@ -926,34 +926,34 @@ function SupplierInvoiceShowInner() {
                       </div>
 
                       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                          <p className="ui-panel-title">Dates</p>
+                        <div className="rounded-lg border border bg-muted/25 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Dates</p>
                           <div className="mt-2 space-y-1">
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Invoice</span>
-                              <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-muted-foreground">Invoice</span>
+                              <span className="text-sm font-medium">{fmtIso(detail.invoice.invoice_date)}</span>
                             </div>
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Due</span>
-                              <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-muted-foreground">Due</span>
+                              <span className="text-sm font-medium">{fmtIso(detail.invoice.due_date)}</span>
                             </div>
                           </div>
                         </div>
 
-                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                          <p className="ui-panel-title">Document</p>
+                        <div className="rounded-lg border border bg-muted/25 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Document</p>
                           <div className="mt-2 space-y-1">
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Invoice No</span>
-                              <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-muted-foreground">Invoice No</span>
+                              <span className="text-sm font-medium">{detail.invoice.invoice_no || "(draft)"}</span>
                             </div>
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Supplier Ref</span>
-                              <span className="ui-kv-value">{(detail.invoice.supplier_ref as any) || "-"}</span>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-muted-foreground">Supplier Ref</span>
+                              <span className="text-sm font-medium">{(detail.invoice.supplier_ref as any) || "-"}</span>
                             </div>
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Goods Receipt</span>
-                              <span className="ui-kv-value">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-muted-foreground">Goods Receipt</span>
+                              <span className="text-sm font-medium">
                                 {detail.invoice.goods_receipt_id ? (
                                   <ShortcutLink
                                     href={`/purchasing/goods-receipts/${encodeURIComponent(detail.invoice.goods_receipt_id)}`}
@@ -970,120 +970,120 @@ function SupplierInvoiceShowInner() {
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </CardContent></Card>
 
-                    <div className="ui-panel p-5 md:col-span-4">
-                      <p className="ui-panel-title">Totals</p>
+                    <Card className="md:col-span-4"><CardContent className="p-5">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Totals</p>
                       <div className="mt-3 space-y-3">
-                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                          <p className="ui-panel-title">This Invoice</p>
-                          <p className="mt-1 text-xs text-fg-subtle">Only this invoice.</p>
-                          <div className="mt-2 text-sm text-fg-muted">Amount due now</div>
-                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "ui-tone-usd"}`}>
+                        <div className="rounded-lg border border bg-muted/25 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">This Invoice</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Only this invoice.</p>
+                          <div className="mt-2 text-sm text-muted-foreground">Amount due now</div>
+                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "text-emerald-600"}`}>
                             {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryBal) : fmtUsd(0)}
                           </div>
-                          <div className="data-mono mt-1 text-sm text-fg-muted">
+                          <div className="data-mono mt-1 text-sm text-muted-foreground">
                             {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryBal) : fmtLbp(0)}
                           </div>
                         </div>
 
-                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <div className="rounded-lg border border bg-muted/25 p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="ui-panel-title">Supplier Account</p>
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Supplier Account</p>
                             <span
-                              className="text-xs text-fg-subtle"
+                              className="text-xs text-muted-foreground"
                               title="Includes other unpaid invoices, credits, unapplied payments."
                             >
                               What is this?
                             </span>
                           </div>
-                          <p className="mt-1 text-xs text-fg-subtle">All open invoices/credits.</p>
+                          <p className="mt-1 text-xs text-muted-foreground">All open invoices/credits.</p>
                           {supplierAccountOverview?.hasBalance ? (
                             <div className="mt-2 space-y-1">
-                              <div className="ui-kv ui-kv-strong">
-                                <span className="ui-kv-label">Account balance (overall)</span>
-                                <span className="ui-kv-value">
+                              <div className="flex items-center justify-between gap-2 font-medium">
+                                <span className="text-sm text-muted-foreground">Account balance (overall)</span>
+                                <span className="text-sm font-medium">
                                   {fmtUsdLbp(supplierAccountOverview.overallUsd, supplierAccountOverview.overallLbp)}
                                 </span>
                               </div>
-                              <div className="ui-kv ui-kv-sub">
-                                <span className="ui-kv-label">Excluding this invoice</span>
-                                <span className="ui-kv-value">
+                              <div className="flex items-center justify-between gap-2 text-xs">
+                                <span className="text-sm text-muted-foreground">Excluding this invoice</span>
+                                <span className="text-sm font-medium">
                                   {fmtUsdLbp(supplierAccountOverview.excludingInvoiceUsd, supplierAccountOverview.excludingInvoiceLbp)}
                                 </span>
                               </div>
-                              <div className="ui-kv ui-kv-sub">
-                                <span className="ui-kv-label">
+                              <div className="flex items-center justify-between gap-2 text-xs">
+                                <span className="text-sm text-muted-foreground">
                                   {supplierAccountOverview.invoiceIncludedNow ? "Including this invoice (current)" : "Including this invoice (once posted)"}
                                 </span>
-                                <span className="ui-kv-value">
+                                <span className="text-sm font-medium">
                                   {fmtUsdLbp(supplierAccountOverview.includingInvoiceUsd, supplierAccountOverview.includingInvoiceLbp)}
                                 </span>
                               </div>
-                              <p className="mt-2 text-xs text-fg-subtle">
+                              <p className="mt-2 text-xs text-muted-foreground">
                                 Includes other unpaid invoices, credits, unapplied payments.
                               </p>
                             </div>
                           ) : supplierAccountOverview?.hasSupplier ? (
-                            <p className="mt-2 text-xs text-fg-subtle">Supplier account balance unavailable.</p>
+                            <p className="mt-2 text-xs text-muted-foreground">Supplier account balance unavailable.</p>
                           ) : (
-                            <p className="mt-2 text-xs text-fg-subtle">No supplier selected for this invoice.</p>
+                            <p className="mt-2 text-xs text-muted-foreground">No supplier selected for this invoice.</p>
                           )}
                         </div>
 
-                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                          <p className="ui-panel-title">Details</p>
+                        <div className="rounded-lg border border bg-muted/25 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Details</p>
                           <div className="mt-2 space-y-1">
-                            <div className="ui-kv ui-kv-strong">
-                              <span className="ui-kv-label">Invoice total</span>
-                              <span className="ui-kv-value">
+                            <div className="flex items-center justify-between gap-2 font-medium">
+                              <span className="text-sm text-muted-foreground">Invoice total</span>
+                              <span className="text-sm font-medium">
                                 {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryTotal) : fmtUsd(0)}
                               </span>
                             </div>
-                            <div className="ui-kv ui-kv-sub">
-                              <span className="ui-kv-label">Invoice total (other)</span>
-                              <span className="ui-kv-value">
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="text-sm text-muted-foreground">Invoice total (other)</span>
+                              <span className="text-sm font-medium">
                                 {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryTotal) : fmtLbp(0)}
                               </span>
                             </div>
                             <div className="section-divider my-2" />
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Applied to this invoice</span>
-                              <span className="ui-kv-value">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-muted-foreground">Applied to this invoice</span>
+                              <span className="text-sm font-medium">
                                 {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryPaid) : fmtUsd(0)}
                               </span>
                             </div>
-                            <div className="ui-kv ui-kv-sub">
-                              <span className="ui-kv-label">Applied to this invoice (other)</span>
-                              <span className="ui-kv-value">
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="text-sm text-muted-foreground">Applied to this invoice (other)</span>
+                              <span className="text-sm font-medium">
                                 {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryPaid) : fmtLbp(0)}
                               </span>
                             </div>
                             {supplierOverview?.hasAnyTender ? (
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Amount paid</span>
-                                <span className="ui-kv-value">{fmtUsdLbp(supplierOverview.tenderUsd, supplierOverview.tenderLbp)}</span>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-muted-foreground">Amount paid</span>
+                                <span className="text-sm font-medium">{fmtUsdLbp(supplierOverview.tenderUsd, supplierOverview.tenderLbp)}</span>
                               </div>
                             ) : null}
                             {(detail.tax_lines || []).length ? (
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">VAT</span>
-                                <span className="ui-kv-value">{fmtUsdLbp(supplierOverview?.vatUsd || 0, supplierOverview?.vatLbp || 0)}</span>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-muted-foreground">VAT</span>
+                                <span className="text-sm font-medium">{fmtUsdLbp(supplierOverview?.vatUsd || 0, supplierOverview?.vatLbp || 0)}</span>
                               </div>
                             ) : null}
                           </div>
-                          <details className="mt-3 rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
-                            <summary className="cursor-pointer text-sm font-medium text-fg-muted">Breakdown</summary>
+                          <details className="mt-3 rounded-lg border border bg-card/40 p-3">
+                            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Breakdown</summary>
                             <div className="mt-2 space-y-2">
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Subtotal</span>
-                                <span className="ui-kv-value">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-muted-foreground">Subtotal</span>
+                                <span className="text-sm font-medium">
                                   {fmtUsdLbp(supplierOverview?.subUsd || 0, supplierOverview?.subLbp || 0)}
                                 </span>
                               </div>
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Discount</span>
-                                <span className="ui-kv-value">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-muted-foreground">Discount</span>
+                                <span className="text-sm font-medium">
                                   {fmtUsdLbp(supplierOverview?.discUsd || 0, supplierOverview?.discLbp || 0)}
                                 </span>
                               </div>
@@ -1091,13 +1091,13 @@ function SupplierInvoiceShowInner() {
                           </details>
                         </div>
                       </div>
-                    </div>
+                    </CardContent></Card>
 
-                    <div className="ui-panel p-5 md:col-span-12">
+                    <Card className="md:col-span-12"><CardContent className="p-5">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          <p className="ui-panel-title">Payments</p>
-                          <p className="mt-1 text-sm text-fg-subtle">Payments belong to Overview for quick review.</p>
+                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Payments</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Payments belong to Overview for quick review.</p>
                         </div>
                         {detail.invoice.status === "posted" ? (
                           <Button asChild variant="outline" size="sm">
@@ -1110,19 +1110,19 @@ function SupplierInvoiceShowInner() {
                         )}
                       </div>
 
-                      <div className="mt-3 space-y-1 text-sm text-fg-muted">
+                      <div className="mt-3 space-y-1 text-sm text-muted-foreground">
                         {detail.payments.map((p) => (
                           <div key={p.id} className="flex items-center justify-between gap-2">
                             <span className="data-mono">
                               {formatMethodLabel(p.method)}
-                              {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
+                              {p.reference ? <span className="text-muted-foreground"> · {p.reference}</span> : null}
                             </span>
                             <span className="data-mono">{fmtUsdLbp(p.amount_usd, p.amount_lbp)}</span>
                           </div>
                         ))}
-                        {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
+                        {detail.payments.length === 0 ? <p className="text-muted-foreground">No payments.</p> : null}
                       </div>
-                    </div>
+                    </CardContent></Card>
                   </div>
 
                   {detail.invoice.is_on_hold ? (
@@ -1132,7 +1132,7 @@ function SupplierInvoiceShowInner() {
                         <CardDescription>Posting and paying are blocked until you unhold.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        <div className="text-sm text-fg-muted">
+                        <div className="text-sm text-muted-foreground">
                           Reason: <span className="font-mono">{detail.invoice.hold_reason || "-"}</span>
                         </div>
                         {(() => {
@@ -1140,7 +1140,7 @@ function SupplierInvoiceShowInner() {
                           const flags: any[] = Array.isArray(hd?.flags) ? hd.flags : [];
                           if (!flags.length) {
                             return (
-                              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-sm text-fg-muted">
+                              <div className="rounded-md border border bg-card/60 p-3 text-sm text-muted-foreground">
                                 No structured hold details available.
                               </div>
                             );
@@ -1156,7 +1156,7 @@ function SupplierInvoiceShowInner() {
                                   sortable: true,
                                   mono: true,
                                   accessor: (f) => String(f?.kind || "unknown"),
-                                  cell: (f) => <span className="text-xs font-mono text-fg-muted">{String(f?.kind || "unknown")}</span>,
+                                  cell: (f) => <span className="text-xs font-mono text-muted-foreground">{String(f?.kind || "unknown")}</span>,
                                 },
                                 {
                                   id: "details",
@@ -1175,7 +1175,7 @@ function SupplierInvoiceShowInner() {
                                               </ShortcutLink>
                                             ) : "-"}
                                           </div>
-                                          <div className="mt-1 text-xs text-fg-muted">
+                                          <div className="mt-1 text-xs text-muted-foreground">
                                             Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD{" · "}
                                             Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
                                           </div>
@@ -1186,7 +1186,7 @@ function SupplierInvoiceShowInner() {
                                       return (
                                         <div className="text-xs">
                                           <div className="text-foreground">Invoiced qty exceeds received qty.</div>
-                                        <div className="mt-1 text-xs text-fg-muted font-mono">
+                                        <div className="mt-1 text-xs text-muted-foreground font-mono">
                                             receipt line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev{" "}
                                             {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
                                         </div>
@@ -1197,7 +1197,7 @@ function SupplierInvoiceShowInner() {
                                       return (
                                         <div className="text-xs">
                                           <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
-                                          <div className="mt-1 text-xs text-fg-muted font-mono">
+                                          <div className="mt-1 text-xs text-muted-foreground font-mono">
                                             invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff{" "}
                                             {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
                                           </div>
@@ -1214,7 +1214,7 @@ function SupplierInvoiceShowInner() {
                                   mono: true,
                                   accessor: (f) => Number(f?.pct_variance_usd || f?.diff_pct_of_base || 0),
                                   cell: (f) => (
-                                    <span className="text-xs font-mono text-fg-muted">
+                                    <span className="text-xs font-mono text-muted-foreground">
                                       {f?.pct_variance_usd
                                         ? `${(Number(f.pct_variance_usd) * 100).toFixed(1)}%`
                                         : f?.diff_pct_of_base
@@ -1247,7 +1247,7 @@ function SupplierInvoiceShowInner() {
 	                  <CardContent className="space-y-2">
 	                    {aiInsight ? (
 	                      <>
-	                        <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2 text-xs text-fg-muted">
+	                        <div className="rounded-md border border bg-card/40 p-2 text-xs text-muted-foreground">
 	                          {recommendationView(aiInsight).nextStep}
 	                        </div>
 	                        <DataTable<any>
@@ -1264,12 +1264,12 @@ function SupplierInvoiceShowInner() {
                                     <ShortcutLink
                                       href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
                                       title="Open item"
-                                      className="font-mono text-xs text-fg-subtle"
+                                      className="font-mono text-xs text-muted-foreground"
                                     >
                                       {String(c.item_id)}
                                     </ShortcutLink>
                                   ) : (
-                                    <div className="font-mono text-xs text-fg-subtle">-</div>
+                                    <div className="font-mono text-xs text-muted-foreground">-</div>
                                   )}
                                   <div className="text-xs text-foreground">
                                     {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
@@ -1278,11 +1278,11 @@ function SupplierInvoiceShowInner() {
                                 </div>
                               ),
                             },
-                            { id: "prev", header: "Prev", sortable: true, align: "right", mono: true, accessor: (c) => c.prev_unit_cost_usd || c.prev_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</span> },
-                            { id: "new", header: "New", sortable: true, align: "right", mono: true, accessor: (c) => c.new_unit_cost_usd || c.new_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</span> },
-                            { id: "pct", header: "% +", sortable: true, align: "right", mono: true, accessor: (c) => Number(c.pct_increase || 0), cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}</span> },
-                            { id: "sell", header: "Sell USD", sortable: true, align: "right", mono: true, accessor: (c) => c.sell_price_usd || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</span> },
-                            { id: "margin", header: "Margin", align: "right", mono: true, accessor: (c) => `${c.margin_before || ""}${c.margin_after || ""}`, cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.margin_before === "number" && typeof c.margin_after === "number" ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%` : "-"}</span> },
+                            { id: "prev", header: "Prev", sortable: true, align: "right", mono: true, accessor: (c) => c.prev_unit_cost_usd || c.prev_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</span> },
+                            { id: "new", header: "New", sortable: true, align: "right", mono: true, accessor: (c) => c.new_unit_cost_usd || c.new_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</span> },
+                            { id: "pct", header: "% +", sortable: true, align: "right", mono: true, accessor: (c) => Number(c.pct_increase || 0), cell: (c) => <span className="font-mono text-xs text-muted-foreground">{typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}</span> },
+                            { id: "sell", header: "Sell USD", sortable: true, align: "right", mono: true, accessor: (c) => c.sell_price_usd || 0, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.sell_price_usd || "-"}</span> },
+                            { id: "margin", header: "Margin", align: "right", mono: true, accessor: (c) => `${c.margin_before || ""}${c.margin_after || ""}`, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{typeof c.margin_before === "number" && typeof c.margin_after === "number" ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%` : "-"}</span> },
                           ]}
 	                          getRowId={(c, idx) => String(c.item_id || idx)}
 	                          emptyText="No AI price-change rows."
@@ -1295,7 +1295,7 @@ function SupplierInvoiceShowInner() {
                         </div>
                       </>
                     ) : (
-                      <p className="text-sm text-fg-subtle">No AI insight available.</p>
+                      <p className="text-sm text-muted-foreground">No AI insight available.</p>
                     )}
                   </CardContent>
                 </Card>
@@ -1326,17 +1326,17 @@ function SupplierInvoiceShowInner() {
                     <CardTitle className="text-base">Tax Lines</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-1 text-xs text-fg-muted">
+                    <div className="space-y-1 text-xs text-muted-foreground">
                       {taxBreakdown.map((r) => (
-                        <div key={r.tax_code_id} className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                        <div key={r.tax_code_id} className="rounded-md border border bg-card/40 p-2">
                           <div className="flex items-center justify-between gap-2">
                             <span className="data-mono">{r.tax_code_id}</span>
                             <span className="data-mono text-foreground">
                               {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
                             </span>
                           </div>
-                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
-                            <span className="text-fg-subtle">Base</span>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <span className="text-muted-foreground">Base</span>
                             <span className="data-mono">
                               {fmtUsdLbp(r.base_usd, r.base_lbp)}
                             </span>
@@ -1344,27 +1344,27 @@ function SupplierInvoiceShowInner() {
                         </div>
                       ))}
                       {taxBreakdown.length ? (
-                        <div className="mt-2 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                        <div className="mt-2 rounded-md border border bg-muted/25 p-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Total</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total</span>
                             <span className="data-mono text-foreground">
                               {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
                             </span>
                           </div>
-                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
-                            <span className="text-fg-subtle">Taxable base</span>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <span className="text-muted-foreground">Taxable base</span>
                             <span className="data-mono">
                               {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                             </span>
                           </div>
                           <details className="mt-2">
-                            <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
+                            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Raw tax lines</summary>
                             <div className="mt-2 space-y-1">
                               {(detail.tax_lines || []).map((t) => (
-                                <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
+                                <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border bg-card/30 p-2">
                                   <span className="data-mono">
                                     {t.tax_code_id}
-                                    {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}
+                                    {t.tax_date ? <span className="text-muted-foreground"> · {String(t.tax_date).slice(0, 10)}</span> : null}
                                   </span>
                                   <span className="data-mono">
                                     {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
@@ -1375,7 +1375,7 @@ function SupplierInvoiceShowInner() {
                           </details>
                         </div>
                       ) : null}
-                      {detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
+                      {detail.tax_lines.length === 0 ? <p className="text-muted-foreground">No tax lines.</p> : null}
                     </div>
                   </CardContent>
                 </Card>
@@ -1390,17 +1390,17 @@ function SupplierInvoiceShowInner() {
                 <DialogDescription>Posting writes stock moves + GL. You can optionally record payments now.</DialogDescription>
               </DialogHeader>
               <form onSubmit={postDraftInvoice} className="space-y-4">
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-3 text-xs text-fg-muted">
+                <div className="rounded-md border border bg-muted/25 p-3 text-xs text-muted-foreground">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium text-foreground">Posting checklist</div>
-                    <div className="text-xs text-fg-subtle">
+                    <div className="text-xs text-muted-foreground">
                       Hotkeys: <span className="ui-kbd">⌘</span>+<span className="ui-kbd">Enter</span> post,{" "}
                       <span className="ui-kbd">⌘</span>+<span className="ui-kbd">P</span> print
                     </div>
                   </div>
                   <div className="mt-2 space-y-1">
                     {postChecklist.blocking.length ? (
-                      <div className="rounded-md border border-danger/30 bg-danger/10 p-2 text-danger">
+                      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive">
                         <div className="font-medium">Blocking</div>
                         <ul className="mt-1 list-disc pl-4">
                           {postChecklist.blocking.map((x) => (
@@ -1409,10 +1409,10 @@ function SupplierInvoiceShowInner() {
                         </ul>
                       </div>
                     ) : (
-                      <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-fg-muted">Ready to post.</div>
+                      <div className="rounded-md border border bg-card/60 p-2 text-muted-foreground">Ready to post.</div>
                     )}
                     {postChecklist.warnings.length ? (
-                      <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2">
+                      <div className="rounded-md border border bg-card/60 p-2">
                         <div className="font-medium text-foreground">Warnings</div>
                         <ul className="mt-1 list-disc pl-4">
                           {postChecklist.warnings.map((x) => (
@@ -1425,13 +1425,13 @@ function SupplierInvoiceShowInner() {
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                   <div className="space-y-1 md:col-span-3">
-                    <label className="text-xs font-medium text-fg-muted">Posting Date</label>
+                    <label className="text-xs font-medium text-muted-foreground">Posting Date</label>
                     <Input type="date" value={postPostingDate} onChange={(e) => setPostPostingDate(e.target.value)} />
                   </div>
                 </div>
 
                 {postPreview ? (
-                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
+                  <div className="rounded-md border border bg-card/60 p-3 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>Base</span>
                       <span className="data-mono">
@@ -1453,7 +1453,7 @@ function SupplierInvoiceShowInner() {
                   </div>
                 ) : null}
 
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border bg-card/60 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium text-foreground">Payments (optional)</p>
                     <Button
@@ -1476,8 +1476,7 @@ function SupplierInvoiceShowInner() {
                       <div key={idx} className="grid grid-cols-1 gap-2 md:grid-cols-12">
                         <div className="md:col-span-4">
                           <select
-                            className="ui-select"
-                            value={p.method}
+                                                       value={p.method}
                             onChange={(e) =>
                               setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, method: e.target.value } : x)))
                             }
@@ -1535,11 +1534,11 @@ function SupplierInvoiceShowInner() {
               </DialogHeader>
               <form onSubmit={cancelPostedInvoice} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                 <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Void Date</label>
+                  <label className="text-xs font-medium text-muted-foreground">Void Date</label>
                   <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
                 </div>
                 <div className="space-y-1 md:col-span-6">
-                  <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                   <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="duplicate / correction / vendor dispute" />
                 </div>
                 <div className="md:col-span-6 flex justify-end gap-2">
@@ -1562,7 +1561,7 @@ function SupplierInvoiceShowInner() {
               </DialogHeader>
               <form onSubmit={cancelDraftInvoice} className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                   <Input value={cancelDraftReason} onChange={(e) => setCancelDraftReason(e.target.value)} placeholder="Optional" />
                 </div>
                 <div className="flex justify-end gap-2">
@@ -1584,7 +1583,7 @@ function SupplierInvoiceShowInner() {
 
 export default function SupplierInvoiceShowPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <SupplierInvoiceShowInner />
     </Suspense>
   );

@@ -175,7 +175,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       id: k,
       header: humanizeKey(k),
       accessor: (row) => (row as any)?.[k],
-      cell: (row) => <span className="data-mono text-xs text-fg-muted">{renderCompactValue((row as any)?.[k])}</span>,
+      cell: (row) => <span className="data-mono text-xs text-muted-foreground">{renderCompactValue((row as any)?.[k])}</span>,
       sortable: true,
       mono: true,
     }));
@@ -447,8 +447,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
     <div className={cn("space-y-3", className)}>
       {headerSlot ? <div>{headerSlot}</div> : null}
 
-      <div className="ui-table-wrap">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle bg-bg-sunken/10 px-2 py-1.5 md:px-3">
+      <div className="overflow-auto rounded-md border">
+        <div className="flex flex-wrap items-center gap-2 border-b border bg-muted/10 px-2 py-1.5 md:px-3">
           {enableGlobalFilter || hasToolbarLeft ? (
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               {enableGlobalFilter ? (
@@ -469,7 +469,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-fg-muted hover:text-foreground"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
                   aria-label="Customize columns"
                   title="Customize columns"
                 >
@@ -507,7 +507,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                     </Button>
                   </div>
 
-                  <div className="max-h-[50vh] space-y-2 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/20 p-3">
+                  <div className="max-h-[50vh] space-y-2 overflow-auto rounded-md border border bg-muted/20 p-3">
                     {filteredColumnPickerColumns.map((c) => {
                       const checked = columnVisibility[c.id] !== false;
                       const disableUncheck = checked && visibleCount <= 1;
@@ -516,7 +516,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                         <label key={c.id} className={cn("flex items-center justify-between gap-3 text-sm", disableUncheck && "opacity-70")}>
                           <span className="min-w-0 text-foreground">
                             <span className="truncate">{c.header}</span>
-                            {isDynamic ? <span className="ml-2 text-xs uppercase tracking-wider text-fg-subtle">Field</span> : null}
+                            {isDynamic ? <span className="ml-2 text-xs uppercase tracking-wider text-muted-foreground">Field</span> : null}
                           </span>
                           <span className="flex items-center gap-2">
                             {isDynamic ? (
@@ -535,22 +535,22 @@ export function DataTable<T>(props: DataTableProps<T>) {
                         </label>
                       );
                     })}
-                    {filteredColumnPickerColumns.length === 0 ? <div className="text-xs text-fg-subtle">No matching columns.</div> : null}
+                    {filteredColumnPickerColumns.length === 0 ? <div className="text-xs text-muted-foreground">No matching columns.</div> : null}
                   </div>
 
                   {filteredRawFieldKeys.length ? (
                     <div className="space-y-2">
-                      <div className="text-xs font-medium text-fg-muted">Add fields from data</div>
-                      <div className="max-h-[30vh] space-y-1 overflow-auto rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                      <div className="text-xs font-medium text-muted-foreground">Add fields from data</div>
+                      <div className="max-h-[30vh] space-y-1 overflow-auto rounded-md border border bg-card/40 p-2">
                         {filteredRawFieldKeys.slice(0, 250).map((k) => (
-                          <div key={k} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-sunken/20 px-2 py-1">
-                            <span className="min-w-0 truncate data-mono text-xs text-fg-muted">{k}</span>
+                          <div key={k} className="flex items-center justify-between gap-2 rounded-md border border bg-muted/20 px-2 py-1">
+                            <span className="min-w-0 truncate data-mono text-xs text-muted-foreground">{k}</span>
                             <Button variant="outline" size="sm" onClick={() => addDynamicColumn(k)}>
                               Add
                             </Button>
                           </div>
                         ))}
-                        {filteredRawFieldKeys.length > 250 ? <div className="text-xs text-fg-subtle">Showing first 250 fields.</div> : null}
+                        {filteredRawFieldKeys.length > 250 ? <div className="text-xs text-muted-foreground">Showing first 250 fields.</div> : null}
                       </div>
                     </div>
                   ) : null}
@@ -559,8 +559,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
             </Dialog>
           </div>
         </div>
-        <table className="ui-table">
-          <thead className="ui-thead">
+        <table className="w-full text-sm">
+          <thead className="border-b bg-muted/50 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
             <tr>
               {visibleColumns.map((c) => (
                 <th
@@ -616,8 +616,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 <tr
                   key={key}
                   className={cn(
-                    "ui-tr ui-tr-hover",
-                    onRowClick && "ui-tr-focusable cursor-pointer",
+                    "border-b last:border-0 hover:bg-muted/30",
+                    onRowClick && "focus-within:bg-muted/40 cursor-pointer",
                     typeof rowClassName === "function" ? rowClassName(r) : rowClassName
                   )}
                   onClick={
@@ -680,7 +680,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
             {pageRows.length === 0 && !isLoading ? (
               <tr>
-                <td className="px-4 py-8 text-center text-fg-subtle" colSpan={Math.max(visibleColumns.length, 1)}>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={Math.max(visibleColumns.length, 1)}>
                   {emptyText}
                 </td>
               </tr>
@@ -691,7 +691,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
       {enablePagination ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs text-fg-muted">
+          <div className="text-xs text-muted-foreground">
             {sortedRows.length ? (
               isServer ? (
                 <>
@@ -702,7 +702,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       of <span className="data-mono">{serverTotal.toLocaleString("en-US")}</span>
                     </>
                   ) : null}
-                  <span className="text-fg-subtle"> · </span>
+                  <span className="text-muted-foreground"> · </span>
                   Page <span className="data-mono">{effectivePage + 1}</span>
                   {serverTotal != null ? (
                     <>
@@ -714,7 +714,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 <>
                   Showing <span className="data-mono">{startRow.toLocaleString("en-US")}</span>–<span className="data-mono">{endRow.toLocaleString("en-US")}</span>{" "}
                   of <span className="data-mono">{sortedRows.length.toLocaleString("en-US")}</span>
-                  <span className="text-fg-subtle"> · </span>
+                  <span className="text-muted-foreground"> · </span>
                   Page <span className="data-mono">{page + 1}</span>/<span className="data-mono">{pageCount}</span>
                 </>
               )
@@ -725,7 +725,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
           <div className="flex items-center gap-2">
             <select
-              className="ui-select h-9 text-xs"
+              className="h-9 rounded-md border border-input bg-background px-2 text-xs"
               value={String(isServer ? effectivePageSize : pageSize)}
               onChange={(e) => {
                 const next = Number(e.target.value || defaultPageSize);

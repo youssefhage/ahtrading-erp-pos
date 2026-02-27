@@ -1,14 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw, Pencil, BookOpenText } from "lucide-react";
 
 import { apiGet, apiPatch } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type CoaAccount = {
   id: string;
@@ -20,6 +37,10 @@ type CoaAccount = {
   is_postable: boolean;
   parent_account_id: string | null;
 };
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function CoaPage() {
   const [status, setStatus] = useState("");
@@ -49,62 +70,91 @@ export default function CoaPage() {
     return m;
   }, [accounts]);
 
-  const openEdit = useCallback((a: CoaAccount) => {
-    setEdit(a);
-    setEditNameEn(a.name_en || "");
-    setEditNameFr(a.name_fr || "");
-    setEditNameAr(a.name_ar || "");
-    setEditPostable(Boolean(a.is_postable));
-    const parent = a.parent_account_id ? accountById.get(a.parent_account_id) : null;
-    setEditParentCode(parent?.account_code || "");
-    setEditOpen(true);
-  }, [accountById]);
+  const openEdit = useCallback(
+    (a: CoaAccount) => {
+      setEdit(a);
+      setEditNameEn(a.name_en || "");
+      setEditNameFr(a.name_fr || "");
+      setEditNameAr(a.name_ar || "");
+      setEditPostable(Boolean(a.is_postable));
+      const parent = a.parent_account_id ? accountById.get(a.parent_account_id) : null;
+      setEditParentCode(parent?.account_code || "");
+      setEditOpen(true);
+    },
+    [accountById],
+  );
 
-  const columns = useMemo((): Array<DataTableColumn<CoaAccount>> => {
-    return [
-      { id: "account_code", header: "Code", accessor: (a) => a.account_code, mono: true, sortable: true, globalSearch: false },
+  const columns = useMemo<ColumnDef<CoaAccount>[]>(
+    () => [
+      {
+        id: "account_code",
+        accessorFn: (a) => a.account_code,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.account_code}</span>,
+      },
       {
         id: "name_en",
-        header: "Name",
-        accessor: (a) => `${a.name_en || ""} ${a.name_fr || ""} ${a.name_ar || ""}`.trim(),
-        sortable: true,
-        cell: (a) => (
+        accessorFn: (a) => `${a.name_en || ""} ${a.name_fr || ""} ${a.name_ar || ""}`.trim(),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+        cell: ({ row }) => (
           <div>
-            <div className="font-medium text-foreground">{a.name_en || "-"}</div>
-            <div className="text-xs text-fg-subtle">{a.name_fr || ""}</div>
+            <p className="font-medium">{row.original.name_en || "-"}</p>
+            {row.original.name_fr && (
+              <p className="text-xs text-muted-foreground">{row.original.name_fr}</p>
+            )}
           </div>
         ),
       },
-      { id: "normal_balance", header: "Normal", accessor: (a) => a.normal_balance || "", sortable: true, globalSearch: false, cell: (a) => <span className="text-xs text-fg-muted">{a.normal_balance}</span> },
-      { id: "is_postable", header: "Postable", accessor: (a) => (a.is_postable ? "Yes" : "No"), sortable: true, globalSearch: false, cell: (a) => <span className="text-xs text-fg-muted">{a.is_postable ? "Yes" : "No"}</span> },
+      {
+        id: "normal_balance",
+        accessorFn: (a) => a.normal_balance || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Normal" />,
+        cell: ({ row }) => (
+          <span className="text-sm capitalize text-muted-foreground">{row.original.normal_balance}</span>
+        ),
+      },
+      {
+        id: "is_postable",
+        accessorFn: (a) => (a.is_postable ? "Yes" : "No"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Postable" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.is_postable ? "active" : "draft"} />
+        ),
+      },
       {
         id: "parent",
-        header: "Parent",
-        accessor: (a) => {
+        accessorFn: (a) => {
           const parent = a.parent_account_id ? accountById.get(a.parent_account_id) : null;
           return parent?.account_code || "";
         },
-        sortable: true,
-        globalSearch: false,
-        cell: (a) => {
-          const parent = a.parent_account_id ? accountById.get(a.parent_account_id) : null;
-          return <span className="text-xs text-fg-muted">{parent?.account_code || "-"}</span>;
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Parent" />,
+        cell: ({ row }) => {
+          const parent = row.original.parent_account_id
+            ? accountById.get(row.original.parent_account_id)
+            : null;
+          return (
+            <span className="font-mono text-sm text-muted-foreground">
+              {parent?.account_code || "-"}
+            </span>
+          );
         },
       },
       {
         id: "actions",
         header: "",
-        accessor: () => "",
-        align: "right",
-        globalSearch: false,
-        cell: (a) => (
-          <Button variant="outline" size="sm" onClick={() => openEdit(a)}>
-            Edit
-          </Button>
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => openEdit(row.original)}>
+              <Pencil className="mr-1 h-3 w-3" />
+              Edit
+            </Button>
+          </div>
         ),
       },
-    ];
-  }, [accountById, openEdit]);
+    ],
+    [accountById, openEdit],
+  );
 
   async function load() {
     setLoading(true);
@@ -114,8 +164,7 @@ export default function CoaPage() {
       setAccounts(res.accounts || []);
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -137,43 +186,46 @@ export default function CoaPage() {
         name_fr: editNameFr.trim() || null,
         name_ar: editNameAr.trim() || null,
         is_postable: Boolean(editPostable),
-        parent_account_id: parent ? parent.id : null
+        parent_account_id: parent ? parent.id : null,
       });
       setEditOpen(false);
       await load();
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="ui-module-shell">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Accounting</p>
-            <h1 className="ui-module-title">Chart Of Accounts</h1>
-            <p className="ui-module-subtitle">Manage account names, posting flags, and parent structure.</p>
-          </div>
-          <div className="ui-module-actions">
-            <Button variant="outline" onClick={load} disabled={loading}>
-              {loading ? "Loading..." : "Refresh"}
-            </Button>
-          </div>
-        </div>
-      </div>
-      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Chart of Accounts"
+        description="Manage account names, posting flags, and parent structure."
+        actions={
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
+
+      {status && !statusIsBusy && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>Accounts</CardTitle>
-          <CardDescription>{accounts.length} accounts</CardDescription>
+          <p className="text-sm text-muted-foreground">{accounts.length} accounts</p>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent>
           <datalist id="coa-parent-accounts">
             {accounts.map((a) => (
               <option key={a.id} value={a.account_code}>
@@ -182,62 +234,78 @@ export default function CoaPage() {
             ))}
           </datalist>
 
-          <DataTable<CoaAccount>
-            tableId="accounting.coa"
-            rows={accounts}
-            columns={columns}
-            isLoading={loading}
-            initialSort={{ columnId: "account_code", dir: "asc" }}
-            globalFilterPlaceholder="Search code / name..."
-            emptyText={loading ? "Loading..." : "No accounts."}
-          />
+          {!loading && accounts.length === 0 ? (
+            <EmptyState
+              icon={BookOpenText}
+              title="No accounts"
+              description="Your chart of accounts is empty."
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={accounts}
+              isLoading={loading}
+              searchPlaceholder="Search code / name..."
+              pageSize={50}
+            />
+          )}
         </CardContent>
       </Card>
 
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Account</DialogTitle>
             <DialogDescription>Changes affect posting. Be careful.</DialogDescription>
           </DialogHeader>
-          {edit ? (
-            <form onSubmit={saveEdit} className="ui-form-grid-2">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Account</label>
-                <div className="rounded-md border border-border bg-bg-sunken/20 px-3 py-2 font-mono text-xs text-fg-muted">
-                  {edit.account_code} {edit.name_en ? `· ${edit.name_en}` : ""}
+          {edit && (
+            <form onSubmit={saveEdit} className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                <p className="font-mono text-sm">
+                  {edit.account_code} {edit.name_en ? `- ${edit.name_en}` : ""}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Name (EN)</Label>
+                  <Input value={editNameEn} onChange={(e) => setEditNameEn(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Name (FR)</Label>
+                  <Input value={editNameFr} onChange={(e) => setEditNameFr(e.target.value)} />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Name (AR)</Label>
+                  <Input value={editNameAr} onChange={(e) => setEditNameAr(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Parent Account Code (optional)</Label>
+                  <Input
+                    list="coa-parent-accounts"
+                    value={editParentCode}
+                    onChange={(e) => setEditParentCode(e.target.value)}
+                    placeholder="e.g. 1010"
+                  />
+                </div>
+                <div className="flex items-end gap-3">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="postable"
+                      checked={editPostable}
+                      onCheckedChange={(checked) => setEditPostable(Boolean(checked))}
+                    />
+                    <Label htmlFor="postable">Postable</Label>
+                  </div>
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Name (EN)</label>
-                <Input value={editNameEn} onChange={(e) => setEditNameEn(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Name (FR)</label>
-                <Input value={editNameFr} onChange={(e) => setEditNameFr(e.target.value)} />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Name (AR)</label>
-                <Input value={editNameAr} onChange={(e) => setEditNameAr(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Parent Account Code (optional)</label>
-                <Input list="coa-parent-accounts" value={editParentCode} onChange={(e) => setEditParentCode(e.target.value)} placeholder="e.g. 1010" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Postable</label>
-                <label className="flex items-center gap-2 rounded-md border border-border bg-bg-elevated px-3 py-2 text-sm">
-                  <input type="checkbox" checked={editPostable} onChange={(e) => setEditPostable(e.target.checked)} />
-                  <span>{editPostable ? "Yes" : "No"}</span>
-                </label>
-              </div>
-              <div className="flex justify-end md:col-span-2">
+              <div className="flex justify-end">
                 <Button type="submit" disabled={saving}>
-                  {saving ? "..." : "Save"}
+                  {saving ? "Saving..." : "Save"}
                 </Button>
               </div>
             </form>
-          ) : null}
+          )}
         </DialogContent>
       </Dialog>
     </div>

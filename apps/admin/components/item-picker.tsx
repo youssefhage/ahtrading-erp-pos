@@ -235,7 +235,7 @@ export function ItemPicker(props: {
               id={listboxId}
               role="listbox"
               data-dialog-keepopen="true"
-              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
+              className="z-[70] overflow-hidden rounded-md border border-border bg-card shadow-lg"
               style={{
                 position: "fixed",
                 left: menuPos.left,
@@ -243,7 +243,7 @@ export function ItemPicker(props: {
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
               }}
             >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
+              <div className="flex items-center justify-between border-b border px-3 py-2 text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <span className="ui-kbd">Enter</span>
                   <span>select</span>
@@ -253,7 +253,7 @@ export function ItemPicker(props: {
                 {props.onClear ? (
                   <button
                     type="button"
-                    className="text-fg-muted hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setQ("");
@@ -279,8 +279,8 @@ export function ItemPicker(props: {
                         aria-selected={isActive}
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
-                          "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
+                          "border-b border last:border-b-0",
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-muted/50"
                         )}
                         onPointerDown={(e) => {
                           e.preventDefault();
@@ -293,22 +293,22 @@ export function ItemPicker(props: {
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="truncate">
-                              <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
+                              <span className="font-mono text-xs text-muted-foreground">{it.sku}</span>{" "}
                               <span className="text-foreground">· {it.name}</span>
                             </div>
                             {it.barcode ? (
-                              <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">{String(it.barcode)}</div>
+                              <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{String(it.barcode)}</div>
                             ) : null}
                           </div>
                           {it.unit_of_measure ? (
-                            <div className="shrink-0 font-mono text-xs text-fg-muted">{String(it.unit_of_measure)}</div>
+                            <div className="shrink-0 font-mono text-xs text-muted-foreground">{String(it.unit_of_measure)}</div>
                           ) : null}
                         </div>
                       </button>
                     );
                   })
                 ) : (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">No matches.</div>
+                  <div className="px-3 py-3 text-sm text-muted-foreground">No matches.</div>
                 )}
               </div>
             </div>,

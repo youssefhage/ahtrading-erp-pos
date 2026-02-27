@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Building2, Search } from "lucide-react";
 
 import { apiGet, apiPost, getCompanies } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
@@ -45,48 +46,58 @@ export default function CompanySelectPage() {
   })();
 
   return (
-    <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-2xl space-y-6">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">Context</p>
-          <h1 className="text-3xl font-semibold text-foreground">Select company</h1>
-          <p className="text-sm text-fg-muted">This sets the active company for reports, posting, and POS operations.</p>
+    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+      <div className="w-full max-w-lg space-y-6">
+        <div className="text-center space-y-2">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
+            <Building2 className="h-6 w-6 text-primary-foreground" />
+          </div>
+          <h1 className="text-2xl font-semibold">Select Company</h1>
+          <p className="text-sm text-muted-foreground">
+            Choose the active company for reports, posting, and POS operations.
+          </p>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Companies in session</CardTitle>
+            <CardTitle>Your Companies</CardTitle>
             <CardDescription>Pick one to continue.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {companyIds.length === 0 ? (
-              <div className="rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 p-4">
-                <p className="text-sm text-fg-muted">No companies in session. Login first.</p>
-                <div className="mt-3">
-                  <Button onClick={() => router.push("/login")}>Go to login</Button>
-                </div>
+              <div className="rounded-lg border bg-muted/50 p-6 text-center">
+                <p className="text-sm text-muted-foreground">No companies in session. Login first.</p>
+                <Button className="mt-4" onClick={() => router.push("/login")}>Go to login</Button>
               </div>
             ) : (
               <>
-                <div className="w-full">
-                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search company name..." />
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Search company name..."
+                    className="pl-9"
+                  />
                 </div>
-                {shown.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 px-4 py-3 shadow-sm"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{c.name}</div>
-                      {c.legal_name ? <div className="truncate text-xs text-fg-subtle">{c.legal_name}</div> : null}
-                      <code className="mt-1 block truncate text-xs text-fg-muted">{c.id}</code>
+                <div className="space-y-2">
+                  {shown.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{c.name}</div>
+                        {c.legal_name && <div className="truncate text-xs text-muted-foreground">{c.legal_name}</div>}
+                        <code className="mt-1 block truncate text-xs text-muted-foreground font-mono">{c.id}</code>
+                      </div>
+                      <Button variant="secondary" size="sm" onClick={() => selectCompany(c.id)}>
+                        Select
+                      </Button>
                     </div>
-                    <Button variant="secondary" size="sm" onClick={() => selectCompany(c.id)}>
-                      Use
-                    </Button>
-                  </div>
-                ))}
-                {!shown.length ? <p className="text-sm text-fg-muted">No matches.</p> : null}
+                  ))}
+                  {!shown.length && <p className="text-sm text-muted-foreground text-center py-4">No matches.</p>}
+                </div>
               </>
             )}
           </CardContent>

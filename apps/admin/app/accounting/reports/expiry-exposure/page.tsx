@@ -1,15 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { KpiCard } from "@/components/business/kpi-card";
+import { CurrencyDisplay } from "@/components/business/currency-display";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+/* ---------- types ---------- */
 
 type WarehouseRow = { id: string; name: string };
 
@@ -33,32 +40,38 @@ type Row = {
 
 type Res = { days: number; warehouse_id: string | null; rows: Row[] };
 
+/* ---------- helpers ---------- */
+
+function toNum(v: unknown) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/* ---------- page ---------- */
+
 export default function ExpiryExposurePage() {
-  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [data, setData] = useState<Res | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [days, setDays] = useState("30");
   const [warehouseId, setWarehouseId] = useState("");
   const [limit, setLimit] = useState("1000");
 
   const totals = useMemo(() => {
-    let valueUsd = 0;
-    let valueLbp = 0;
-    let qty = 0;
+    let valueUsd = 0, valueLbp = 0, qty = 0;
     for (const r of data?.rows || []) {
-      valueUsd += Number(r.est_value_usd || 0);
-      valueLbp += Number(r.est_value_lbp || 0);
-      qty += Number(r.on_hand_qty || 0);
+      valueUsd += toNum(r.est_value_usd);
+      valueLbp += toNum(r.est_value_lbp);
+      qty += toNum(r.on_hand_qty);
     }
     return { valueUsd, valueLbp, qty };
   }, [data]);
-  const qtyTone = totals.qty > 0 ? "warning" : "info";
-  const valueTone = totals.valueUsd > 0 ? "warning" : "info";
 
   const load = useCallback(async () => {
-    setStatus("");
+    setError("");
+    setLoading(true);
     try {
       const params = new URLSearchParams();
       const dd = Math.max(0, Math.min(3650, Math.floor(Number(days || 30))));
@@ -68,14 +81,14 @@ export default function ExpiryExposurePage() {
       if (warehouseId) params.set("warehouse_id", warehouseId);
       const [res, ws] = await Promise.all([
         apiGet<Res>(`/reports/inventory/expiry-exposure?${params.toString()}`),
-        apiGet<{ warehouses: WarehouseRow[] }>("/warehouses").catch(() => ({ warehouses: [] as WarehouseRow[] }))
+        apiGet<{ warehouses: WarehouseRow[] }>("/warehouses").catch(() => ({ warehouses: [] as WarehouseRow[] })),
       ]);
       setData(res);
       setWarehouses(ws.warehouses || []);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }, [days, warehouseId, limit]);
 
@@ -83,176 +96,135 @@ export default function ExpiryExposurePage() {
     load();
   }, [load]);
 
-  const columns = useMemo((): Array<DataTableColumn<Row>> => {
-    return [
-      {
-        id: "expiry",
-        header: "Expiry",
-        accessor: (r) => `${r.expiry_date || ""} ${r.days_to_expiry ?? ""}`,
-        mono: true,
-        sortable: true,
-        globalSearch: false,
-        cell: (r) => (
-          <span className="data-mono text-xs">
-            {r.expiry_date || "-"}
-            <div className="text-xs text-fg-muted">{String(r.days_to_expiry ?? "-")}d</div>
-          </span>
-        ),
-      },
-      {
-        id: "batch",
-        header: "Batch",
-        accessor: (r) => `${r.batch_no || ""} ${r.batch_status || ""}`,
-        sortable: true,
-        cell: (r) => (
-          <div className="text-xs">
-            <div className="data-mono text-xs">{r.batch_no || "-"}</div>
-            <div className="text-xs text-fg-muted">{r.batch_status || ""}</div>
-          </div>
-        ),
-      },
-      {
-        id: "item",
-        header: "Item",
-        accessor: (r) => `${r.sku || ""} ${r.item_name || ""}`,
-        sortable: true,
-        cell: (r) => (
-          <div className="text-xs">
-            <div className="data-mono text-xs text-fg-muted">{r.sku || "-"}</div>
-            <div>{r.item_name || "-"}</div>
-          </div>
-        ),
-      },
-      { id: "warehouse", header: "Warehouse", accessor: (r) => r.warehouse_name || r.warehouse_id, sortable: true },
-      {
-        id: "on_hand_qty",
-        header: "On hand",
-        accessor: (r) => Number(r.on_hand_qty || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-qty">{Number(r.on_hand_qty || 0).toLocaleString("en-US")}</span>,
-      },
-      {
-        id: "est_value_usd",
-        header: "Est value USD",
-        accessor: (r) => Number(r.est_value_usd || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.est_value_usd)}</span>,
-      },
-      {
-        id: "est_value_lbp",
-        header: "Est value LL",
-        accessor: (r) => Number(r.est_value_lbp || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.est_value_lbp)}</span>,
-      },
-    ];
-  }, []);
+  const columns = useMemo<ColumnDef<Row>[]>(() => [
+    {
+      id: "expiry",
+      accessorFn: (r) => `${r.expiry_date || ""} ${r.days_to_expiry ?? ""}`,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Expiry" />,
+      cell: ({ row }) => (
+        <div className="font-mono text-sm">
+          {row.original.expiry_date || "-"}
+          <div className="text-xs text-muted-foreground">{String(row.original.days_to_expiry ?? "-")}d</div>
+        </div>
+      ),
+    },
+    {
+      id: "batch",
+      accessorFn: (r) => `${r.batch_no || ""} ${r.batch_status || ""}`,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Batch" />,
+      cell: ({ row }) => (
+        <div>
+          <div className="font-mono text-sm">{row.original.batch_no || "-"}</div>
+          <div className="text-xs text-muted-foreground">{row.original.batch_status || ""}</div>
+        </div>
+      ),
+    },
+    {
+      id: "item",
+      accessorFn: (r) => `${r.sku || ""} ${r.item_name || ""}`,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
+      cell: ({ row }) => (
+        <div>
+          <div className="font-mono text-xs text-muted-foreground">{row.original.sku || "-"}</div>
+          <div className="text-sm">{row.original.item_name || "-"}</div>
+        </div>
+      ),
+    },
+    {
+      id: "warehouse",
+      accessorFn: (r) => r.warehouse_name || r.warehouse_id,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Warehouse" />,
+    },
+    {
+      id: "on_hand_qty",
+      accessorFn: (r) => toNum(r.on_hand_qty),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="On Hand" />,
+      cell: ({ row }) => <div className="text-right font-mono text-sm tabular-nums">{toNum(row.original.on_hand_qty).toLocaleString("en-US")}</div>,
+    },
+    {
+      id: "est_value_usd",
+      accessorFn: (r) => toNum(r.est_value_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Est Value USD" />,
+      cell: ({ row }) => <div className="text-right"><CurrencyDisplay amount={toNum(row.original.est_value_usd)} currency="USD" className="font-mono text-sm" /></div>,
+    },
+    {
+      id: "est_value_lbp",
+      accessorFn: (r) => toNum(r.est_value_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Est Value LBP" />,
+      cell: ({ row }) => <div className="text-right"><CurrencyDisplay amount={toNum(row.original.est_value_lbp)} currency="LBP" className="font-mono text-sm" /></div>,
+    },
+  ], []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Expiry Exposure</CardTitle>
-          <CardDescription>Batches expiring within N days with on-hand stock.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <Button variant="outline" onClick={load}>
+      <PageHeader
+        title="Expiry Exposure"
+        description={`Batches expiring within ${data?.days ?? Number(days || 30)} days with on-hand stock -- ${data?.rows?.length || 0} rows`}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">Filters</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Report Filters</DialogTitle>
-                <DialogDescription>Days-to-expiry horizon and optional warehouse filter.</DialogDescription>
-              </DialogHeader>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Days</label>
-                  <Input value={days} onChange={(e) => setDays(e.target.value)} inputMode="numeric" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Limit</label>
-                  <Input value={limit} onChange={(e) => setLimit(e.target.value)} inputMode="numeric" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-                  <select className="ui-select w-full" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
-                    <option value="">All</option>
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex justify-end md:col-span-3">
-                  <Button
-                    onClick={async () => {
-                      setFiltersOpen(false);
-                      await load();
-                    }}
-                  >
-                    Apply
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <Button variant="link" size="sm" className="ml-2" onClick={load}>Retry</Button>
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-4 pt-6">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Days to Expiry</label>
+            <Input value={days} onChange={(e) => setDays(e.target.value)} inputMode="numeric" className="w-[120px]" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Warehouse</label>
+            <Select value={warehouseId || "all"} onValueChange={(v) => setWarehouseId(v === "all" ? "" : v)}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Row Limit</label>
+            <Input value={limit} onChange={(e) => setLimit(e.target.value)} inputMode="numeric" className="w-[120px]" />
+          </div>
+          <Button onClick={load} disabled={loading}>Apply</Button>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Totals</CardTitle>
-          <CardDescription>
-            {data?.rows?.length || 0} rows. Estimated value uses item warehouse average cost (v1).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-3">
-          <div className="ui-kpi-card" data-tone={qtyTone}>
-            <div className="ui-kpi-label">On-hand Qty</div>
-            <div className="ui-kpi-value">{totals.qty.toLocaleString("en-US")}</div>
-          </div>
-          <div className="ui-kpi-card" data-tone={valueTone}>
-            <div className="ui-kpi-label">Est Value (USD)</div>
-            <div className="ui-kpi-value">{fmtUsd(totals.valueUsd)}</div>
-          </div>
-          <div className="ui-kpi-card" data-tone={valueTone}>
-            <div className="ui-kpi-label">Est Value (LL)</div>
-            <div className="ui-kpi-value">{fmtLbp(totals.valueLbp)}</div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* KPI cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <KpiCard
+          title="On-hand Qty"
+          value={totals.qty.toLocaleString("en-US")}
+          trend={totals.qty > 0 ? "down" : "neutral"}
+        />
+        <KpiCard
+          title="Est Value (USD)"
+          value={fmtUsd(totals.valueUsd)}
+          trend={totals.valueUsd > 0 ? "down" : "neutral"}
+        />
+        <KpiCard
+          title="Est Value (LBP)"
+          value={fmtLbp(totals.valueLbp)}
+          trend={totals.valueLbp > 0 ? "down" : "neutral"}
+        />
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Rows</CardTitle>
-          <CardDescription>
-            Expiring within {data?.days ?? Number(days || 30)} days{warehouseId ? " (warehouse filtered)" : ""}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<Row>
-            tableId="accounting.reports.expiry_exposure"
-            rows={data?.rows || []}
-            columns={columns}
-            initialSort={{ columnId: "expiry", dir: "asc" }}
-            globalFilterPlaceholder="Search batch / SKU / item / warehouse..."
-            emptyText="No expiring batches with on-hand stock found."
-          />
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={columns}
+        data={data?.rows || []}
+        isLoading={loading}
+        searchPlaceholder="Search batch / SKU / item / warehouse..."
+      />
     </div>
   );
 }

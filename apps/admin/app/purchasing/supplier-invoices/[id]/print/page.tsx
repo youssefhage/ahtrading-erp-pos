@@ -143,7 +143,7 @@ export default function SupplierInvoicePrintPage() {
 
   return (
     <div className="print-paper min-h-screen">
-      <div className="no-print sticky top-0 z-10 border-b border-black/10 bg-bg-elevated/95 backdrop-blur">
+      <div className="no-print sticky top-0 z-10 border-b border-black/10 bg-card/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <Button asChild variant="outline">

@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Inbox, RefreshCw } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type OutboxRow = {
   id: string;
@@ -61,54 +66,6 @@ export default function OutboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const columns: Array<DataTableColumn<OutboxRow>> = [
-    { id: "created_at", header: "Created", accessor: (e) => e.created_at, sortable: true, mono: true, cell: (e) => <span className="text-xs">{formatDateTime(e.created_at)}</span> },
-    { id: "status", header: "Status", accessor: (e) => e.status, sortable: true, mono: true, cell: (e) => <span className="text-xs">{e.status}</span> },
-    {
-      id: "device",
-      header: "Device",
-      accessor: (e) => `${e.device_code} ${e.device_id}`,
-      mono: true,
-      cell: (e) => (
-        <span className="font-mono text-xs">
-          {e.device_code}
-          <div className="text-xs text-fg-subtle">{e.device_id}</div>
-        </span>
-      ),
-    },
-    { id: "event_type", header: "Type", accessor: (e) => e.event_type, sortable: true, mono: true, cell: (e) => <span className="text-xs">{e.event_type}</span> },
-    { id: "attempts", header: "Attempts", accessor: (e) => Number(e.attempt_count || 0), sortable: true, align: "right", mono: true, cell: (e) => <span className="text-xs">{Number(e.attempt_count || 0)}</span> },
-    { id: "processed_at", header: "Processed", accessor: (e) => e.processed_at || "", sortable: true, mono: true, cell: (e) => <span className="text-xs">{formatDateTime(e.processed_at)}</span> },
-    {
-      id: "error",
-      header: "Error",
-      accessor: (e) => "",
-      globalSearch: false,
-      defaultHidden: true,
-      cell: (e) =>
-        e.error_message ? (
-          <pre className="max-w-[520px] whitespace-pre-wrap text-xs text-fg-muted">{e.error_message}</pre>
-        ) : (
-          <span className="text-xs text-fg-subtle">-</span>
-        ),
-    },
-    {
-      id: "actions",
-      header: "Actions",
-      accessor: (e) => "",
-      globalSearch: false,
-      align: "right",
-      cell: (e) =>
-        canRequeue.has(e.status) ? (
-          <Button variant="outline" size="sm" onClick={() => requeue(e.id)} disabled={loading || requeueingId != null}>
-            {requeueingId === e.id ? "Requeuing..." : "Requeue"}
-          </Button>
-        ) : (
-          <span className="text-xs text-fg-subtle">-</span>
-        ),
-    },
-  ];
-
   async function requeue(eventId: string) {
     setRequeueingId(eventId);
     setStatus("");
@@ -123,58 +80,152 @@ export default function OutboxPage() {
     }
   }
 
-  return (
-    <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+  const columns = useMemo<ColumnDef<OutboxRow>[]>(
+    () => [
+      {
+        id: "created_at",
+        accessorFn: (r) => r.created_at,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatDateTime(row.original.created_at)}</span>,
+      },
+      {
+        id: "status",
+        accessorFn: (r) => r.status,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: "device",
+        accessorFn: (r) => `${r.device_code} ${r.device_id}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Device" />,
+        cell: ({ row }) => (
+          <div>
+            <span className="font-mono text-sm">{row.original.device_code}</span>
+            <div className="font-mono text-xs text-muted-foreground">{row.original.device_id}</div>
+          </div>
+        ),
+      },
+      {
+        id: "event_type",
+        accessorFn: (r) => r.event_type,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.event_type}</span>,
+      },
+      {
+        id: "attempts",
+        accessorFn: (r) => Number(r.attempt_count || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Attempts" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{Number(row.original.attempt_count || 0)}</span>,
+      },
+      {
+        id: "processed_at",
+        accessorFn: (r) => r.processed_at || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Processed" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatDateTime(row.original.processed_at)}</span>,
+      },
+      {
+        id: "error",
+        header: "Error",
+        cell: ({ row }) =>
+          row.original.error_message ? (
+            <pre className="max-w-[520px] whitespace-pre-wrap text-xs text-muted-foreground">{row.original.error_message}</pre>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) =>
+          canRequeue.has(row.original.status) ? (
+            <Button variant="outline" size="sm" onClick={() => requeue(row.original.id)} disabled={loading || requeueingId != null}>
+              {requeueingId === row.original.id ? "Requeuing..." : "Requeue"}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          ),
+      },
+    ],
+    [canRequeue, loading, requeueingId],
+  );
 
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Outbox"
         description="Monitor and requeue failed POS/outbox events."
         actions={
-          <Button variant="outline" onClick={load} disabled={loading || requeueingId != null}>
-            {loading ? "Loading..." : "Refresh"}
+          <Button variant="outline" size="sm" onClick={load} disabled={loading || requeueingId != null}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         }
       />
 
-      <Section title="Filters" description="Filter events by status, device, and limit.">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Status</label>
-              <select
-                className="ui-select"
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-              >
-                {statusChoices.map((s) => (
-                  <option key={s || "all"} value={s}>
-                    {s ? s : "all"}
-                  </option>
-                ))}
-              </select>
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Inbox className="h-4 w-4" />
+            Filters
+          </CardTitle>
+          <CardDescription>Filter events by status, device, and limit.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Status</label>
+              <Select value={filterStatus || "__all__"} onValueChange={(v) => setFilterStatus(v === "__all__" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="processed">Processed</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="dead">Dead</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">Device ID (optional)</label>
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="text-xs font-medium text-muted-foreground">Device ID (optional)</label>
               <Input value={filterDeviceId} onChange={(e) => setFilterDeviceId(e.target.value)} placeholder="uuid" />
             </div>
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Limit</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Limit</label>
               <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
             </div>
-        </div>
-      </Section>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={load} disabled={loading}>
+              {loading ? "Loading..." : "Apply Filters"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-      <Section title="Events" description={`${events.length} event(s)`}>
-        <DataTable<OutboxRow>
-          tableId="system.outbox"
-          rows={events}
-          columns={columns}
-          isLoading={loading}
-          emptyText={loading ? "Loading..." : "No events."}
-          globalFilterPlaceholder="Search device / type / status..."
-          initialSort={{ columnId: "created_at", dir: "desc" }}
-        />
-      </Section>
-    </Page>
+      {/* Events */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Events</CardTitle>
+          <CardDescription>{events.length} event(s)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable columns={columns} data={events} isLoading={loading} searchPlaceholder="Search device / type / status..." />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

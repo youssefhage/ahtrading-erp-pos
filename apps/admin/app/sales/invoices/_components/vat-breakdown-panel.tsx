@@ -76,9 +76,9 @@ function moneyRef(m: VatMoney, prefer: "USD" | "LBP") {
 function LoadingState() {
   return (
     <div className="space-y-2">
-      <div className="h-14 animate-pulse rounded-lg bg-bg-sunken/35" />
-      <div className="h-20 animate-pulse rounded-lg bg-bg-sunken/30" />
-      <div className="h-10 animate-pulse rounded-lg bg-bg-sunken/25" />
+      <div className="h-14 animate-pulse rounded-lg bg-muted/35" />
+      <div className="h-20 animate-pulse rounded-lg bg-muted/30" />
+      <div className="h-10 animate-pulse rounded-lg bg-muted/25" />
     </div>
   );
 }
@@ -134,7 +134,7 @@ export function VatBreakdownPanel({
 
   if (error) {
     return (
-      <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 text-sm text-danger">
+      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
         Unable to compute VAT breakdown. Retry.
       </div>
     );
@@ -142,7 +142,7 @@ export function VatBreakdownPanel({
 
   if (!rateRows.length) {
     return (
-      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3 text-sm text-fg-subtle">
+      <div className="rounded-lg border border bg-muted/25 p-3 text-sm text-muted-foreground">
         {emptyText}
       </div>
     );
@@ -150,19 +150,19 @@ export function VatBreakdownPanel({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+      <div className="rounded-lg border border bg-muted/25 p-3">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
           <div className="space-y-1">
-            <div className="ui-kv">
-              <span className="ui-kv-label">Total VAT</span>
-              <span className="ui-kv-value">{fmtUsdLbp(summary.totalTax.usd, summary.totalTax.lbp)}</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">Total VAT</span>
+              <span className="text-sm font-medium">{fmtUsdLbp(summary.totalTax.usd, summary.totalTax.lbp)}</span>
             </div>
-            <div className="ui-kv">
-              <span className="ui-kv-label">Taxable base</span>
-              <span className="ui-kv-value">{fmtUsdLbp(summary.taxableBase.usd, summary.taxableBase.lbp)}</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">Taxable base</span>
+              <span className="text-sm font-medium">{fmtUsdLbp(summary.taxableBase.usd, summary.taxableBase.lbp)}</span>
             </div>
           </div>
-          <div className="space-y-1 text-right text-xs text-fg-subtle">
+          <div className="space-y-1 text-right text-xs text-muted-foreground">
             <div>{summary.taxCodesCount} code(s)</div>
             {summary.singleRateNote ? <div>{summary.singleRateNote}</div> : null}
           </div>
@@ -170,35 +170,35 @@ export function VatBreakdownPanel({
       </div>
 
       {rateRows.length === 1 ? (
-        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3 text-sm">
-          <div className="ui-kv">
-            <span className="ui-kv-label">Applied VAT rate</span>
-            <span className="ui-kv-value">
+        <div className="rounded-lg border border bg-muted/25 p-3 text-sm">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-muted-foreground">Applied VAT rate</span>
+            <span className="text-sm font-medium">
               {rateRows[0].label}
-              {rateRows[0].ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(rateRows[0].ratePct)}</span> : null}
+              {rateRows[0].ratePct !== null ? <span className="text-muted-foreground"> · {fmtPct(rateRows[0].ratePct)}</span> : null}
             </span>
           </div>
         </div>
       ) : (
-        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3 text-sm text-fg-subtle">
+        <div className="rounded-lg border border bg-muted/25 p-3 text-sm text-muted-foreground">
           VAT is split across {rateRows.length} rate groups.
         </div>
       )}
 
-      <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-        <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-fg-subtle">
+      <details className="rounded-lg border border bg-muted/25 p-3">
+        <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Advanced details
         </summary>
 
         <div className="mt-3 space-y-3">
-          <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+          <div className="rounded-lg border border bg-card/40 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">VAT by rate</span>
-              <span className="text-xs text-fg-subtle">{rateRows.length} rate group(s)</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">VAT by rate</span>
+              <span className="text-xs text-muted-foreground">{rateRows.length} rate group(s)</span>
             </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
+            <div className="overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50">
                   <tr>
                     <th>VAT Rate</th>
                     <th className="text-right">Taxable Base</th>
@@ -208,12 +208,12 @@ export function VatBreakdownPanel({
                 </thead>
                 <tbody>
                   {rateRows.map((r) => (
-                    <tr key={r.id} className="ui-tr">
+                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td>
                         <div className="data-mono text-sm text-foreground">
                           {r.label}
-                          {r.ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(r.ratePct)}</span> : null}
-                          {r.effectiveRatePct !== null ? <span className="text-fg-subtle"> · eff {fmtPct(r.effectiveRatePct)}</span> : null}
+                          {r.ratePct !== null ? <span className="text-muted-foreground"> · {fmtPct(r.ratePct)}</span> : null}
+                          {r.effectiveRatePct !== null ? <span className="text-muted-foreground"> · eff {fmtPct(r.effectiveRatePct)}</span> : null}
                         </div>
                       </td>
                       <td className="text-right data-mono">{fmtUsdLbp(r.taxableBase.usd, r.taxableBase.lbp)}</td>
@@ -226,11 +226,11 @@ export function VatBreakdownPanel({
             </div>
           </div>
 
-          <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+          <div className="rounded-lg border border bg-card/40 p-3">
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                className="cursor-pointer text-sm font-medium text-fg-muted hover:text-foreground"
+                className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground"
                 aria-expanded={itemOpen}
                 onClick={() => setItemOpen((v) => !v)}
               >
@@ -238,9 +238,9 @@ export function VatBreakdownPanel({
               </button>
             </div>
             {itemOpen ? (
-              <div className="mt-2 ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
+              <div className="mt-2 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/50">
                     <tr>
                       <th>Item</th>
                       <th className="text-right">Qty</th>
@@ -252,7 +252,7 @@ export function VatBreakdownPanel({
                   </thead>
                   <tbody>
                     {itemRows.map((r) => (
-                      <tr key={r.id} className="ui-tr">
+                      <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                         <td className="data-mono">{r.itemLabel}</td>
                         <td className="text-right data-mono">{n(r.qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
                         <td className="text-right data-mono">{fmtUsdLbp(r.net.usd, r.net.lbp)}</td>
@@ -270,15 +270,15 @@ export function VatBreakdownPanel({
           {reconciliation.mismatch ? (
             <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-fg-subtle">Sum of item VAT</span>
+                <span className="text-muted-foreground">Sum of item VAT</span>
                 <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.itemVat.usd, reconciliation.itemVat.lbp)}</span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-fg-subtle">Sum of rate-group VAT</span>
+                <span className="text-muted-foreground">Sum of rate-group VAT</span>
                 <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.rateVat.usd, reconciliation.rateVat.lbp)}</span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-fg-subtle">Total VAT</span>
+                <span className="text-muted-foreground">Total VAT</span>
                 <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.totalVat.usd, reconciliation.totalVat.lbp)}</span>
               </div>
               <div className="mt-2 inline-flex rounded border border-warning/50 bg-warning/10 px-2 py-1 text-[11px] font-medium text-warning">
@@ -288,21 +288,21 @@ export function VatBreakdownPanel({
           ) : null}
 
           {rawTaxLines.length ? (
-            <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Raw tax lines</p>
+            <div className="rounded-lg border border bg-card/40 p-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Raw tax lines</p>
               <div className="mt-2 space-y-1">
                 {rawTaxLines.map((t) => (
-                  <div key={t.id} className="rounded-md border border-border-subtle bg-bg-elevated/50 p-2">
+                  <div key={t.id} className="rounded-md border border bg-card/50 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="data-mono text-foreground">
                         {t.label}
-                        {t.ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(t.ratePct)}</span> : null}
+                        {t.ratePct !== null ? <span className="text-muted-foreground"> · {fmtPct(t.ratePct)}</span> : null}
                       </span>
                       <span className="data-mono text-foreground">{fmtUsdLbp(t.tax.usd, t.tax.lbp)}</span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2">
-                      <span className="text-xs text-fg-subtle">Base</span>
-                      <span className="data-mono text-xs text-fg-muted">{fmtUsdLbp(t.base.usd, t.base.lbp)}</span>
+                      <span className="text-xs text-muted-foreground">Base</span>
+                      <span className="data-mono text-xs text-muted-foreground">{fmtUsdLbp(t.base.usd, t.base.lbp)}</span>
                     </div>
                   </div>
                 ))}
@@ -312,7 +312,7 @@ export function VatBreakdownPanel({
         </div>
       </details>
 
-      {previewNote ? <p className="text-xs text-fg-subtle">{previewNote}</p> : null}
+      {previewNote ? <p className="text-xs text-muted-foreground">{previewNote}</p> : null}
     </div>
   );
 }

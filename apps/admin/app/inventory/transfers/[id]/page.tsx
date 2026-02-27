@@ -78,7 +78,7 @@ function toNum(s: string) {
 function Inner({ id }: { id: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [detail, setDetail] = useState<Detail | null>(null);
 
   const [editMode, setEditMode] = useState(false);
@@ -126,7 +126,7 @@ function Inner({ id }: { id: string }) {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const d = await apiGet<Detail>(`/inventory/transfers/${encodeURIComponent(id)}`);
       setDetail(d);
@@ -144,7 +144,7 @@ function Inner({ id }: { id: string }) {
       );
     } catch (e) {
       setDetail(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -258,7 +258,7 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!tr) return;
     setSaving(true);
-    setErr(null);
+    setErr("");
     try {
       const payload = {
         memo: memo.trim() || undefined,
@@ -277,7 +277,7 @@ function Inner({ id }: { id: string }) {
       setEditMode(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSaving(false);
     }
@@ -287,7 +287,7 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!tr) return;
     setPicking(true);
-    setErr(null);
+    setErr("");
     setLastWarnings([]);
     try {
       const res = await apiPost<{ ok: boolean; warnings?: string[] }>(`/inventory/transfers/${encodeURIComponent(tr.id)}/pick`, {});
@@ -295,7 +295,7 @@ function Inner({ id }: { id: string }) {
       setPickOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setPicking(false);
     }
@@ -305,7 +305,7 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!tr) return;
     setPosting(true);
-    setErr(null);
+    setErr("");
     setLastWarnings([]);
     try {
       const res = await apiPost<{ ok: boolean; warnings?: string[] }>(`/inventory/transfers/${encodeURIComponent(tr.id)}/post`, {});
@@ -313,7 +313,7 @@ function Inner({ id }: { id: string }) {
       setPostOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setPosting(false);
     }
@@ -323,13 +323,13 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!tr) return;
     setCanceling(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/inventory/transfers/${encodeURIComponent(tr.id)}/cancel`, { reason: cancelReason.trim() || undefined });
       setCancelOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setCanceling(false);
     }
@@ -339,7 +339,7 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!tr) return;
     setReversing(true);
-    setErr(null);
+    setErr("");
     try {
       const res = await apiPost<{ id: string }>(`/inventory/transfers/${encodeURIComponent(tr.id)}/reverse-draft`, {
         reason: reverseReason.trim() || undefined,
@@ -347,7 +347,7 @@ function Inner({ id }: { id: string }) {
       setReverseOpen(false);
       router.push(`/inventory/transfers/${encodeURIComponent(res.id)}`);
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setReversing(false);
     }
@@ -374,7 +374,7 @@ function Inner({ id }: { id: string }) {
   async function savePickEdits() {
     if (!tr) return;
     setSavingPick(true);
-    setErr(null);
+    setErr("");
     try {
       const updates: Array<{ id: string; qty: number }> = [];
       Object.values(alloc || {}).forEach((rows) => {
@@ -389,7 +389,7 @@ function Inner({ id }: { id: string }) {
       setEditPickMode(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSavingPick(false);
     }
@@ -413,7 +413,7 @@ function Inner({ id }: { id: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">{tr?.transfer_no || (loading ? "Loading..." : "Stock Transfer")}</h1>
-          <p className="text-sm text-fg-muted">
+          <p className="text-sm text-muted-foreground">
             <span className="font-mono text-xs">{id}</span>
           </p>
         </div>
@@ -463,13 +463,13 @@ function Inner({ id }: { id: string }) {
       {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
       {lastWarnings.length ? (
-        <Card className="border-border-subtle">
+        <Card className="border">
           <CardHeader>
             <CardTitle>Warnings</CardTitle>
             <CardDescription>Completed with warnings (best-effort behavior).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <ul className="list-disc pl-5 text-fg-muted">
+            <ul className="list-disc pl-5 text-muted-foreground">
               {lastWarnings.slice(0, 12).map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
@@ -491,50 +491,50 @@ function Inner({ id }: { id: string }) {
                 </CardHeader>
                 <CardContent className="grid gap-2 text-sm md:grid-cols-2">
                   <div>
-                    <div className="text-xs text-fg-muted">Status</div>
+                    <div className="text-xs text-muted-foreground">Status</div>
                     <div className="mt-1">
                       <StatusChip value={tr.status} />
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-fg-muted">Warehouses</div>
+                    <div className="text-xs text-muted-foreground">Warehouses</div>
                     <div className="mt-1">
                       <span className="font-medium">{tr.from_warehouse_name || tr.from_warehouse_id.slice(0, 8)}</span>
-                      <span className="mx-2 text-fg-subtle">→</span>
+                      <span className="mx-2 text-muted-foreground">→</span>
                       <span className="font-medium">{tr.to_warehouse_name || tr.to_warehouse_id.slice(0, 8)}</span>
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-fg-muted">Locations</div>
+                    <div className="text-xs text-muted-foreground">Locations</div>
                     <div className="mt-1 text-sm">
                       <span className="font-medium">
                         {tr.from_location_code || tr.from_location_id ? (tr.from_location_code || String(tr.from_location_id).slice(0, 8)) : "(none)"}
                       </span>
-                      <span className="mx-2 text-fg-subtle">→</span>
+                      <span className="mx-2 text-muted-foreground">→</span>
                       <span className="font-medium">
                         {tr.to_location_code || tr.to_location_id ? (tr.to_location_code || String(tr.to_location_id).slice(0, 8)) : "(none)"}
                       </span>
                     </div>
                   </div>
                   <div className="md:col-span-2">
-                    <div className="text-xs text-fg-muted">Memo</div>
+                    <div className="text-xs text-muted-foreground">Memo</div>
                     <div className="mt-1">{tr.memo || "-"}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-fg-muted">Created</div>
-                    <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.created_at)}</div>
+                    <div className="text-xs text-muted-foreground">Created</div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(tr.created_at)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-fg-muted">Picked</div>
-                    <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.picked_at)}</div>
+                    <div className="text-xs text-muted-foreground">Picked</div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(tr.picked_at)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-fg-muted">Posted</div>
-                    <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.posted_at)}</div>
+                    <div className="text-xs text-muted-foreground">Posted</div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(tr.posted_at)}</div>
                   </div>
                   {tr.status === "canceled" ? (
                     <div>
-                      <div className="text-xs text-fg-muted">Cancel reason</div>
+                      <div className="text-xs text-muted-foreground">Cancel reason</div>
                       <div className="mt-1">{tr.cancel_reason || "-"}</div>
                     </div>
                   ) : null}
@@ -550,13 +550,13 @@ function Inner({ id }: { id: string }) {
                   <CardContent className="space-y-3">
                     <form onSubmit={saveDraft} className="space-y-4">
                       <label className="space-y-1">
-                        <div className="text-xs text-fg-muted">Memo</div>
+                        <div className="text-xs text-muted-foreground">Memo</div>
                         <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Optional" />
                       </label>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <div className="text-xs text-fg-muted">From location (optional)</div>
+                          <div className="text-xs text-muted-foreground">From location (optional)</div>
                           <Input
                             value={fromLocCode}
                             onChange={(e) => setFromLocCode(e.target.value)}
@@ -578,7 +578,7 @@ function Inner({ id }: { id: string }) {
                           />
                         </div>
                         <div className="space-y-1">
-                          <div className="text-xs text-fg-muted">To location (optional)</div>
+                          <div className="text-xs text-muted-foreground">To location (optional)</div>
                           <Input
                             value={toLocCode}
                             onChange={(e) => setToLocCode(e.target.value)}
@@ -605,9 +605,9 @@ function Inner({ id }: { id: string }) {
                         <ItemTypeahead onSelect={addItem} onClear={() => {}} />
                       </div>
 
-                      <div className="ui-table-scroll">
-                        <table className="ui-table">
-                          <thead className="ui-thead">
+                      <div className="overflow-auto rounded-md border">
+                        <table className="w-full text-sm">
+                          <thead className="border-b bg-muted/50">
                             <tr>
                               <th className="px-3 py-2">Item</th>
                               <th className="px-3 py-2 text-right">Qty</th>
@@ -617,7 +617,7 @@ function Inner({ id }: { id: string }) {
                           </thead>
                           <tbody>
                             {linesDraft.map((ln, idx) => (
-                              <tr key={`${ln.item_id}:${idx}`} className="ui-tr-hover">
+                              <tr key={`${ln.item_id}:${idx}`} className="border-b last:border-0 hover:bg-muted/30">
                                 <td className="px-3 py-2">
                                   <div className="font-medium">
                                     <span className="data-mono">{ln.item_sku}</span> · {ln.item_name}
@@ -638,7 +638,7 @@ function Inner({ id }: { id: string }) {
                             ))}
                             {linesDraft.length === 0 ? (
                               <tr>
-                                <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={4}>
                                   No lines.
                                 </td>
                               </tr>
@@ -669,9 +669,9 @@ function Inner({ id }: { id: string }) {
                 <CardDescription>Requested qty and picked allocations.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="ui-table-scroll">
-                  <table className="ui-table">
-                    <thead className="ui-thead">
+                <div className="overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-muted/50">
                       <tr>
                         <th className="px-3 py-2">#</th>
                         <th className="px-3 py-2">Item</th>
@@ -684,13 +684,13 @@ function Inner({ id }: { id: string }) {
                       {lines.map((ln) => {
                         const allocRows = alloc[String(ln.id)] || [];
                         return (
-                          <tr key={ln.id} className="ui-tr-hover align-top">
-                            <td className="px-3 py-2 text-xs font-mono text-fg-muted">{ln.line_no}</td>
+                          <tr key={ln.id} className="border-b last:border-0 hover:bg-muted/30 align-top">
+                            <td className="px-3 py-2 text-xs font-mono text-muted-foreground">{ln.line_no}</td>
                             <td className="px-3 py-2">
                               <div className="font-medium">
                                 <span className="data-mono">{ln.item_sku}</span> · {ln.item_name}
                               </div>
-                              {ln.notes ? <div className="mt-0.5 text-xs text-fg-muted">{ln.notes}</div> : null}
+                              {ln.notes ? <div className="mt-0.5 text-xs text-muted-foreground">{ln.notes}</div> : null}
                             </td>
                             <td className="px-3 py-2 text-right data-mono">{String(ln.qty)}</td>
                             <td className="px-3 py-2 text-right data-mono">{String(ln.picked_qty)}</td>
@@ -713,14 +713,14 @@ function Inner({ id }: { id: string }) {
                                       ) : (
                                         <span className="data-mono font-medium">{String(a.qty)}</span>
                                       )}
-                                      <span className="text-fg-subtle">from</span>
+                                      <span className="text-muted-foreground">from</span>
                                       <span className="data-mono">{a.batch_no || (a.batch_id ? String(a.batch_id).slice(0, 8) : "unbatched")}</span>
-                                      {a.expiry_date ? <span className="text-fg-subtle">exp {String(a.expiry_date).slice(0, 10)}</span> : null}
+                                      {a.expiry_date ? <span className="text-muted-foreground">exp {String(a.expiry_date).slice(0, 10)}</span> : null}
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <span className="text-xs text-fg-subtle">No allocations yet.</span>
+                                <span className="text-xs text-muted-foreground">No allocations yet.</span>
                               )}
                             </td>
                           </tr>
@@ -728,7 +728,7 @@ function Inner({ id }: { id: string }) {
                       })}
                       {lines.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                          <td className="px-3 py-6 text-center text-muted-foreground" colSpan={5}>
                             No lines.
                           </td>
                         </tr>
@@ -748,7 +748,7 @@ function Inner({ id }: { id: string }) {
                   </div>
                 ) : null}
                 {tr.status === "posted" ? (
-                  <div className="text-xs text-fg-subtle">
+                  <div className="text-xs text-muted-foreground">
                     Posted transfers create stock moves. You can view movements in{" "}
                     <Link className="focus-ring text-primary hover:underline" href="/inventory/movements">
                       Inventory → Movements
@@ -771,7 +771,7 @@ function Inner({ id }: { id: string }) {
             <DialogDescription>Compute FEFO batch allocations for each line (does not move stock yet).</DialogDescription>
           </DialogHeader>
           <form onSubmit={doPick} className="space-y-3">
-            <div className="text-sm text-fg-muted">
+            <div className="text-sm text-muted-foreground">
               Picking is idempotent: you can re-pick after editing draft lines (it replaces allocations).
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -792,7 +792,7 @@ function Inner({ id }: { id: string }) {
             <DialogDescription>This will write stock moves out of the source and into the destination.</DialogDescription>
           </DialogHeader>
           <form onSubmit={doPost} className="space-y-3">
-            <div className="text-sm text-fg-muted">You must pick before posting. Posted transfers cannot be canceled in v1.</div>
+            <div className="text-sm text-muted-foreground">You must pick before posting. Posted transfers cannot be canceled in v1.</div>
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setPostOpen(false)} disabled={posting}>
                 Close
@@ -813,7 +813,7 @@ function Inner({ id }: { id: string }) {
           </DialogHeader>
           <form onSubmit={doCancel} className="space-y-3">
             <label className="space-y-1">
-              <div className="text-xs text-fg-muted">Reason (optional)</div>
+              <div className="text-xs text-muted-foreground">Reason (optional)</div>
               <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Why cancel this transfer?" />
             </label>
             <div className="flex items-center justify-end gap-2">
@@ -838,7 +838,7 @@ function Inner({ id }: { id: string }) {
           </DialogHeader>
           <form onSubmit={doReverse} className="space-y-3">
             <label className="space-y-1">
-              <div className="text-xs text-fg-muted">Reason (optional)</div>
+              <div className="text-xs text-muted-foreground">Reason (optional)</div>
               <Input value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} placeholder="Why reverse this transfer?" />
             </label>
             <div className="flex items-center justify-end gap-2">
@@ -861,7 +861,7 @@ export default function TransferViewPage() {
   const idParam = (paramsObj as Record<string, string | string[] | undefined>)?.id;
   const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner id={id} />
     </Suspense>
   );

@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { FolderKanban, Plus, RefreshCw } from "lucide-react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type DimRow = { id: string; code: string; name: string; is_active: boolean; created_at: string; updated_at: string };
 
@@ -41,48 +47,13 @@ export default function DimensionsPage() {
   const ccSorted = useMemo(() => sortDims(costCenters), [costCenters]);
   const prSorted = useMemo(() => sortDims(projects), [projects]);
 
-  const dimColumns = useMemo((): Array<DataTableColumn<DimRow>> => {
-    return [
-      {
-        id: "code",
-        header: "Code",
-        sortable: true,
-        mono: true,
-        accessor: (r) => r.code,
-        cell: (r) => <span className="font-mono text-xs">{r.code}</span>,
-      },
-      {
-        id: "name",
-        header: "Name",
-        sortable: true,
-        accessor: (r) => r.name,
-        cell: (r) => <span className="text-sm">{r.name}</span>,
-      },
-      {
-        id: "is_active",
-        header: "Active",
-        sortable: true,
-        accessor: (r) => (r.is_active ? 1 : 0),
-        cell: (r) => <span className="text-xs text-fg-muted">{r.is_active ? "yes" : "no"}</span>,
-      },
-      {
-        id: "actions",
-        header: "Actions",
-        align: "right",
-        sortable: false,
-        accessor: (r) => r.id,
-        cell: () => null,
-      },
-    ];
-  }, []);
-
   async function load() {
     setLoading(true);
     setStatus("");
     try {
       const [cc, pr] = await Promise.all([
         apiGet<{ cost_centers: DimRow[] }>("/dimensions/cost-centers"),
-        apiGet<{ projects: DimRow[] }>("/dimensions/projects")
+        apiGet<{ projects: DimRow[] }>("/dimensions/projects"),
       ]);
       setCostCenters(cc.cost_centers || []);
       setProjects(pr.projects || []);
@@ -156,141 +127,187 @@ export default function DimensionsPage() {
     }
   }
 
-  return (
-    <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+  const makeCols = (kind: "cc" | "pr"): ColumnDef<DimRow>[] => [
+    {
+      accessorKey: "code",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.code}</span>,
+    },
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+      cell: ({ row }) => <span className="text-sm">{row.original.name}</span>,
+    },
+    {
+      id: "is_active",
+      accessorFn: (r) => (r.is_active ? 1 : 0),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Active" />,
+      cell: ({ row }) => <StatusBadge status={row.original.is_active ? "active" : "inactive"} />,
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" variant="outline" onClick={() => openEdit(kind, row.original)} disabled={loading || creating || saving}>
+            Edit
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
+  const ccColumns = useMemo(() => makeCols("cc"), [loading, creating, saving]);
+  const prColumns = useMemo(() => makeCols("pr"), [loading, creating, saving]);
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Dimensions"
         description="Cost centers and projects for tagging journals and reports."
         actions={
-          <Button variant="outline" onClick={load} disabled={loading || creating || saving}>
-            {loading ? "Loading..." : "Refresh"}
+          <Button variant="outline" size="sm" onClick={load} disabled={loading || creating || saving}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Section
-          title="Cost Centers"
-          description={`${ccSorted.length} row(s)`}
-          actions={<Button onClick={() => openCreate("cc")} disabled={loading || creating || saving}>New</Button>}
-        >
-            <DataTable<DimRow>
-              tableId="system.dimensions.cost_centers"
-              rows={ccSorted}
-              columns={dimColumns.map((c) =>
-                c.id === "actions"
-                  ? {
-                      ...c,
-                      cell: (r) => (
-                        <Button type="button" size="sm" variant="outline" onClick={() => openEdit("cc", r)} disabled={loading || creating || saving}>
-                          Edit
-                        </Button>
-                      ),
-                    }
-                  : c
-              )}
-              getRowId={(r) => r.id}
-              isLoading={loading}
-              emptyText={loading ? "Loading cost centers..." : "No cost centers."}
-              globalFilterPlaceholder="Search code / name"
-              initialSort={{ columnId: "code", dir: "asc" }}
-            />
-        </Section>
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-        <Section title="Projects" description={`${prSorted.length} row(s)`} actions={<Button onClick={() => openCreate("pr")} disabled={loading || creating || saving}>New</Button>}>
-            <DataTable<DimRow>
-              tableId="system.dimensions.projects"
-              rows={prSorted}
-              columns={dimColumns.map((c) =>
-                c.id === "actions"
-                  ? {
-                      ...c,
-                      cell: (r) => (
-                        <Button type="button" size="sm" variant="outline" onClick={() => openEdit("pr", r)} disabled={loading || creating || saving}>
-                          Edit
-                        </Button>
-                      ),
-                    }
-                  : c
-              )}
-              getRowId={(r) => r.id}
-              isLoading={loading}
-              emptyText={loading ? "Loading projects..." : "No projects."}
-              globalFilterPlaceholder="Search code / name"
-              initialSort={{ columnId: "code", dir: "asc" }}
-            />
-        </Section>
-      </div>
-
+      {/* Create Dialog */}
       <Dialog open={Boolean(createOpen)} onOpenChange={(o) => setCreateOpen(o ? createOpen : "")}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create {createOpen === "cc" ? "Cost Center" : "Project"}</DialogTitle>
             <DialogDescription>Dimensions let you tag journals for better reporting.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={createDim} className="grid grid-cols-1 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Code</label>
+          <form onSubmit={createDim} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Code</label>
               <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="CC-001" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Name</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Retail Operations" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Active</label>
-              <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
-                <option value="yes">yes</option>
-                <option value="no">no</option>
-              </select>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Active</label>
+              <Select value={isActive ? "yes" : "no"} onValueChange={(v) => setIsActive(v === "yes")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setCreateOpen("")} disabled={creating || loading || saving}>
+              <Button type="button" variant="outline" onClick={() => setCreateOpen("")} disabled={creating}>
                 Cancel
               </Button>
               <Button type="submit" disabled={creating || loading || saving}>
-                {creating ? "..." : "Create"}
+                {creating ? "Creating..." : "Create"}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* Edit Dialog */}
       <Dialog open={Boolean(editOpen)} onOpenChange={(o) => setEditOpen(o ? editOpen : "")}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit {editOpen === "cc" ? "Cost Center" : "Project"}</DialogTitle>
             <DialogDescription>Update code/name or deactivate.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Code</label>
+          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Code</label>
               <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Name</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Active</label>
-              <select className="ui-select" value={editActive ? "yes" : "no"} onChange={(e) => setEditActive(e.target.value === "yes")}>
-                <option value="yes">yes</option>
-                <option value="no">no</option>
-              </select>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Active</label>
+              <Select value={editActive ? "yes" : "no"} onValueChange={(v) => setEditActive(v === "yes")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen("")} disabled={saving || loading || creating}>
+              <Button type="button" variant="outline" onClick={() => setEditOpen("")} disabled={saving}>
                 Cancel
               </Button>
               <Button type="submit" disabled={saving || loading || creating}>
-                {saving ? "..." : "Save"}
+                {saving ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
-    </Page>
+
+      {/* Side-by-side grids */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderKanban className="h-4 w-4" />
+                  Cost Centers
+                </CardTitle>
+                <CardDescription>{ccSorted.length} row(s)</CardDescription>
+              </div>
+              <Button size="sm" onClick={() => openCreate("cc")} disabled={loading || creating || saving}>
+                <Plus className="mr-2 h-4 w-4" />
+                New
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <DataTable columns={ccColumns} data={ccSorted} isLoading={loading} searchPlaceholder="Search code / name" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderKanban className="h-4 w-4" />
+                  Projects
+                </CardTitle>
+                <CardDescription>{prSorted.length} row(s)</CardDescription>
+              </div>
+              <Button size="sm" onClick={() => openCreate("pr")} disabled={loading || creating || saving}>
+                <Plus className="mr-2 h-4 w-4" />
+                New
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <DataTable columns={prColumns} data={prSorted} isLoading={loading} searchPlaceholder="Search code / name" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }

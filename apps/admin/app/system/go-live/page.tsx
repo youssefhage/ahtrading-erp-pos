@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { CheckCircle, RefreshCw, Rocket } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Textarea } from "@/components/ui/textarea";
 
 type RateRow = { rate_date: string; rate_type: string; usd_to_lbp: string | number };
 type PreflightRes = { ok: boolean; checks: Array<{ name: string; status: string; detail: string }> };
@@ -136,82 +141,131 @@ export default function GoLivePage() {
         title: "Items",
         desc: "Create/import SKUs, barcodes, reorder points, supplier links.",
         href: "/catalog/items",
-        cta: "Open Items"
+        cta: "Open Items",
       },
       {
         title: "Opening Stock",
         desc: "Import on-hand + unit cost per warehouse (idempotent).",
         href: "/inventory/ops",
-        cta: "Open Inventory Ops"
+        cta: "Open Inventory Ops",
       },
       {
         title: "Account Defaults",
         desc: "Verify AR/AP/INVENTORY/COGS/VAT + OPENING_BALANCE mappings.",
         href: "/system/config",
-        cta: "Open Config"
+        cta: "Open Config",
       },
       {
         title: "Sales Invoices",
         desc: "Draft-first invoices, post when ready; payments are separate.",
         href: "/sales/invoices",
-        cta: "Open Sales Invoices"
+        cta: "Open Sales Invoices",
       },
       {
         title: "Supplier Invoices",
         desc: "Draft-first supplier invoices; link to goods receipts when needed.",
         href: "/purchasing/supplier-invoices",
-        cta: "Open Supplier Invoices"
-      }
+        cta: "Open Supplier Invoices",
+      },
     ],
-    []
+    [],
   );
 
-  const preflightColumns = useMemo((): Array<DataTableColumn<{ name: string; status: string; detail: string }>> => {
-    return [
+  const preflightColumns = useMemo<ColumnDef<{ name: string; status: string; detail: string }>[]>(
+    () => [
       {
         id: "name",
-        header: "Check",
-        sortable: true,
-        mono: true,
-        accessor: (c) => c.name,
-        cell: (c) => <span className="font-mono text-xs">{c.name}</span>,
+        accessorFn: (c) => c.name,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Check" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.name}</span>,
       },
       {
         id: "status",
-        header: "Status",
-        sortable: true,
-        accessor: (c) => c.status,
-        cell: (c) => <span className="ui-chip ui-chip-default">{c.status.toUpperCase()}</span>,
+        accessorFn: (c) => c.status,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         id: "detail",
-        header: "Details",
-        sortable: true,
-        accessor: (c) => c.detail,
-        cell: (c) => <span className="text-sm text-fg-muted">{c.detail}</span>,
+        accessorFn: (c) => c.detail,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Details" />,
+        cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.detail}</span>,
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
-  const arPreviewColumns = useMemo((): Array<DataTableColumn<OpeningArRow>> => {
-    return [
-      { id: "customer", header: "Customer", sortable: true, mono: true, accessor: (r) => r.customer_code || r.customer_id || "", cell: (r) => <span className="font-mono text-xs">{r.customer_code || r.customer_id || "-"}</span> },
-      { id: "invoice_no", header: "Invoice", sortable: true, mono: true, accessor: (r) => r.invoice_no || "", cell: (r) => <span className="font-mono text-xs">{r.invoice_no || "(auto)"}</span> },
-      { id: "invoice_date", header: "Date", sortable: true, mono: true, accessor: (r) => r.invoice_date, cell: (r) => <span className="font-mono text-xs">{r.invoice_date}</span> },
-      { id: "amount_usd", header: "USD", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_usd || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_usd ?? "-"}</span> },
-      { id: "amount_lbp", header: "LL", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_lbp || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_lbp ?? "-"}</span> },
-    ];
-  }, []);
+  const arPreviewColumns = useMemo<ColumnDef<OpeningArRow>[]>(
+    () => [
+      {
+        id: "customer",
+        accessorFn: (r) => r.customer_code || r.customer_id || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.customer_code || row.original.customer_id || "-"}</span>,
+      },
+      {
+        id: "invoice_no",
+        accessorFn: (r) => r.invoice_no || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.invoice_no || "(auto)"}</span>,
+      },
+      {
+        id: "invoice_date",
+        accessorFn: (r) => r.invoice_date,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.invoice_date}</span>,
+      },
+      {
+        id: "amount_usd",
+        accessorFn: (r) => Number(r.amount_usd || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.amount_usd ?? "-"}</span>,
+      },
+      {
+        id: "amount_lbp",
+        accessorFn: (r) => Number(r.amount_lbp || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.amount_lbp ?? "-"}</span>,
+      },
+    ],
+    [],
+  );
 
-  const apPreviewColumns = useMemo((): Array<DataTableColumn<OpeningApRow>> => {
-    return [
-      { id: "supplier", header: "Supplier", sortable: true, mono: true, accessor: (r) => r.supplier_code || r.supplier_id || "", cell: (r) => <span className="font-mono text-xs">{r.supplier_code || r.supplier_id || "-"}</span> },
-      { id: "invoice_no", header: "Invoice", sortable: true, mono: true, accessor: (r) => r.invoice_no || "", cell: (r) => <span className="font-mono text-xs">{r.invoice_no || "(auto)"}</span> },
-      { id: "invoice_date", header: "Date", sortable: true, mono: true, accessor: (r) => r.invoice_date, cell: (r) => <span className="font-mono text-xs">{r.invoice_date}</span> },
-      { id: "amount_usd", header: "USD", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_usd || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_usd ?? "-"}</span> },
-      { id: "amount_lbp", header: "LL", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_lbp || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_lbp ?? "-"}</span> },
-    ];
-  }, []);
+  const apPreviewColumns = useMemo<ColumnDef<OpeningApRow>[]>(
+    () => [
+      {
+        id: "supplier",
+        accessorFn: (r) => r.supplier_code || r.supplier_id || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Supplier" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.supplier_code || row.original.supplier_id || "-"}</span>,
+      },
+      {
+        id: "invoice_no",
+        accessorFn: (r) => r.invoice_no || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.invoice_no || "(auto)"}</span>,
+      },
+      {
+        id: "invoice_date",
+        accessorFn: (r) => r.invoice_date,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.invoice_date}</span>,
+      },
+      {
+        id: "amount_usd",
+        accessorFn: (r) => Number(r.amount_usd || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.amount_usd ?? "-"}</span>,
+      },
+      {
+        id: "amount_lbp",
+        accessorFn: (r) => Number(r.amount_lbp || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.amount_lbp ?? "-"}</span>,
+      },
+    ],
+    [],
+  );
 
   function recomputeAr(text: string) {
     const trimmed = (text || "").trim();
@@ -268,7 +322,7 @@ export default function GoLivePage() {
           invoice_date: invoice_date || todayIso(),
           due_date: due_date || undefined,
           amount_usd,
-          amount_lbp
+          amount_lbp,
         });
       }
 
@@ -335,7 +389,7 @@ export default function GoLivePage() {
           invoice_date: invoice_date || todayIso(),
           due_date: due_date || undefined,
           amount_usd,
-          amount_lbp
+          amount_lbp,
         });
       }
 
@@ -393,61 +447,97 @@ export default function GoLivePage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {error ? (
-        <ErrorBanner
-          error={error}
-          onRetry={() => {
-            setError("");
-            loadDefaults();
-            reloadPreflight();
-          }}
-        />
-      ) : null}
-      {notice ? <div className="rounded-md border border-border bg-bg-sunken px-3 py-2 text-sm text-fg-muted">{notice}</div> : null}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Go-Live"
+        description="Pre-flight checks, demo data seeding, and opening balance imports."
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setError("");
+              loadDefaults();
+              reloadPreflight();
+            }}
+            disabled={preflightLoading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${preflightLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{error}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setError("");
+                loadDefaults();
+                reloadPreflight();
+              }}
+            >
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {notice && (
+        <Card className="border-green-500/50 bg-green-500/5">
+          <CardContent className="py-3">
+            <p className="text-sm text-muted-foreground">{notice}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Preflight */}
       <Card>
         <CardHeader>
-          <CardTitle>Go-Live Preflight</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Rocket className="h-4 w-4" />
+            Go-Live Preflight
+          </CardTitle>
           <CardDescription>Fast checks for common setup blockers. Demo data seeding is local/dev only.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button type="button" variant="outline" onClick={reloadPreflight} disabled={preflightLoading}>
-              {preflightLoading ? "..." : "Refresh Checks"}
+            <Button type="button" variant="outline" size="sm" onClick={reloadPreflight} disabled={preflightLoading}>
+              {preflightLoading ? "Checking..." : "Refresh Checks"}
             </Button>
-            <Button type="button" onClick={seedDemoData} disabled={demoSeeding || preflightLoading}>
-              {demoSeeding ? "..." : "Seed Demo Data"}
+            <Button type="button" size="sm" onClick={seedDemoData} disabled={demoSeeding || preflightLoading}>
+              {demoSeeding ? "Seeding..." : "Seed Demo Data"}
             </Button>
           </div>
 
           {preflight ? (
-            <DataTable<{ name: string; status: string; detail: string }>
-              tableId="system.go_live.preflight"
-              rows={preflight.checks}
-              columns={preflightColumns}
-              getRowId={(r) => r.name}
-              enableGlobalFilter={false}
-              initialSort={{ columnId: "name", dir: "asc" }}
-            />
+            <DataTable columns={preflightColumns} data={preflight.checks} searchPlaceholder="Search checks..." />
           ) : (
-            <div className="text-sm text-fg-muted">No preflight data yet.</div>
+            <div className="text-sm text-muted-foreground">No preflight data yet.</div>
           )}
         </CardContent>
       </Card>
 
+      {/* Checklist */}
       <Card>
         <CardHeader>
-          <CardTitle>Go-Live Checklist</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle className="h-4 w-4" />
+            Go-Live Checklist
+          </CardTitle>
           <CardDescription>Get data in, then verify reports and day-close flows.</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {cards.map((c) => (
-            <div key={c.href} className="rounded-lg border border-border bg-bg-elevated p-4">
+            <div key={c.href} className="rounded-lg border bg-muted/40 p-4">
               <div className="text-sm font-semibold">{c.title}</div>
-              <div className="mt-1 text-xs text-fg-muted">{c.desc}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{c.desc}</div>
               <div className="mt-3">
-                <Button asChild variant="outline">
+                <Button asChild variant="outline" size="sm">
                   <Link href={c.href}>{c.cta}</Link>
                 </Button>
               </div>
@@ -456,24 +546,27 @@ export default function GoLivePage() {
         </CardContent>
       </Card>
 
+      {/* Opening Balances */}
       <Card>
         <CardHeader>
           <CardTitle>Opening Balances</CardTitle>
           <CardDescription>Import outstanding AR/AP so Aging reports and payments are correct.</CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-fg-muted">Rate Type</label>
+        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Rate Type</label>
             <Input value={rateType} onChange={(e) => setRateType(e.target.value)} placeholder="market" />
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD to LL)</label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD to LL)</label>
             <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="89500" />
           </div>
           <div className="flex items-end gap-2">
             <Dialog open={arOpen} onOpenChange={setArOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline">Import Opening AR</Button>
+                <Button variant="outline" size="sm">
+                  Import Opening AR
+                </Button>
               </DialogTrigger>
               <DialogContent className="max-w-4xl">
                 <DialogHeader>
@@ -485,10 +578,10 @@ export default function GoLivePage() {
                     </span>
                   </DialogDescription>
                 </DialogHeader>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <textarea
-                      className="h-64 w-full rounded-md border border-border bg-bg-elevated p-3 font-mono text-xs"
+                    <Textarea
+                      className="h-64 font-mono text-xs"
                       placeholder={
                         "customer_code,invoice_no,invoice_date,due_date,amount_usd,amount_lbp\nCUST-001,OPEN-1001,2026-02-01,2026-02-15,120.00,\nCUST-002,OPEN-1002,2026-02-01,, ,8950000"
                       }
@@ -499,25 +592,18 @@ export default function GoLivePage() {
                       }}
                     />
                     {arErrors ? (
-                      <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-2 text-xs text-fg-muted">
+                      <pre className="whitespace-pre-wrap rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
                         {arErrors}
                       </pre>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <div className="text-xs text-fg-muted">Preview (first {arPreview.length})</div>
-                    <DataTable<OpeningArRow>
-                      tableId="system.go_live.ar_preview"
-                      rows={arPreview}
-                      columns={arPreviewColumns}
-                      getRowId={(_, i) => String(i)}
-                      emptyText="Paste CSV to preview."
-                      enableGlobalFilter={false}
-                      enablePagination
-                    />
+                    <div className="text-xs text-muted-foreground">Preview (first {arPreview.length})</div>
+                    <DataTable columns={arPreviewColumns} data={arPreview} searchPlaceholder="Search..." />
                     <div className="flex justify-end gap-2">
                       <Button
                         variant="outline"
+                        size="sm"
                         onClick={() => {
                           setArText("");
                           setArPreview([]);
@@ -527,6 +613,7 @@ export default function GoLivePage() {
                         Clear
                       </Button>
                       <Button
+                        size="sm"
                         disabled={arImporting || !!arErrors || arPreview.length === 0}
                         onClick={async () => {
                           setArImporting(true);
@@ -543,8 +630,8 @@ export default function GoLivePage() {
                                 invoice_date: r.invoice_date,
                                 due_date: r.due_date,
                                 amount_usd: r.amount_usd ?? 0,
-                                amount_lbp: r.amount_lbp ?? 0
-                              }))
+                                amount_lbp: r.amount_lbp ?? 0,
+                              })),
                             };
                             const res = await apiPost<{ created: number; skipped: number }>("/accounting/opening/ar/import", payload);
                             setArOpen(false);
@@ -566,7 +653,9 @@ export default function GoLivePage() {
 
             <Dialog open={apOpen} onOpenChange={setApOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline">Import Opening AP</Button>
+                <Button variant="outline" size="sm">
+                  Import Opening AP
+                </Button>
               </DialogTrigger>
               <DialogContent className="max-w-4xl">
                 <DialogHeader>
@@ -578,10 +667,10 @@ export default function GoLivePage() {
                     </span>
                   </DialogDescription>
                 </DialogHeader>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <textarea
-                      className="h-64 w-full rounded-md border border-border bg-bg-elevated p-3 font-mono text-xs"
+                    <Textarea
+                      className="h-64 font-mono text-xs"
                       placeholder={
                         "supplier_code,invoice_no,invoice_date,due_date,amount_usd,amount_lbp\nSUP-001,OPEN-2001,2026-02-01,2026-02-20,300.00,\nSUP-002,OPEN-2002,2026-02-01,, ,26850000"
                       }
@@ -592,25 +681,18 @@ export default function GoLivePage() {
                       }}
                     />
                     {apErrors ? (
-                      <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-2 text-xs text-fg-muted">
+                      <pre className="whitespace-pre-wrap rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
                         {apErrors}
                       </pre>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <div className="text-xs text-fg-muted">Preview (first {apPreview.length})</div>
-                    <DataTable<OpeningApRow>
-                      tableId="system.go_live.ap_preview"
-                      rows={apPreview}
-                      columns={apPreviewColumns}
-                      getRowId={(_, i) => String(i)}
-                      emptyText="Paste CSV to preview."
-                      enableGlobalFilter={false}
-                      enablePagination
-                    />
+                    <div className="text-xs text-muted-foreground">Preview (first {apPreview.length})</div>
+                    <DataTable columns={apPreviewColumns} data={apPreview} searchPlaceholder="Search..." />
                     <div className="flex justify-end gap-2">
                       <Button
                         variant="outline"
+                        size="sm"
                         onClick={() => {
                           setApText("");
                           setApPreview([]);
@@ -620,6 +702,7 @@ export default function GoLivePage() {
                         Clear
                       </Button>
                       <Button
+                        size="sm"
                         disabled={apImporting || !!apErrors || apPreview.length === 0}
                         onClick={async () => {
                           setApImporting(true);
@@ -636,8 +719,8 @@ export default function GoLivePage() {
                                 invoice_date: r.invoice_date,
                                 due_date: r.due_date,
                                 amount_usd: r.amount_usd ?? 0,
-                                amount_lbp: r.amount_lbp ?? 0
-                              }))
+                                amount_lbp: r.amount_lbp ?? 0,
+                              })),
                             };
                             const res = await apiPost<{ created: number; skipped: number }>("/accounting/opening/ap/import", payload);
                             setApOpen(false);
@@ -660,22 +743,23 @@ export default function GoLivePage() {
         </CardContent>
       </Card>
 
+      {/* After Import */}
       <Card>
         <CardHeader>
           <CardTitle>After Import</CardTitle>
           <CardDescription>Verify AR/AP Aging, Trial Balance, and VAT.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" size="sm">
             <Link href="/accounting/reports/ar-aging">AR Aging</Link>
           </Button>
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" size="sm">
             <Link href="/accounting/reports/ap-aging">AP Aging</Link>
           </Button>
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" size="sm">
             <Link href="/accounting/reports/trial-balance">Trial Balance</Link>
           </Button>
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" size="sm">
             <Link href="/accounting/reports/general-ledger">General Ledger</Link>
           </Button>
         </CardContent>

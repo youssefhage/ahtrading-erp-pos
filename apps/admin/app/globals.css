@@ -1,203 +1,191 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+/* ----------------------------------------------------------------
+   Design Tokens — shadcn/ui convention (HSL values without function)
+   Tailwind v4 @theme for custom tokens
+   ---------------------------------------------------------------- */
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-in-right: slide-in-right 0.2s ease-out;
+  --animate-shimmer: shimmer 1.5s ease-in-out infinite;
+
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
+
+/* ----------------------------------------------------------------
+   Light Mode Tokens
+   ---------------------------------------------------------------- */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 240 5.9% 10%;
+  --radius: 0.625rem;
+
+  /* Business status tokens */
+  --success: 142 76% 36%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 0%;
+  --info: 217 91% 60%;
+  --info-foreground: 0 0% 100%;
+
+  /* Sidebar */
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+
+  /* Charts */
+  --chart-1: 12 76% 61%;
+  --chart-2: 173 58% 39%;
+  --chart-3: 197 37% 24%;
+  --chart-4: 43 74% 66%;
+  --chart-5: 27 87% 67%;
+}
+
+/* ----------------------------------------------------------------
+   Dark Mode Tokens
+   ---------------------------------------------------------------- */
+.dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 3.9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
+
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 0%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 0%;
+  --info: 217 91% 60%;
+  --info-foreground: 0 0% 0%;
+
+  --sidebar-background: 240 5.9% 10%;
+  --sidebar-foreground: 240 4.8% 95.9%;
+  --sidebar-primary: 224.3 76.3% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3.7% 15.9%;
+  --sidebar-accent-foreground: 240 4.8% 95.9%;
+  --sidebar-border: 240 3.7% 15.9%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+
+  --chart-1: 220 70% 50%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 30 80% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+}
+
+/* ----------------------------------------------------------------
+   Base Styles
+   ---------------------------------------------------------------- */
 @layer base {
-  :root {
-    /* Industrial Terminal - Light Mode Design System (default) */
-    /* Background hierarchy:
-       - Use a slightly darker app background
-       - Use pure white for elevated surfaces (cards/tables) for readability */
-    --bg: 244 244 245; /* zinc-100 */
-    --bg-elevated: 255 255 255; /* white */
-    --bg-sunken: 228 228 231; /* zinc-200 */
-    --table-head-bg: 242 242 244; /* subtle light grey for table headers */
-
-    /* Foreground: near-black for readability on light */
-    --fg: 24 24 27; /* zinc-900 */
-    --fg-muted: 39 39 42; /* zinc-800 */
-    --fg-subtle: 82 82 91; /* zinc-600 */
-
-    /* Border: subtle definition */
-    --border: 212 212 216; /* zinc-300 */
-    --border-subtle: 228 228 231; /* zinc-200 */
-    --border-strong: 161 161 170; /* zinc-400 */
-
-    /* Primary accent: Admin Cobalt (default) */
-    --primary: 37 99 235; /* blue-600 */
-    --primary-fg: 255 255 255;
-    --primary-dim: 29 78 216; /* blue-700 */
-    --primary-glow: 37 99 235; /* for shadows */
-
-    /* Status colors tuned for accessible contrast on light surfaces. */
-    --success: 21 128 61;  /* green-700 */
-    --success-fg: 255 255 255;
-    /* Warning: amber for caution; danger stays red for errors/destructive. */
-    --warning: 217 119 6;  /* amber-600 */
-    --warning-fg: 255 255 255;
-    --danger: 153 27 27;   /* red-800 */
-    --danger-fg: 255 255 255;
-    --info: 29 78 216;     /* blue-700 */
-    --info-fg: 255 255 255;
-
-    /* Terminal-specific */
-    --terminal-green: 21 128 61;  /* green-700: data accents */
-    --terminal-amber: 217 119 6;  /* amber-600: caution accents */
-    --terminal-cyan: 34 211 238;  /* cyan-400: info */
-
-    /* Z-index scale */
-    --z-dropdown: 70;
-    --z-sticky: 10;
-    --z-modal-backdrop: 50;
-    --z-modal: 50;
-    --z-toast: 100;
-    --z-tooltip: 110;
-
-    /* Ring focus */
-    --ring: 37 99 235;    /* blue-600 */
-
-    /* Text selection: enforce strong contrast across themes and form controls. */
-    --selection: var(--primary);
-    --selection-alpha: 0.5;
-    --selection-fg: var(--primary-fg);
-  }
-
-  /*
-    Accent Themes
-    These are "color themes" that primarily change the primary accent + focus ring.
-    Dark/light mode is still controlled by the `.dark` class.
-  */
-  :root.theme-sky {
-    --primary: 14 165 233; /* sky-500 */
-    --primary-fg: 0 0 0;
-    --primary-dim: 3 105 161; /* sky-700 */
-    --primary-glow: 14 165 233;
-    --ring: 14 165 233;
-  }
-
-  :root.theme-cobalt {
-    --primary: 37 99 235; /* blue-600 */
-    --primary-fg: 255 255 255;
-    --primary-dim: 29 78 216; /* blue-700 */
-    --primary-glow: 37 99 235;
-    --ring: 37 99 235;
-  }
-
-  :root.theme-emerald {
-    --primary: 16 185 129; /* emerald-500 */
-    --primary-fg: 0 0 0;
-    --primary-dim: 4 120 87; /* emerald-700 */
-    --primary-glow: 16 185 129;
-    --ring: 16 185 129;
-  }
-
-  :root.theme-teal {
-    --primary: 20 184 166; /* teal-500 */
-    --primary-fg: 0 0 0;
-    --primary-dim: 15 118 110; /* teal-700 */
-    --primary-glow: 20 184 166;
-    --ring: 20 184 166;
-  }
-
-  :root.theme-rose {
-    --primary: 244 63 94; /* rose-500 */
-    --primary-fg: 255 255 255;
-    --primary-dim: 190 18 60; /* rose-700 */
-    --primary-glow: 244 63 94;
-    --ring: 244 63 94;
-  }
-
-  :root.theme-slate {
-    --primary: 100 116 139; /* slate-500 */
-    --primary-fg: 255 255 255;
-    --primary-dim: 51 65 85; /* slate-700 */
-    --primary-glow: 100 116 139;
-    --ring: 100 116 139;
-  }
-
-  /*
-    Accent Themes
-    These are "color themes" that primarily change the primary accent + focus ring.
-    Dark/light mode is still controlled by the `.dark` class.
-  */
-  :root.theme-sky {
-    --primary: 14 165 233; /* sky-500 */
-    --primary-fg: 0 0 0;
-    --primary-dim: 3 105 161; /* sky-700 */
-    --primary-glow: 14 165 233;
-    --ring: 14 165 233;
-  }
-
-  :root.theme-emerald {
-    --primary: 16 185 129; /* emerald-500 */
-    --primary-fg: 0 0 0;
-    --primary-dim: 4 120 87; /* emerald-700 */
-    --primary-glow: 16 185 129;
-    --ring: 16 185 129;
-  }
-
-  :root.theme-teal {
-    --primary: 20 184 166; /* teal-500 */
-    --primary-fg: 0 0 0;
-    --primary-dim: 15 118 110; /* teal-700 */
-    --primary-glow: 20 184 166;
-    --ring: 20 184 166;
-  }
-
-  :root.theme-rose {
-    --primary: 244 63 94; /* rose-500 */
-    --primary-fg: 255 255 255;
-    --primary-dim: 190 18 60; /* rose-700 */
-    --primary-glow: 244 63 94;
-    --ring: 244 63 94;
-  }
-
-  :root.theme-slate {
-    --primary: 100 116 139; /* slate-500 */
-    --primary-fg: 255 255 255;
-    --primary-dim: 51 65 85; /* slate-700 */
-    --primary-glow: 100 116 139;
-    --ring: 100 116 139;
-  }
-
-  .dark {
-    /* Industrial Terminal - Dark Mode Design System */
-    /* Background hierarchy: darkest at bottom, lighter as we rise */
-    --bg: 9 9 11; /* zinc-950 */
-    --bg-elevated: 24 24 27; /* zinc-900 */
-    --bg-sunken: 0 0 0; /* pure black */
-    --table-head-bg: 39 39 42; /* subtle grey header contrast in dark mode */
-
-    /* Foreground: warm white for readability on dark */
-    --fg: 250 250 250; /* zinc-50 */
-    --fg-muted: 161 161 170; /* zinc-400 */
-    --fg-subtle: 113 113 122; /* zinc-500 */
-
-    /* Border: subtle definition */
-    --border: 63 63 70; /* zinc-700 */
-    --border-subtle: 39 39 42; /* zinc-800 */
-    --border-strong: 82 82 91; /* zinc-600 */
-
-    /* Status colors tuned for accessible contrast on dark surfaces. */
-    --success: 34 197 94; /* green-500 */
-    --success-fg: 0 0 0;
-    --warning: 251 191 36; /* amber-400 */
-    --warning-fg: 0 0 0;
-    --danger: 239 68 68; /* red-500 */
-    --danger-fg: 0 0 0;
-    --info: 96 165 250; /* blue-400 */
-    --info-fg: 0 0 0;
-
-    --terminal-green: 34 197 94;
-    --terminal-amber: 251 191 36;
-    --terminal-cyan: 96 165 250;
-
-    /* Text selection: stronger in dark mode for clear contrast. */
-    --selection: var(--primary);
-    --selection-alpha: 0.58;
-    --selection-fg: var(--primary-fg);
-  }
-
   * {
     @apply border-border;
   }
@@ -208,8 +196,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  html,
-  body {
+  html, body {
     height: 100%;
   }
 
@@ -218,923 +205,60 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  /* Custom scrollbar for terminal feel */
+  /* Scrollbar */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
-
   ::-webkit-scrollbar-track {
-    background: rgb(var(--bg-sunken));
+    background: transparent;
   }
-
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--border));
+    background: hsl(var(--border));
     border-radius: 4px;
   }
-
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--border-strong));
+    background: hsl(var(--muted-foreground) / 0.4);
   }
 
+  /* Selection */
   ::selection {
-    background: rgba(var(--selection), var(--selection-alpha));
-    color: rgb(var(--selection-fg));
-  }
-
-  ::-moz-selection {
-    background: rgba(var(--selection), var(--selection-alpha));
-    color: rgb(var(--selection-fg));
-  }
-
-  input::selection,
-  textarea::selection,
-  [contenteditable="true"]::selection {
-    background: rgba(var(--selection), var(--selection-alpha));
-    color: rgb(var(--selection-fg));
-  }
-
-  input::-moz-selection,
-  textarea::-moz-selection,
-  [contenteditable="true"]::-moz-selection {
-    background: rgba(var(--selection), var(--selection-alpha));
-    color: rgb(var(--selection-fg));
-  }
-
-  code {
-    @apply font-mono;
-  }
-
-  /*
-    Readability: avoid dotted/slashed zeros anywhere we use mono (tables, IDs, codes).
-    This addresses the “0 with a dot inside” complaint.
-  */
-  .font-mono {
-    font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
-    font-variant-numeric: tabular-nums lining-nums;
+    background: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary-foreground));
   }
 }
 
-@layer components {
-  /* Terminal-style data display */
-  .data-mono {
-    /* Use Roboto for better digit legibility while keeping aligned columns. */
-    @apply font-sans tabular-nums font-semibold tracking-[0.01em];
-    font-variant-numeric: tabular-nums lining-nums;
-    font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
-  }
-
-  /* Polished surface for “cards inside cards” and dense summaries. */
-  .ui-panel {
-    @apply rounded-xl border border-border-subtle bg-bg-elevated;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 24px rgba(0, 0, 0, 0.06);
-  }
-
-  .ui-panel-title {
-    @apply text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle;
-  }
-
-  .ui-panel-value {
-    @apply text-base font-semibold text-foreground;
-  }
-
-  .ui-panel-value-mono {
-    @apply data-mono text-sm text-foreground;
-  }
-
-  /* Key-value rows for dense summaries (invoice totals, document meta, etc.) */
-  .ui-kv {
-    @apply flex items-center justify-between gap-3 text-sm;
-  }
-
-  .ui-kv-label {
-    @apply text-fg-subtle;
-  }
-
-  .ui-kv-value {
-    @apply data-mono text-foreground;
-  }
-
-  .ui-kv-strong .ui-kv-label {
-    @apply text-foreground font-medium;
-  }
-
-  .ui-kv-strong .ui-kv-value {
-    @apply text-foreground font-semibold;
-  }
-
-  .ui-kv-sub {
-    @apply text-xs text-fg-muted;
-  }
-
-  /* Shared detail-page outline (Sales/Purchasing/Accounting) */
-  .ui-detail-shell {
-    @apply mx-auto max-w-6xl space-y-5;
-  }
-
-  .ui-detail-shell-wide {
-    @apply mx-auto max-w-7xl space-y-5;
-  }
-
-  .ui-detail-header {
-    @apply rounded-xl border border-border-subtle bg-bg-elevated px-4 py-4 md:px-5;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 24px rgba(0, 0, 0, 0.06);
-  }
-
-  .ui-detail-header-row {
-    @apply flex flex-wrap items-start justify-between gap-3;
-  }
-
-  .ui-detail-title {
-    @apply text-xl font-semibold tracking-tight text-foreground md:text-2xl;
-  }
-
-  .ui-detail-subtitle {
-    @apply text-sm leading-relaxed text-fg-muted;
-  }
-
-  .ui-detail-meta {
-    @apply mt-1 flex flex-wrap items-center gap-2 text-sm text-fg-muted;
-  }
-
-  .ui-detail-meta-id {
-    @apply data-mono text-sm text-foreground;
-  }
-
-  .ui-detail-actions {
-    @apply flex flex-wrap items-center justify-end gap-2;
-  }
-
-  .ui-detail-section {
-    @apply rounded-lg border border-border-subtle bg-bg-sunken/20 p-3;
-  }
-
-  .ui-detail-section-title {
-    @apply text-sm font-semibold text-foreground;
-  }
-
-  .ui-detail-section-copy {
-    @apply mt-1 text-sm leading-relaxed text-fg-muted;
-  }
-
-  /* Shared module/list-page outline */
-  .ui-module-shell {
-    @apply mx-auto max-w-7xl space-y-5;
-  }
-
-  .ui-module-shell-narrow {
-    @apply mx-auto max-w-6xl space-y-5;
-  }
-
-  .ui-module-head {
-    @apply rounded-xl border border-border-subtle bg-bg-elevated px-4 py-4 md:px-5;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 24px rgba(0, 0, 0, 0.06);
-  }
-
-  .ui-module-head-row {
-    @apply flex flex-wrap items-start justify-between gap-3;
-  }
-
-  .ui-module-kicker {
-    @apply text-xs font-semibold uppercase tracking-[0.12em] text-fg-subtle;
-  }
-
-  .ui-module-title {
-    @apply mt-1 text-xl font-semibold tracking-tight text-foreground md:text-2xl;
-  }
-
-  .ui-module-subtitle {
-    @apply mt-1 text-sm leading-relaxed text-fg-muted;
-  }
-
-  .ui-module-actions {
-    @apply flex flex-wrap items-center justify-end gap-2;
-  }
-
-  .ui-actions-inline {
-    @apply flex flex-wrap items-center justify-end gap-2;
-  }
-
-  .ui-actions-between {
-    @apply flex flex-wrap items-center justify-between gap-2;
-  }
-
-  .ui-form-grid {
-    @apply grid grid-cols-1 gap-3;
-  }
-
-  .ui-form-grid-2 {
-    @apply ui-form-grid md:grid-cols-2;
-  }
-
-  .ui-form-grid-3 {
-    @apply ui-form-grid md:grid-cols-3;
-  }
-
-  .ui-form-grid-4 {
-    @apply ui-form-grid md:grid-cols-4;
-  }
-
-  .ui-form-grid-6 {
-    @apply ui-form-grid md:grid-cols-6;
-  }
-
-  .ui-metric-grid {
-    @apply grid grid-cols-1 gap-2 md:grid-cols-2;
-  }
-
-  .ui-metric {
-    @apply rounded-md border border-border bg-bg-elevated p-3;
-  }
-
-  .ui-metric-label {
-    @apply text-sm text-fg-subtle;
-  }
-
-  .ui-metric-value {
-    @apply mt-1 data-mono text-sm text-foreground;
-  }
-
-  /* Reusable KPI cards (dashboard counters and monetary summaries). */
-  .ui-kpi-grid {
-    @apply grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3;
-  }
-
-  .ui-kpi-grid-dense {
-    @apply gap-2 sm:grid-cols-3 xl:grid-cols-6;
-  }
-
-  .ui-kpi-card {
-    @apply relative overflow-hidden rounded-xl border border-border-subtle bg-bg-elevated px-3 py-3;
-    min-height: 92px;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 22px rgba(0, 0, 0, 0.05);
-  }
-
-  .ui-kpi-card::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 2px;
-    background: rgb(var(--border-strong) / 0.55);
-  }
-
-  .ui-kpi-card[data-tone="info"] {
-    border-color: rgb(var(--info) / 0.22);
-    background: linear-gradient(180deg, rgb(var(--info) / 0.04) 0%, rgb(var(--bg-elevated)) 60%);
-  }
-
-  .ui-kpi-card[data-tone="info"]::after {
-    background: rgb(var(--info) / 0.6);
-  }
-
-  .ui-kpi-card[data-tone="success"] {
-    border-color: rgb(var(--success) / 0.24);
-    background: linear-gradient(180deg, rgb(var(--success) / 0.05) 0%, rgb(var(--bg-elevated)) 60%);
-  }
-
-  .ui-kpi-card[data-tone="success"]::after {
-    background: rgb(var(--success) / 0.6);
-  }
-
-  .ui-kpi-card[data-tone="warning"] {
-    border-color: rgb(var(--warning) / 0.28);
-    background: linear-gradient(180deg, rgb(var(--warning) / 0.06) 0%, rgb(var(--bg-elevated)) 62%);
-  }
-
-  .ui-kpi-card[data-tone="warning"]::after {
-    background: rgb(var(--warning) / 0.62);
-  }
-
-  .ui-kpi-card[data-tone="danger"] {
-    border-color: rgb(var(--danger) / 0.3);
-    background: linear-gradient(180deg, rgb(var(--danger) / 0.08) 0%, rgb(var(--bg-elevated)) 62%);
-  }
-
-  .ui-kpi-card[data-tone="danger"]::after {
-    background: rgb(var(--danger) / 0.65);
-  }
-
-  .ui-kpi-label {
-    @apply text-[12px] font-semibold leading-snug text-fg-muted;
-  }
-
-  .ui-kpi-value {
-    @apply mt-2 data-mono text-[1.55rem] font-semibold leading-none text-foreground;
-  }
-
-  .ui-kpi-subvalue {
-    @apply mt-1 data-mono text-[1.15rem] font-semibold leading-tight text-foreground;
-  }
-
-  /* Navigation rail item */
-  .nav-rail-item {
-    @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200;
-    @apply text-fg-muted hover:text-foreground hover:bg-bg-elevated/60;
-  }
-
-  .nav-rail-item[data-active="true"] {
-    @apply text-primary bg-primary/10;
-  }
-
-  .nav-rail-item[data-active="true"]::before {
-    content: "";
-    @apply absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-primary rounded-r-full;
-  }
-
-  /* Form controls - industrial style */
-  .ui-control {
-    @apply h-10 w-full rounded-md px-3 text-sm transition-all duration-200;
-    @apply bg-bg-elevated border border-border text-foreground;
-    @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-primary/60;
-    @apply focus-visible:ring-2 focus-visible:ring-primary/35;
-    @apply disabled:cursor-not-allowed disabled:opacity-50;
-  }
-
-  .ui-control-sm {
-    @apply h-8 w-full rounded-md px-2.5 text-sm;
-    @apply bg-bg-elevated border border-border text-foreground;
-    @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-primary/60;
-    @apply focus-visible:ring-2 focus-visible:ring-primary/35;
-    @apply disabled:cursor-not-allowed disabled:opacity-50;
-  }
-
-  .ui-select {
-    @apply ui-control pr-10 appearance-none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgb(161,161,170)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: calc(100% - 0.75rem) center;
-  }
-
-  .ui-textarea {
-    @apply w-full rounded-md px-3 py-2 text-sm min-h-[80px];
-    @apply bg-bg-elevated border border-border text-foreground;
-    @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-primary/60;
-    @apply focus-visible:ring-2 focus-visible:ring-primary/35;
-    @apply disabled:cursor-not-allowed disabled:opacity-50;
-  }
-
-  /* Checkbox - industrial toggle style */
-  .ui-checkbox {
-    appearance: none;
-    -webkit-appearance: none;
-    @apply inline-grid h-4 w-4 place-content-center rounded border border-border-strong bg-bg-elevated;
-    @apply transition-colors;
-    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-1 focus-visible:ring-offset-background;
-  }
-
-  .ui-checkbox::before {
-    content: "";
-    width: 9px;
-    height: 9px;
-    transform: scale(0);
-    transition: transform 120ms ease-in-out;
-    background: rgb(var(--primary));
-    clip-path: polygon(14% 44%, 0 65%, 42% 100%, 100% 18%, 78% 0, 40% 62%);
-  }
-
-  .ui-checkbox:checked {
-    @apply border-primary bg-primary;
-  }
-
-  .ui-checkbox:checked::before {
-    transform: scale(1);
-    background: white;
-  }
-
-  .ui-checkbox:disabled {
-    @apply cursor-not-allowed opacity-50;
-  }
-
-  /* Table styling - data terminal aesthetic */
-  .ui-table-wrap {
-    @apply relative overflow-auto rounded-xl border border-border-subtle bg-bg-elevated;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 8px 18px rgba(0, 0, 0, 0.05);
-  }
-
-  .ui-table-scroll {
-    /* Tables are dense: keep them crisp and high-contrast. */
-    @apply relative overflow-auto rounded-xl border border-border-subtle bg-bg-elevated;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 8px 18px rgba(0, 0, 0, 0.05);
-  }
-
-  .ui-table {
-    @apply w-full text-left text-sm;
-    font-variant-numeric: tabular-nums lining-nums;
-    font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
-  }
-
-  /* Enhanced table readability (applies to all ui-table inside ui-table-scroll) */
-  .ui-table-scroll .ui-table thead th,
-  .ui-table-wrap .ui-table thead th {
-    @apply sticky top-0 z-10;
-    background: rgb(var(--table-head-bg));
-  }
-
-  .ui-table-scroll .ui-table tbody tr:nth-child(even),
-  .ui-table-wrap .ui-table tbody tr:nth-child(even) {
-    background: rgba(var(--bg-sunken), 0.22);
-  }
-
-  .ui-thead {
-    /* Slightly larger + darker header text improves scan-ability. */
-    @apply text-xs font-semibold uppercase tracking-wider text-fg-muted;
-    @apply border-b border-border-subtle;
-    background: rgb(var(--table-head-bg));
-  }
-
-  .ui-thead th {
-    @apply py-3 px-4 font-medium;
-  }
-
-  .ui-tr {
-    @apply border-b border-border-subtle transition-colors;
-  }
-
-  .ui-tr-hover {
-    @apply hover:bg-bg-sunken/60;
-  }
-
-  .ui-tr-focusable {
-    @apply focus-visible:outline-none;
-  }
-
-  .ui-tr-focusable:focus-visible {
-    box-shadow: inset 0 0 0 2px rgb(var(--primary) / 0.45);
-    background: rgb(var(--primary) / 0.06);
-  }
-
-  .ui-table td {
-    /* Higher contrast makes dense tables easier to scan */
-    @apply align-top px-4 py-3 leading-relaxed text-foreground;
-  }
-
-  /* Subtle data tinting for faster scanning (tables only).
-     We keep it neutral so feature-specific accents (USD/LBP/status) can override cleanly. */
-  .ui-table td.data-mono,
-  .ui-table td .data-mono {
-    color: rgb(var(--fg));
-  }
-
-  /* Optional semantic accents (keep subtle; used intentionally in tables). */
-  .ui-tone-usd {
-    color: rgb(var(--info));
-    font-weight: 600;
-    font-size: 0.95rem;
-  }
-
-  .ui-tone-lbp {
-    color: rgb(var(--terminal-cyan));
-    font-weight: 600;
-    font-size: 0.95rem;
-  }
-
-  /* Enforce readable monetary typography in dense table cells, even if legacy text-xs remains. */
-  .ui-table td.ui-tone-usd,
-  .ui-table td.ui-tone-lbp,
-  .ui-table td .ui-tone-usd,
-  .ui-table td .ui-tone-lbp {
-    font-size: 0.95rem;
-    font-weight: 600;
-  }
-
-  .ui-tone-qty {
-    color: rgb(var(--success));
-  }
-
-  .ui-tone-negative {
-    color: rgb(var(--danger));
-  }
-
-  .ui-table tbody tr:last-child {
-    @apply border-b-0;
-  }
-
-  /* Tab bars: quick navigation within a module (e.g. System settings). */
-  .ui-tabbar-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .ui-tabbar {
-    display: inline-flex;
-    min-width: max-content;
-    gap: 6px;
-    padding: 6px;
-    border-radius: 999px;
-    border: 1px solid rgb(var(--border-subtle));
-    background: rgb(var(--bg-sunken) / 0.25);
-  }
-  .ui-tabbar-tab {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 32px;
-    padding: 0 12px;
-    border-radius: 999px;
-    font-size: 13px;
-    color: rgb(var(--fg-muted));
-    text-decoration: none;
-    transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
-    white-space: nowrap;
-  }
-  .ui-tabbar-tab:hover {
-    background: rgb(var(--bg-elevated) / 0.6);
-    color: rgb(var(--foreground));
-  }
-  .ui-tabbar-tab-active {
-    background: rgb(var(--bg-elevated));
-    color: rgb(var(--foreground));
-    box-shadow: 0 1px 0 rgb(0 0 0 / 0.05), 0 0 0 1px rgb(var(--border));
-  }
-
-  /* Date inputs: make calendar pickers feel consistent and readable */
-  input[type="date"] {
-    @apply data-mono;
-    /* Keep text clear of the native calendar icon (esp. WebKit). */
-    padding-right: 2.5rem;
-    /* Use our own calendar glyph so date inputs look consistent across pages/browsers. */
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgb(161,161,170)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Crect width='18' height='18' x='3' y='4' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: calc(100% - 0.75rem) center;
-  }
-
-  /* WebKit: normalize date field text color/spacing across pages */
-  input[type="date"]::-webkit-datetime-edit {
-    color: rgb(var(--fg));
-  }
-
-  input[type="date"]::-webkit-datetime-edit-fields-wrapper {
-    padding: 0;
-  }
-
-  input[type="date"]::-webkit-inner-spin-button,
-  input[type="date"]::-webkit-clear-button {
-    display: none;
-  }
-
-  input[type="date"]::-webkit-calendar-picker-indicator {
-    /* Keep the click target, but hide the inconsistent native icon (we render our own). */
-    opacity: 0;
-    cursor: pointer;
-  }
-
-  input[type="date"]:hover::-webkit-calendar-picker-indicator,
-  input[type="date"]:focus-visible::-webkit-calendar-picker-indicator {
-    opacity: 0;
-  }
-
-  /* When we render a custom calendar icon button, hide the native indicator (to avoid double icons). */
-  input[type="date"].ui-date::-webkit-calendar-picker-indicator {
-    opacity: 0;
-  }
-
-  input[type="date"].ui-date {
-    background-image: none;
-  }
-
-  /* Keyboard shortcuts */
-  .ui-kbd {
-    @apply inline-flex items-center justify-center rounded px-1.5 py-0.5 text-xs font-mono font-medium;
-    @apply bg-bg-elevated text-fg-muted border border-border;
-    box-shadow: 0 1px 0 rgb(var(--border-strong));
-  }
-
-  /* Chips/Tags */
-  .ui-chip {
-    @apply inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium;
-  }
-
-  .ui-chip-default {
-    @apply border border-border bg-bg-elevated text-fg-muted;
-  }
-
-  .ui-chip-primary {
-    @apply border border-primary/20 bg-primary/5 text-foreground;
-  }
-
-  .ui-chip-success {
-    @apply border border-success/20 bg-success/5 text-foreground;
-  }
-
-  .ui-chip-warning {
-    @apply border border-warning/25 bg-warning/5 text-foreground;
-  }
-
-  .ui-chip-danger {
-    @apply border border-danger/25 bg-danger/5 text-foreground;
-  }
-
-  /* Semantic chip tones: muted, natural palettes (Notion/ClickUp-like) */
-  .ui-chip-status-draft {
-    border-color: rgb(148 163 184 / 0.45);
-    background-color: rgb(148 163 184 / 0.14);
-    color: rgb(51 65 85);
-  }
-
-  .ui-chip-status-posted {
-    border-color: rgb(74 124 89 / 0.48);
-    background-color: rgb(74 124 89 / 0.14);
-    color: rgb(20 83 45);
-  }
-
-  .ui-chip-source-admin {
-    border-color: rgb(100 116 139 / 0.42);
-    background-color: rgb(100 116 139 / 0.12);
-    color: rgb(51 65 85);
-  }
-
-  .ui-chip-source-pos {
-    border-color: rgb(15 118 110 / 0.45);
-    background-color: rgb(15 118 110 / 0.12);
-    color: rgb(17 94 89);
-  }
-
-  .ui-chip-source-import {
-    border-color: rgb(180 83 9 / 0.45);
-    background-color: rgb(180 83 9 / 0.12);
-    color: rgb(120 53 15);
-  }
-
-  .ui-chip-source-api {
-    border-color: rgb(79 70 229 / 0.45);
-    background-color: rgb(79 70 229 / 0.12);
-    color: rgb(67 56 202);
-  }
-
-  .dark .ui-chip-status-draft {
-    border-color: rgb(148 163 184 / 0.42);
-    background-color: rgb(71 85 105 / 0.24);
-    color: rgb(226 232 240);
-  }
-
-  .dark .ui-chip-status-posted {
-    border-color: rgb(74 124 89 / 0.52);
-    background-color: rgb(22 101 52 / 0.24);
-    color: rgb(187 247 208);
-  }
-
-  .dark .ui-chip-source-admin {
-    border-color: rgb(100 116 139 / 0.44);
-    background-color: rgb(71 85 105 / 0.24);
-    color: rgb(226 232 240);
-  }
-
-  .dark .ui-chip-source-pos {
-    border-color: rgb(20 184 166 / 0.45);
-    background-color: rgb(13 148 136 / 0.22);
-    color: rgb(153 246 228);
-  }
-
-  .dark .ui-chip-source-import {
-    border-color: rgb(245 158 11 / 0.44);
-    background-color: rgb(180 83 9 / 0.24);
-    color: rgb(253 230 138);
-  }
-
-  .dark .ui-chip-source-api {
-    border-color: rgb(129 140 248 / 0.45);
-    background-color: rgb(67 56 202 / 0.24);
-    color: rgb(224 231 255);
-  }
-
-  /* Status indicators */
-  .status-dot {
-    @apply h-2 w-2 rounded-full;
-  }
-
-  .status-online {
-    @apply bg-success;
-    box-shadow: 0 0 8px rgb(var(--success) / 0.45);
-  }
-
-  .status-offline {
-    @apply bg-danger;
-  }
-
-  .status-warning {
-    @apply bg-warning;
-  }
-
-  /* Table row state highlights with a left accent for non-color-only scanning. */
-  .ui-row-warning {
-    @apply bg-warning/5;
-    box-shadow: inset 3px 0 0 rgb(var(--warning) / 0.55);
-  }
-
-  .ui-row-danger {
-    @apply bg-danger/5;
-    box-shadow: inset 3px 0 0 rgb(var(--danger) / 0.6);
-  }
-
-  .ui-row-success {
-    @apply bg-success/5;
-    box-shadow: inset 3px 0 0 rgb(var(--success) / 0.55);
-  }
-
-  /* Section dividers */
-  .section-divider {
-    @apply h-px bg-gradient-to-r from-transparent via-border-strong to-transparent;
-  }
-
-  /* Glass panel for overlays */
-  .glass-panel {
-    @apply bg-bg-elevated/80 backdrop-blur-xl border border-border-subtle;
-  }
-
-  /* Data grid cells */
-  .data-cell {
-    @apply data-mono text-fg-muted;
-  }
-
-  .data-cell-positive {
-    @apply text-success;
-  }
-
-  .data-cell-negative {
-    @apply text-danger;
-  }
-
-  .data-cell-highlight {
-    @apply text-primary;
-  }
-
-  /* Card variations */
-  .card-interactive {
-    @apply transition-all duration-200;
-    @apply hover:border-border-strong hover:shadow-lg hover:shadow-black/10;
-  }
+/* ----------------------------------------------------------------
+   Utilities
+   ---------------------------------------------------------------- */
+@utility tabular-nums {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
 }
 
-@layer utilities {
-  /*
-    Token Compatibility Shim
-    Some pages still use hardcoded Tailwind slate/white utilities. Override the most common ones
-    so they follow our design tokens and stay correct in dark mode.
-  */
-
-  /* Backgrounds */
-  .bg-white {
-    background-color: rgb(var(--bg-elevated));
-  }
-  .bg-white\/60 {
-    background-color: rgb(var(--bg-elevated) / 0.6);
-  }
-  .bg-white\/80 {
-    background-color: rgb(var(--bg-elevated) / 0.8);
-  }
-
-  .bg-slate-50 {
-    background-color: rgb(var(--bg-sunken) / 0.35);
-  }
-  .bg-slate-100 {
-    background-color: rgb(var(--bg-sunken) / 0.55);
-  }
-
-  .hover\:bg-slate-50:hover {
-    background-color: rgb(var(--bg-sunken) / 0.45);
-  }
-
-  /* Borders */
-  .border-slate-100 {
-    border-color: rgb(var(--border-subtle));
-  }
-  .border-slate-200 {
-    border-color: rgb(var(--border-subtle));
-  }
-  .border-slate-300 {
-    border-color: rgb(var(--border));
-  }
-
-  /* Text */
-  .text-slate-950,
-  .text-slate-900,
-  .text-slate-800 {
-    color: rgb(var(--fg));
-  }
-  .text-slate-700,
-  .text-slate-600 {
-    color: rgb(var(--fg-muted));
-  }
-  .text-slate-500,
-  .text-slate-400 {
-    color: rgb(var(--fg-subtle));
-  }
+@utility data-mono {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
-@layer utilities {
-  /* Animation utilities */
-  .animate-fade-in {
-    animation: fadeIn 0.2s ease-out;
-  }
-
-  .animate-slide-in-right {
-    animation: slideInRight 0.2s ease-out;
-  }
-
-  .animate-pulse-subtle {
-    animation: pulseSubtle 2s ease-in-out infinite;
-  }
-
-  /* Text utilities */
-  .text-balance {
-    text-wrap: balance;
-  }
-
-  /* Gradient text */
-  .text-gradient {
-    @apply bg-gradient-to-r from-primary to-primary-dim bg-clip-text text-transparent;
-  }
-
-  /* Focus ring */
-  .focus-ring {
-    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
-  }
-
-  /* Links that should look like "actions" in dense tables/forms */
-  .ui-link {
-    @apply relative inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline focus-ring;
-  }
-
-  /* "Shortcut" links: look like normal text until hover/focus, then show link styling + arrow. */
-  .ui-shortcut {
-    @apply relative inline-flex items-center gap-1 rounded-sm px-1 -mx-1 text-foreground underline-offset-4 hover:text-primary hover:underline focus-ring;
-  }
-
-  /* Hover affordance: arrow appears only on hover/focus (keep the UI calm by default). */
-  .ui-link::after,
-  .ui-shortcut::after {
-    /* Use a literal arrow instead of a CSS escape to avoid any odd rendering in some environments. */
-    content: "→";
-    display: inline-block;
-    /* Reserve space to avoid layout shift on hover, but keep it in-flow so it can't overlap text. */
-    width: 1.1em;
-    margin-left: 0.25rem;
-    text-align: center;
-    opacity: 0;
-    transform: translateX(-2px);
-    transition:
-      opacity 150ms ease,
-      transform 150ms ease;
-    pointer-events: none;
-  }
-
-  .ui-link:hover::after,
-  .ui-link:focus-visible::after,
-  .ui-shortcut:hover::after,
-  .ui-shortcut:focus-visible::after {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-/* ------------------------------------------------------------
-   Print / PDF (browser print dialog)
-   ------------------------------------------------------------ */
-
-/* Use on elements that should never appear in print/PDF. */
+/* ----------------------------------------------------------------
+   Print / PDF
+   ---------------------------------------------------------------- */
 @media print {
   .no-print {
     display: none !important;
   }
-
-  /* Force a neutral paper look even if the UI is in dark mode. */
-  html,
-  body {
+  html, body {
     background: #fff !important;
     color: #000 !important;
   }
-
-  /* Links should not show as blue/underlined on official documents. */
   a {
     color: inherit !important;
     text-decoration: none !important;
   }
-
-  /* Make table headers repeat across pages. */
   thead {
     display: table-header-group;
   }
@@ -1143,36 +267,22 @@
   }
 }
 
-/* Default page settings (most printers support A4; browsers will map if needed). */
 @page {
   size: A4;
   margin: 12mm;
 }
 
-/* Use for the paper container (works both on-screen and in print). */
 .print-paper {
   background: #fff;
   color: #000;
 }
 
-/* Thermal-style receipt container for on-screen preview; @page sizing is handled per-page via injected CSS. */
 .print-receipt {
   max-width: 80mm;
 }
 
-@keyframes pulseSubtle {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

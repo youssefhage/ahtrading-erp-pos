@@ -52,7 +52,7 @@ function fmtIso(iso: string | null | undefined) {
 function Inner({ id }: { id: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [detail, setDetail] = useState<Detail | null>(null);
   const searchParams = useSearchParams();
 
@@ -102,13 +102,13 @@ function Inner({ id }: { id: string }) {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const d = await apiGet<Detail>(`/inventory/landed-costs/${encodeURIComponent(id)}`);
       setDetail(d);
     } catch (e) {
       setDetail(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -122,7 +122,7 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!lc) return;
     setPosting(true);
-    setErr(null);
+    setErr("");
     setLastWarnings([]);
     try {
       const res = await apiPost<{ ok: boolean; warnings?: string[] }>(`/inventory/landed-costs/${encodeURIComponent(lc.id)}/post`, {});
@@ -130,7 +130,7 @@ function Inner({ id }: { id: string }) {
       setLastWarnings(res.warnings || []);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setPosting(false);
     }
@@ -140,13 +140,13 @@ function Inner({ id }: { id: string }) {
     e.preventDefault();
     if (!lc) return;
     setCanceling(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/inventory/landed-costs/${encodeURIComponent(lc.id)}/cancel`, { reason: cancelReason.trim() || undefined });
       setCancelOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setCanceling(false);
     }
@@ -180,7 +180,7 @@ function Inner({ id }: { id: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">{lc?.landed_cost_no || (loading ? "Loading..." : "Landed Cost")}</h1>
-          <p className="text-sm text-fg-muted">
+          <p className="text-sm text-muted-foreground">
             <span className="font-mono text-xs">{id}</span>
           </p>
         </div>
@@ -205,13 +205,13 @@ function Inner({ id }: { id: string }) {
       {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
       {lastWarnings.length ? (
-        <Card className="border-border-subtle">
+        <Card className="border">
           <CardHeader>
             <CardTitle>Warnings</CardTitle>
             <CardDescription>Allocation completed with warnings (best-effort adjustments).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <ul className="list-disc pl-5 text-fg-muted">
+            <ul className="list-disc pl-5 text-muted-foreground">
               {lastWarnings.slice(0, 10).map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
@@ -231,13 +231,13 @@ function Inner({ id }: { id: string }) {
             </CardHeader>
             <CardContent className="grid gap-2 text-sm md:grid-cols-2">
               <div>
-                <div className="text-xs text-fg-muted">Status</div>
+                <div className="text-xs text-muted-foreground">Status</div>
                 <div className="mt-1">
                   <StatusChip value={lc.status} />
                 </div>
               </div>
               <div>
-                <div className="text-xs text-fg-muted">Goods receipt</div>
+                <div className="text-xs text-muted-foreground">Goods receipt</div>
                 <div className="mt-1">
                   <Link className="focus-ring text-primary hover:underline" href={`/purchasing/goods-receipts/${encodeURIComponent(lc.goods_receipt_id)}`}>
                     {lc.goods_receipt_no || lc.goods_receipt_id.slice(0, 8)}
@@ -245,26 +245,26 @@ function Inner({ id }: { id: string }) {
                 </div>
               </div>
               <div>
-                <div className="text-xs text-fg-muted">Totals</div>
+                <div className="text-xs text-muted-foreground">Totals</div>
                 <div className="mt-1 data-mono">
                   {totalUsd} · {totalLbp}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-fg-muted">Exchange rate</div>
+                <div className="text-xs text-muted-foreground">Exchange rate</div>
                 <div className="mt-1 data-mono">{String(lc.exchange_rate || "")}</div>
               </div>
               <div className="md:col-span-2">
-                <div className="text-xs text-fg-muted">Memo</div>
+                <div className="text-xs text-muted-foreground">Memo</div>
                 <div className="mt-1">{lc.memo || "-"}</div>
               </div>
               <div>
-                <div className="text-xs text-fg-muted">Created</div>
-                <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(lc.created_at)}</div>
+                <div className="text-xs text-muted-foreground">Created</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(lc.created_at)}</div>
               </div>
               <div>
-                <div className="text-xs text-fg-muted">Posted</div>
-                <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(lc.posted_at)}</div>
+                <div className="text-xs text-muted-foreground">Posted</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(lc.posted_at)}</div>
               </div>
             </CardContent>
           </Card>
@@ -302,7 +302,7 @@ function Inner({ id }: { id: string }) {
             <DialogDescription>This will allocate landed costs across the linked goods receipt.</DialogDescription>
           </DialogHeader>
           <form onSubmit={postDoc} className="space-y-3">
-            <div className="text-sm text-fg-muted">
+            <div className="text-sm text-muted-foreground">
               This is v1 allocation: it updates batch cost layers and best-effort updates average cost if stock is still on hand.
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -325,7 +325,7 @@ function Inner({ id }: { id: string }) {
           </DialogHeader>
           <form onSubmit={cancelDoc} className="space-y-3">
             <label className="space-y-1">
-              <div className="text-xs text-fg-muted">Reason (optional)</div>
+              <div className="text-xs text-muted-foreground">Reason (optional)</div>
               <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Why cancel this draft?" />
             </label>
             <div className="flex items-center justify-end gap-2">
@@ -348,7 +348,7 @@ export default function LandedCostViewPage() {
   const idParam = (paramsObj as Record<string, string | string[] | undefined>)?.id;
   const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner id={id} />
     </Suspense>
   );

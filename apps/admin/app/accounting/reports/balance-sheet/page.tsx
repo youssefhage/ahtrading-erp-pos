@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw, Printer, Download } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { CurrencyDisplay } from "@/components/business/currency-display";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+
+/* ---------- types ---------- */
 
 type BsRow = {
   account_code: string;
@@ -25,16 +30,7 @@ type BsRow = {
 
 type BsRes = { as_of: string; rows: BsRow[] };
 
-function fmt(n: string | number, frac = 2) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
-}
-
-function splitBalanceByNormal(normalBalance: string | null | undefined, value: string | number) {
-  const n = Number(value || 0);
-  const isCredit = String(normalBalance || "").toLowerCase() === "credit";
-  if (isCredit) return n >= 0 ? { debit: 0, credit: n } : { debit: Math.abs(n), credit: 0 };
-  return n >= 0 ? { debit: n, credit: 0 } : { debit: 0, credit: Math.abs(n) };
-}
+/* ---------- helpers ---------- */
 
 function todayIso() {
   const d = new Date();
@@ -44,12 +40,31 @@ function todayIso() {
   return `${y}-${m}-${day}`;
 }
 
+function toNum(v: unknown) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function splitBalanceByNormal(normalBalance: string | null | undefined, value: string | number) {
+  const n = toNum(value);
+  const isCredit = String(normalBalance || "").toLowerCase() === "credit";
+  if (isCredit) return n >= 0 ? { debit: 0, credit: n } : { debit: Math.abs(n), credit: 0 };
+  return n >= 0 ? { debit: n, credit: 0 } : { debit: 0, credit: Math.abs(n) };
+}
+
+function fmt(n: number, frac = 2) {
+  return n.toLocaleString("en-US", { maximumFractionDigits: frac });
+}
+
+/* ---------- page ---------- */
+
 export default function BalanceSheetPage() {
-  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [data, setData] = useState<BsRes | null>(null);
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [asOf, setAsOf] = useState(todayIso());
+
   const printQuery = useMemo(() => {
     const qs = new URLSearchParams();
     if (asOf) qs.set("as_of", asOf);
@@ -58,16 +73,17 @@ export default function BalanceSheetPage() {
   }, [asOf]);
 
   const load = useCallback(async () => {
-    setStatus("");
+    setError("");
+    setLoading(true);
     try {
       const params = new URLSearchParams();
       if (asOf) params.set("as_of", asOf);
       const res = await apiGet<BsRes>(`/reports/balance-sheet?${params.toString()}`);
       setData(res);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }, [asOf]);
 
@@ -75,130 +91,114 @@ export default function BalanceSheetPage() {
     load();
   }, [load]);
 
-  const columns = useMemo((): Array<DataTableColumn<BsRow>> => {
-    return [
-      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
-      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "-", sortable: true },
-      { id: "normal_balance", header: "Normal", accessor: (r) => r.normal_balance, sortable: true, globalSearch: false },
-      {
-        id: "debit_usd",
-        header: "Debit USD",
-        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).debit,
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).debit, 2)}</span>,
+  const columns = useMemo<ColumnDef<BsRow>[]>(() => [
+    {
+      id: "account_code",
+      accessorFn: (r) => r.account_code,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.account_code}</span>,
+    },
+    {
+      id: "name_en",
+      accessorFn: (r) => r.name_en || "-",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Account" />,
+    },
+    {
+      id: "normal_balance",
+      accessorFn: (r) => r.normal_balance,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Normal" />,
+      cell: ({ row }) => <span className="text-xs text-muted-foreground capitalize">{row.original.normal_balance}</span>,
+    },
+    {
+      id: "debit_usd",
+      accessorFn: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).debit,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Debit USD" />,
+      cell: ({ row }) => {
+        const v = splitBalanceByNormal(row.original.normal_balance, row.original.balance_usd).debit;
+        return <div className="text-right font-mono text-sm tabular-nums">{fmt(v)}</div>;
       },
-      {
-        id: "credit_usd",
-        header: "Credit USD",
-        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).credit,
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).credit, 2)}</span>,
+    },
+    {
+      id: "credit_usd",
+      accessorFn: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).credit,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Credit USD" />,
+      cell: ({ row }) => {
+        const v = splitBalanceByNormal(row.original.normal_balance, row.original.balance_usd).credit;
+        return <div className="text-right font-mono text-sm tabular-nums">{fmt(v)}</div>;
       },
-      {
-        id: "debit_lbp",
-        header: "Debit LL",
-        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit,
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit, 0)}</span>,
+    },
+    {
+      id: "debit_lbp",
+      accessorFn: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Debit LBP" />,
+      cell: ({ row }) => {
+        const v = splitBalanceByNormal(row.original.normal_balance, row.original.balance_lbp).debit;
+        return <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">{fmt(v, 0)}</div>;
       },
-      {
-        id: "credit_lbp",
-        header: "Credit LL",
-        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit,
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit, 0)}</span>,
+    },
+    {
+      id: "credit_lbp",
+      accessorFn: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Credit LBP" />,
+      cell: ({ row }) => {
+        const v = splitBalanceByNormal(row.original.normal_balance, row.original.balance_lbp).credit;
+        return <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">{fmt(v, 0)}</div>;
       },
-    ];
-  }, []);
+    },
+  ], []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      <PageHeader
+        title="Balance Sheet"
+        description={`As of ${data?.as_of || asOf} -- ${data?.rows?.length || 0} accounts`}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/accounting/reports/balance-sheet/print${printQuery}`} target="_blank" rel="noopener noreferrer">
+                <Printer className="mr-2 h-4 w-4" />
+                Print
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <a href={`/exports/reports/balance-sheet/pdf${printQuery}`} target="_blank" rel="noopener noreferrer">
+                <Download className="mr-2 h-4 w-4" />
+                PDF
+              </a>
+            </Button>
+          </div>
+        }
+      />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>As Of</CardTitle>
-            <CardDescription>
-              <span className="font-mono text-xs">{data?.as_of || asOf}</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Button asChild variant="outline">
-                <Link
-                  href={`/accounting/reports/balance-sheet/print${printQuery}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Print / PDF
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <a
-                  href={`/exports/reports/balance-sheet/pdf${printQuery}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Download PDF
-                </a>
-              </Button>
-            </div>
-            <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">Filters</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-xl">
-                <DialogHeader>
-                  <DialogTitle>Report Filters</DialogTitle>
-                  <DialogDescription>Select an as-of date.</DialogDescription>
-                </DialogHeader>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">As Of</label>
-                    <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <Button
-                      onClick={async () => {
-                        setFiltersOpen(false);
-                        await load();
-                      }}
-                    >
-                      Apply
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </CardContent>
-        </Card>
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <Button variant="link" size="sm" className="ml-2" onClick={load}>Retry</Button>
+        </div>
+      )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Accounts</CardTitle>
-            <CardDescription>{data?.rows?.length || 0} accounts</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable<BsRow>
-              tableId="accounting.reports.balance_sheet.v2"
-              rows={data?.rows || []}
-              columns={columns}
-              initialSort={{ columnId: "account_code", dir: "asc" }}
-              globalFilterPlaceholder="Search code / account..."
-              emptyText="No rows."
-            />
-          </CardContent>
-        </Card>
-      </div>);
+      {/* Filter bar */}
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-4 pt-6">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">As Of</label>
+            <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="w-[180px]" />
+          </div>
+          <Button onClick={load} disabled={loading}>Apply</Button>
+        </CardContent>
+      </Card>
+
+      {/* Data table */}
+      <DataTable
+        columns={columns}
+        data={data?.rows || []}
+        isLoading={loading}
+        searchPlaceholder="Search code / account..."
+      />
+    </div>
+  );
 }

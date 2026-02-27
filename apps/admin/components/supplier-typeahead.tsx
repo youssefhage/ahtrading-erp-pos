@@ -47,8 +47,8 @@ const config: EntityTypeaheadConfig<SupplierTypeaheadSupplier> = {
   renderItem(s) {
     return (
       <>
-        {s.code ? <span className="font-mono text-xs text-fg-muted">{s.code}</span> : null}
-        {s.code ? <span className="text-fg-muted"> · </span> : null}
+        {s.code ? <span className="font-mono text-xs text-muted-foreground">{s.code}</span> : null}
+        {s.code ? <span className="text-muted-foreground"> · </span> : null}
         <span className="text-foreground">{s.name}</span>
       </>
     );
@@ -60,7 +60,7 @@ const config: EntityTypeaheadConfig<SupplierTypeaheadSupplier> = {
   },
   renderBadge(s) {
     if (s.is_active === false) {
-      return <div className="shrink-0 font-mono text-xs text-fg-muted">inactive</div>;
+      return <div className="shrink-0 font-mono text-xs text-muted-foreground">inactive</div>;
     }
     return null;
   },

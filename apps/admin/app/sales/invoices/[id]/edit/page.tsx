@@ -13,7 +13,7 @@ function Inner() {
 
 export default function SalesInvoiceEditPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner />
     </Suspense>
   );

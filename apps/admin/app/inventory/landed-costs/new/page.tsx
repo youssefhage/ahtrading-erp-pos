@@ -34,7 +34,7 @@ function toNum(s: string) {
 function Inner() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
 
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
@@ -50,12 +50,12 @@ function Inner() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const r = await apiGet<{ receipts: ReceiptRow[] }>("/purchases/receipts?status=posted");
       setReceipts(r.receipts || []);
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
       setReceipts([]);
     } finally {
       setLoading(false);
@@ -94,14 +94,14 @@ function Inner() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    setErr("");
     if (!goodsReceiptId) {
-      setErr(new Error("Select a posted goods receipt first."));
+      setErr("Select a posted goods receipt first.");
       return;
     }
     const ex = toNum(exchangeRate || "0");
     if (!ex || ex <= 0) {
-      setErr(new Error("Exchange rate must be > 0."));
+      setErr("Exchange rate must be > 0.");
       return;
     }
     const payload = {
@@ -118,7 +118,7 @@ function Inner() {
     };
 
     if (!payload.lines.length) {
-      setErr(new Error("Add at least one landed cost line with a non-zero amount (negative allowed for rebates/credits)."));
+      setErr("Add at least one landed cost line with a non-zero amount (negative allowed for rebates/credits).");
       return;
     }
 
@@ -127,7 +127,7 @@ function Inner() {
       const res = await apiPost<{ id: string }>(`/inventory/landed-costs/drafts`, payload);
       router.push(`/inventory/landed-costs/${encodeURIComponent(res.id)}`);
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSubmitting(false);
     }
@@ -138,7 +138,7 @@ function Inner() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">New Landed Cost Draft</h1>
-          <p className="text-sm text-fg-muted">Allocate freight/customs/handling to a posted goods receipt (use negative amounts for rebates/credits).</p>
+          <p className="text-sm text-muted-foreground">Allocate freight/customs/handling to a posted goods receipt (use negative amounts for rebates/credits).</p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={() => router.push("/inventory/landed-costs/list")}>
@@ -158,8 +158,8 @@ function Inner() {
           <CardContent className="space-y-4 text-sm">
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1">
-                <div className="text-xs text-fg-muted">Goods receipt (posted)</div>
-                <select className="ui-select w-full" value={goodsReceiptId} onChange={(e) => setGoodsReceiptId(e.target.value)} disabled={loading}>
+                <div className="text-xs text-muted-foreground">Goods receipt (posted)</div>
+                <select className="w-full" value={goodsReceiptId} onChange={(e) => setGoodsReceiptId(e.target.value)} disabled={loading}>
                   <option value="">Select a posted receipt...</option>
                   {receipts.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -168,20 +168,20 @@ function Inner() {
                   ))}
                 </select>
                 {selected ? (
-                  <div className="text-xs text-fg-muted">
+                  <div className="text-xs text-muted-foreground">
                     Warehouse: {selected.warehouse_name || "-"} · Receipt total: {fmtUsd(selected.total_usd || 0)}
                   </div>
                 ) : null}
               </label>
 
               <label className="space-y-1">
-                <div className="text-xs text-fg-muted">Exchange rate (USD to LBP)</div>
+                <div className="text-xs text-muted-foreground">Exchange rate (USD to LBP)</div>
                 <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="89500" />
               </label>
             </div>
 
             <label className="space-y-1">
-              <div className="text-xs text-fg-muted">Memo (optional)</div>
+              <div className="text-xs text-muted-foreground">Memo (optional)</div>
               <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. Shipment freight invoice #..." />
             </label>
           </CardContent>
@@ -202,9 +202,9 @@ function Inner() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="ui-table-scroll">
-              <table className="ui-table">
-                <thead className="ui-thead">
+            <div className="overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50">
                   <tr>
                     <th className="px-3 py-2">Description</th>
                     <th className="px-3 py-2 text-right">USD</th>
@@ -214,7 +214,7 @@ function Inner() {
                 </thead>
                 <tbody>
                   {lines.map((ln, idx) => (
-                    <tr key={idx} className="ui-tr-hover">
+                    <tr key={idx} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-3 py-2">
                         <Input value={ln.description} onChange={(e) => updateLine(idx, { description: e.target.value })} placeholder="Freight / Customs / Handling..." />
                       </td>
@@ -235,7 +235,7 @@ function Inner() {
               </table>
             </div>
             <div className="flex items-center justify-end text-sm">
-              <div className="text-fg-muted">Total USD:</div>
+              <div className="text-muted-foreground">Total USD:</div>
               <div className="ml-2 data-mono font-medium">{fmtUsd(totalUsd)}</div>
             </div>
           </CardContent>
@@ -253,7 +253,7 @@ function Inner() {
 
 export default function LandedCostNewPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner />
     </Suspense>
   );

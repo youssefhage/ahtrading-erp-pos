@@ -20,7 +20,7 @@ export function PageHeader(props: {
     <div className={cn("flex flex-wrap items-start justify-between gap-3", props.className)}>
       <div className="min-w-[240px]">
         <h1 className="text-xl font-semibold text-foreground">{props.title}</h1>
-        {props.description ? <p className="mt-1 text-sm text-fg-muted">{props.description}</p> : null}
+        {props.description ? <p className="mt-1 text-sm text-muted-foreground">{props.description}</p> : null}
         {props.meta ? <div className="mt-2">{props.meta}</div> : null}
       </div>
       {props.actions ? <div className="flex items-center gap-2">{props.actions}</div> : null}

@@ -147,7 +147,7 @@ export function SearchableSelect(props: {
     <div ref={wrapRef} className={cn("relative", className)}>
       <button
         type="button"
-        className={cn(controlClassName || "ui-select", "text-left", value ? "text-foreground" : "text-fg-subtle")}
+        className={cn(controlClassName || "h-9 w-full rounded-md border border-input bg-background px-3 text-sm", "text-left", value ? "text-foreground" : "text-muted-foreground")}
         onClick={() => !disabled && setOpen((v) => !v)}
         onKeyDown={onTriggerKeyDown}
         aria-haspopup="listbox"
@@ -161,9 +161,9 @@ export function SearchableSelect(props: {
             <div
               data-dialog-keepopen="true"
               data-searchable-select-menu="true"
-              className="absolute left-0 right-0 z-[80] mt-1 overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
+              className="absolute left-0 right-0 z-[80] mt-1 overflow-hidden rounded-md border border-border bg-card shadow-lg"
             >
-              <div className="border-b border-border-subtle p-2">
+              <div className="border-b border p-2">
                 <Input
                   ref={searchRef}
                   value={q}
@@ -185,8 +185,8 @@ export function SearchableSelect(props: {
                         aria-selected={isSelected}
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
-                          "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
+                          "border-b border last:border-b-0",
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-muted/50"
                         )}
                         onPointerDown={(e) => {
                           // Commit on pointerdown so selection applies before any
@@ -200,15 +200,15 @@ export function SearchableSelect(props: {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="min-w-0 truncate">{opt.label}</span>
-                          {isSelected ? <span className="shrink-0 font-mono text-xs text-fg-subtle">selected</span> : null}
+                          {isSelected ? <span className="shrink-0 font-mono text-xs text-muted-foreground">selected</span> : null}
                         </div>
                       </button>
                     );
                   })
                 ) : loading ? (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">Loading...</div>
+                  <div className="px-3 py-3 text-sm text-muted-foreground">Loading...</div>
                 ) : (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">No matches.</div>
+                  <div className="px-3 py-3 text-sm text-muted-foreground">No matches.</div>
                 )}
               </div>
             </div>

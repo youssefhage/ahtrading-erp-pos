@@ -90,7 +90,7 @@ export function DocumentAttachments(props: {
       {props.allowUpload ? (
         <form onSubmit={upload} className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-fg-muted">Upload (max configured, 5MB default)</label>
+            <label className="text-xs font-medium text-muted-foreground">Upload (max configured, 5MB default)</label>
             <FileInput key={pickKey} name="file" disabled={uploading} buttonLabel="Pick file" />
           </div>
           <Button type="submit" disabled={uploading}>
@@ -99,9 +99,9 @@ export function DocumentAttachments(props: {
         </form>
       ) : null}
 
-      <div className="ui-table-wrap">
-        <table className="ui-table">
-          <thead className="ui-thead">
+      <div className="overflow-auto rounded-md border">
+        <table className="w-full text-sm">
+          <thead className="border-b bg-muted/50 [&_th]:text-left [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground">
             <tr>
               <th className="px-3 py-2">File</th>
               <th className="px-3 py-2">Type</th>
@@ -111,10 +111,10 @@ export function DocumentAttachments(props: {
           </thead>
           <tbody>
             {attachments.map((a) => (
-              <tr key={a.id} className="ui-tr-hover">
+              <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30">
                 <td className="px-3 py-2 text-sm">{a.filename}</td>
-                <td className="px-3 py-2 text-xs text-fg-muted">{a.content_type}</td>
-                <td className="px-3 py-2 text-xs text-fg-muted">{fmtBytes(a.size_bytes)}</td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">{a.content_type}</td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">{fmtBytes(a.size_bytes)}</td>
                 <td className="px-3 py-2 text-right">
                   <div className="inline-flex items-center gap-2">
                     <Button asChild size="sm" variant="outline">
@@ -133,7 +133,7 @@ export function DocumentAttachments(props: {
             ))}
             {attachments.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={4}>
                   {props.allowUpload
                     ? "No attachments. Drop files here or use the upload button above."
                     : "No attachments."}
@@ -152,7 +152,7 @@ export function DocumentAttachments(props: {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-foreground">{title}</div>
-            <div className="text-xs text-fg-subtle">{description}</div>
+            <div className="text-xs text-muted-foreground">{description}</div>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={load}>
             Refresh

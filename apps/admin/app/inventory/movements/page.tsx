@@ -1,16 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { CurrencyDisplay } from "@/components/business/currency-display";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
-import { ShortcutLink } from "@/components/shortcut-link";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 type Warehouse = { id: string; name: string };
 
@@ -32,10 +37,15 @@ type MoveRow = {
   created_at: string;
 };
 
+function toNum(v: unknown) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function InventoryMovementsPage() {
   const [moves, setMoves] = useState<MoveRow[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const [itemId, setItemId] = useState("");
   const [itemFilterLabel, setItemFilterLabel] = useState("");
@@ -45,56 +55,8 @@ export default function InventoryMovementsPage() {
 
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
-  const columns = useMemo((): Array<DataTableColumn<MoveRow>> => {
-    return [
-      { id: "created_at", header: "Created", accessor: (m) => m.created_at, mono: true, sortable: true, globalSearch: false },
-      {
-        id: "item",
-        header: "Item",
-        accessor: (m) => {
-          return `${m.item_sku || ""} ${m.item_name || ""} ${m.item_id}`.trim();
-        },
-        sortable: true,
-        cell: (m) => {
-          const sku = m.item_sku || m.item_id;
-          const name = m.item_name || "";
-          return (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item">
-              <span className="font-mono text-xs">{sku}</span>
-              {name ? ` · ${name}` : ""}
-            </ShortcutLink>
-          );
-        },
-      },
-      {
-        id: "warehouse",
-        header: "Warehouse",
-        accessor: (m) => m.warehouse_name || whById.get(m.warehouse_id)?.name || m.warehouse_id,
-        sortable: true,
-        cell: (m) => m.warehouse_name || whById.get(m.warehouse_id)?.name || m.warehouse_id,
-      },
-      { id: "location_id", header: "Location", accessor: (m) => (m.location_id ? String(m.location_id).slice(0, 8) : "-"), mono: true, sortable: true, globalSearch: false, cell: (m) => <span className="font-mono text-xs text-fg-muted">{m.location_id ? String(m.location_id).slice(0, 8) : "-"}</span> },
-      { id: "qty_in", header: "In", accessor: (m) => Number(m.qty_in || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.qty_in || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }) },
-      { id: "qty_out", header: "Out", accessor: (m) => Number(m.qty_out || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.qty_out || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }) },
-      { id: "unit_cost_usd", header: "Unit USD", accessor: (m) => Number(m.unit_cost_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.unit_cost_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 4 }) },
-      { id: "unit_cost_lbp", header: "Unit LL", accessor: (m) => Number(m.unit_cost_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.unit_cost_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 }) },
-      {
-        id: "source",
-        header: "Source",
-        accessor: (m) => `${m.source_type || ""} ${m.source_id || ""}`.trim(),
-        sortable: true,
-        cell: (m) => (
-          <div>
-            <span className="font-mono text-xs">{m.source_type || "-"}</span>
-            {m.source_id ? <div className="text-xs text-fg-subtle">{m.source_id}</div> : null}
-          </div>
-        ),
-      },
-    ];
-  }, [whById]);
-
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
     try {
       const qs = new URLSearchParams();
       if (itemId) qs.set("item_id", itemId);
@@ -105,108 +67,144 @@ export default function InventoryMovementsPage() {
 
       const [m, w] = await Promise.all([
         apiGet<{ moves: MoveRow[] }>(`/inventory/moves?${qs.toString()}`),
-        apiGet<{ warehouses: Warehouse[] }>("/warehouses")
+        apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
       ]);
       setMoves(m.moves || []);
       setWarehouses(w.warehouses || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch {
+      setMoves([]);
+    } finally {
+      setLoading(false);
     }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const columns = useMemo<ColumnDef<MoveRow>[]>(() => [
+    {
+      id: "created_at",
+      accessorFn: (m) => m.created_at,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Created" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.created_at}</span>,
+    },
+    {
+      id: "item",
+      accessorFn: (m) => `${m.item_sku || ""} ${m.item_name || ""} ${m.item_id}`.trim(),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
+      cell: ({ row }) => {
+        const m = row.original;
+        return (
+          <Link href={`/catalog/items/${encodeURIComponent(m.item_id)}`} className="hover:underline">
+            <span className="font-mono text-xs">{m.item_sku || m.item_id}</span>
+            {m.item_name ? ` \u00b7 ${m.item_name}` : ""}
+          </Link>
+        );
+      },
+    },
+    {
+      id: "warehouse",
+      accessorFn: (m) => m.warehouse_name || whById.get(m.warehouse_id)?.name || m.warehouse_id,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Warehouse" />,
+    },
+    {
+      id: "location_id",
+      accessorFn: (m) => m.location_id || "-",
+      header: "Location",
+      cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{row.original.location_id ? String(row.original.location_id).slice(0, 8) : "-"}</span>,
+    },
+    {
+      id: "qty_in",
+      accessorFn: (m) => toNum(m.qty_in),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="In" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{toNum(row.original.qty_in).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+    },
+    {
+      id: "qty_out",
+      accessorFn: (m) => toNum(m.qty_out),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Out" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{toNum(row.original.qty_out).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+    },
+    {
+      id: "unit_cost_usd",
+      accessorFn: (m) => toNum(m.unit_cost_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Unit USD" />,
+      cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.unit_cost_usd)} currency="USD" />,
+    },
+    {
+      id: "unit_cost_lbp",
+      accessorFn: (m) => toNum(m.unit_cost_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Unit LBP" />,
+      cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.unit_cost_lbp)} currency="LBP" />,
+    },
+    {
+      id: "source",
+      accessorFn: (m) => `${m.source_type || ""} ${m.source_id || ""}`.trim(),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
+      cell: ({ row }) => (
+        <div>
+          <span className="font-mono text-xs">{row.original.source_type || "-"}</span>
+          {row.original.source_id ? <div className="text-xs text-muted-foreground">{row.original.source_id}</div> : null}
+        </div>
+      ),
+    },
+  ], [whById]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      <PageHeader
+        title="Movements"
+        description="Stock movement history"
+        actions={
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      >
+        <Badge variant="outline">{moves.length} moves</Badge>
+      </PageHeader>
 
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>List the latest stock moves (most recent first).</CardDescription>
+          <CardTitle className="text-base">Filters</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Item</label>
-            <div className="space-y-1">
-              <ItemTypeahead
-                placeholder={itemFilterLabel || "All items"}
-                onSelect={(it: ItemTypeaheadItem) => {
-                  setItemId(it.id);
-                  setItemFilterLabel(`${it.sku} · ${it.name}`);
-                }}
-                onClear={() => {
-                  setItemId("");
-                  setItemFilterLabel("");
-                }}
-              />
-              {itemId ? (
-                <div className="flex items-center justify-between text-xs text-fg-muted">
-                  <span className="truncate">Selected: {itemFilterLabel || itemId}</span>
-                  <button
-                    type="button"
-                    className="ui-link"
-                    onClick={() => {
-                      setItemId("");
-                      setItemFilterLabel("");
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
-              ) : null}
-            </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Item</label>
+            <ItemTypeahead
+              placeholder={itemFilterLabel || "All items"}
+              onSelect={(it: ItemTypeaheadItem) => { setItemId(it.id); setItemFilterLabel(`${it.sku} \u00b7 ${it.name}`); }}
+              onClear={() => { setItemId(""); setItemFilterLabel(""); }}
+            />
+            {itemId && (
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span className="truncate">Selected: {itemFilterLabel || itemId}</span>
+                <button type="button" className="text-primary hover:underline" onClick={() => { setItemId(""); setItemFilterLabel(""); }}>Clear</button>
+              </div>
+            )}
           </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
             <SearchableSelect
               value={warehouseId}
               onChange={setWarehouseId}
               placeholder="All warehouses"
               searchPlaceholder="Search warehouses..."
-              options={[
-                { value: "", label: "All warehouses" },
-                ...warehouses.map((w) => ({ value: w.id, label: w.name })),
-              ]}
+              options={[{ value: "", label: "All warehouses" }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
             />
           </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Source Type</label>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Source Type</label>
             <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="sale / goods_receipt / cycle_count" />
           </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Limit</label>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Limit</label>
             <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
-          </div>
-          <div className="md:col-span-4 flex items-center justify-end">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Moves</CardTitle>
-          <CardDescription>{moves.length} moves</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<MoveRow>
-            tableId="inventory.movements"
-            rows={moves}
-            columns={columns}
-            initialSort={{ columnId: "created_at", dir: "desc" }}
-            globalFilterPlaceholder="Search item / warehouse / source..."
-            emptyText="No moves."
-          />
-        </CardContent>
-      </Card>
+      <DataTable columns={columns} data={moves} isLoading={loading} searchPlaceholder="Search item / warehouse / source..." />
     </div>
   );
 }

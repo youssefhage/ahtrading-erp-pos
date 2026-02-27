@@ -2,17 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, Upload, Truck } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { ShortcutLink } from "@/components/shortcut-link";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 type PartyType = "individual" | "business";
+
 type Supplier = {
   id: string;
   code?: string | null;
@@ -28,7 +46,18 @@ type Supplier = {
   is_active?: boolean;
 };
 
-type BulkSupplierIn = { code?: string | null; name: string; party_type?: PartyType; phone?: string | null; email?: string | null; payment_terms_days?: number };
+type BulkSupplierIn = {
+  code?: string | null;
+  name: string;
+  party_type?: PartyType;
+  phone?: string | null;
+  email?: string | null;
+  payment_terms_days?: number;
+};
+
+/* ------------------------------------------------------------------ */
+/*  CSV parser                                                         */
+/* ------------------------------------------------------------------ */
 
 function parseCsv(input: string): string[][] {
   const out: string[][] = [];
@@ -88,99 +117,25 @@ function parseCsv(input: string): string[][] {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function SuppliersListPage() {
   const router = useRouter();
+
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  const [q, setQ] = useState("");
-
+  /* ---- import state ---- */
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState<BulkSupplierIn[]>([]);
   const [importErrors, setImportErrors] = useState<string>("");
   const [importing, setImporting] = useState(false);
 
-  const columns = useMemo((): Array<DataTableColumn<Supplier>> => {
-    return [
-      {
-        id: "supplier",
-        header: "Supplier",
-        accessor: (s) => s.name,
-        sortable: true,
-        cell: (s) => (
-          <div>
-            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(s.id)}`} title="Open supplier">
-              {s.code ? <span className="font-mono text-xs text-fg-muted">{s.code}</span> : null}
-              {s.code ? <span className="text-fg-muted"> · </span> : null}
-              <span className="font-medium text-foreground">{s.name}</span>
-            </ShortcutLink>
-            {s.legal_name ? <div className="text-xs text-fg-subtle">{s.legal_name}</div> : null}
-          </div>
-        ),
-      },
-      {
-        id: "phone",
-        header: "Phone",
-        accessor: (s) => s.phone || "",
-        cell: (s) => <span className="text-sm text-fg-muted">{s.phone || "-"}</span>,
-      },
-      {
-        id: "email",
-        header: "Email",
-        accessor: (s) => s.email || "",
-        cell: (s) => <span className="text-sm text-fg-muted">{s.email || "-"}</span>,
-      },
-      {
-        id: "terms",
-        header: "Terms",
-        accessor: (s) => Number(s.payment_terms_days || 0),
-        sortable: true,
-        align: "right",
-        mono: true,
-        cell: (s) => <span className="text-xs text-fg-muted">{Number(s.payment_terms_days || 0)}</span>,
-      },
-      {
-        id: "status",
-        header: "Status",
-        accessor: (s) => (s.is_active === false ? "inactive" : "active"),
-        cell: (s) => (
-          <span
-            className={
-              s.is_active === false
-                ? "inline-flex items-center rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-xs font-medium text-fg-muted"
-                : "inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
-            }
-          >
-            {s.is_active === false ? "inactive" : "active"}
-          </span>
-        ),
-      },
-      {
-        id: "vat_no",
-        header: "VAT No",
-        accessor: (s) => s.vat_no || "",
-        defaultHidden: true,
-        cell: (s) => <span className="data-mono text-xs text-fg-muted">{s.vat_no || "-"}</span>,
-      },
-      {
-        id: "tax_id",
-        header: "Tax ID",
-        accessor: (s) => s.tax_id || "",
-        defaultHidden: true,
-        cell: (s) => <span className="data-mono text-xs text-fg-muted">{s.tax_id || "-"}</span>,
-      },
-      {
-        id: "id",
-        header: "ID",
-        accessor: (s) => s.id,
-        mono: true,
-        defaultHidden: true,
-        cell: (s) => <span className="text-xs text-fg-subtle">{s.id}</span>,
-      },
-    ];
-  }, []);
+  /* ---- data fetching ---- */
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -189,7 +144,7 @@ export default function SuppliersListPage() {
       const res = await apiGet<{ suppliers: Supplier[] }>("/suppliers");
       setSuppliers(res.suppliers || []);
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -199,6 +154,137 @@ export default function SuppliersListPage() {
     load();
   }, [load]);
 
+  /* ---- columns ---- */
+
+  const columns = useMemo<ColumnDef<Supplier>[]>(
+    () => [
+      {
+        accessorKey: "code",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Code" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">
+            {row.original.code || "--"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Supplier" />
+        ),
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.legal_name && (
+              <p className="text-xs text-muted-foreground">
+                {row.original.legal_name}
+              </p>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "phone",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Phone" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.phone || "--"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "email",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Email" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.email || "--"}
+          </span>
+        ),
+      },
+      {
+        id: "terms",
+        accessorFn: (row) => Number(row.payment_terms_days || 0),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Terms" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">
+            {Number(row.original.payment_terms_days || 0)}d
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        accessorFn: (row) =>
+          row.is_active === false ? "inactive" : "active",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <StatusBadge
+            status={
+              row.original.is_active === false ? "inactive" : "active"
+            }
+          />
+        ),
+        filterFn: (row, id, value) => value.includes(row.getValue(id)),
+      },
+      {
+        id: "vat_no",
+        accessorFn: (row) => row.vat_no || "",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="VAT No" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm text-muted-foreground">
+            {row.original.vat_no || "--"}
+          </span>
+        ),
+        enableHiding: true,
+      },
+      {
+        id: "tax_id",
+        accessorFn: (row) => row.tax_id || "",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Tax ID" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm text-muted-foreground">
+            {row.original.tax_id || "--"}
+          </span>
+        ),
+        enableHiding: true,
+      },
+      {
+        id: "actions",
+        enableHiding: false,
+        cell: ({ row }) => (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(
+                `/partners/suppliers/${encodeURIComponent(row.original.id)}/edit`,
+              );
+            }}
+          >
+            Edit
+          </Button>
+        ),
+      },
+    ],
+    [router],
+  );
+
+  /* ---- CSV import helpers ---- */
+
   function buildImportPreview() {
     setImportErrors("");
     const rows = parseCsv(importText || "");
@@ -206,7 +292,11 @@ export default function SuppliersListPage() {
       setImportPreview([]);
       return;
     }
-    const header = (rows[0] || []).map((h) => String(h || "").trim().toLowerCase());
+    const header = (rows[0] || []).map((h) =>
+      String(h || "")
+        .trim()
+        .toLowerCase(),
+    );
     const idx = (k: string) => header.findIndex((h) => h === k);
     const iCode = idx("code");
     const iName = idx("name");
@@ -223,11 +313,12 @@ export default function SuppliersListPage() {
       const name = String(r[iName] || "").trim();
       if (!name) continue;
       out.push({
-        code: iCode >= 0 ? (String(r[iCode] || "").trim() || null) : null,
+        code: iCode >= 0 ? String(r[iCode] || "").trim() || null : null,
         name,
-        phone: iPhone >= 0 ? (String(r[iPhone] || "").trim() || null) : null,
-        email: iEmail >= 0 ? (String(r[iEmail] || "").trim() || null) : null,
-        payment_terms_days: iTerms >= 0 ? Number(String(r[iTerms] || "0")) || 0 : 0
+        phone: iPhone >= 0 ? String(r[iPhone] || "").trim() || null : null,
+        email: iEmail >= 0 ? String(r[iEmail] || "").trim() || null : null,
+        payment_terms_days:
+          iTerms >= 0 ? Number(String(r[iTerms] || "0")) || 0 : 0,
       });
     }
     setImportPreview(out.slice(0, 200));
@@ -245,80 +336,166 @@ export default function SuppliersListPage() {
       setImportPreview([]);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setImporting(false);
     }
   }
 
+  /* ---- empty state ---- */
+
+  if (!loading && suppliers.length === 0 && !err) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-6">
+        <PageHeader
+          title="Suppliers"
+          description="Partners"
+          actions={
+            <Button
+              size="sm"
+              onClick={() => router.push("/partners/suppliers/new")}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Supplier
+            </Button>
+          }
+        />
+        <EmptyState
+          icon={Truck}
+          title="No suppliers yet"
+          description="Create suppliers to manage purchasing, AP tracking, and vendor contacts."
+          action={{
+            label: "New Supplier",
+            onClick: () => router.push("/partners/suppliers/new"),
+          }}
+        />
+      </div>
+    );
+  }
+
+  /* ---- main render ---- */
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Suppliers</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${suppliers.length} supplier(s)`}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Dialog open={importOpen} onOpenChange={setImportOpen}>
-            <DialogTrigger asChild>
-              <Button type="button" variant="outline">
-                Import CSV
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl">
-              <DialogHeader>
-                <DialogTitle>Import Suppliers (CSV)</DialogTitle>
-                <DialogDescription>Columns supported: code,name,phone,email,payment_terms_days</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={importSuppliers} className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Paste CSV</label>
-                  <textarea className="ui-textarea" rows={10} value={importText} onChange={(e) => setImportText(e.target.value)} />
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Button type="button" variant="outline" onClick={buildImportPreview}>
-                    Preview
-                  </Button>
-                  <Button type="submit" disabled={importing || !importPreview.length}>
-                    {importing ? "..." : `Import (${importPreview.length})`}
-                  </Button>
-                </div>
-                {importErrors ? <div className="text-sm text-danger">{importErrors}</div> : null}
-                {importPreview.length ? <ViewRaw value={importPreview} label="View preview (raw)" /> : null}
-              </form>
-            </DialogContent>
-          </Dialog>
-          <Button type="button" onClick={() => router.push("/partners/suppliers/new")}>
-            New Supplier
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Suppliers"
+        description={
+          loading
+            ? "Loading..."
+            : `${suppliers.length} supplier${suppliers.length !== 1 ? "s" : ""}`
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => load()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
 
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
+            <Dialog open={importOpen} onOpenChange={setImportOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Upload className="mr-2 h-4 w-4" />
+                  Import CSV
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                  <DialogTitle>Import Suppliers (CSV)</DialogTitle>
+                  <DialogDescription>
+                    Columns supported: code, name, phone, email,
+                    payment_terms_days
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={importSuppliers} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Paste CSV</Label>
+                    <Textarea
+                      rows={10}
+                      value={importText}
+                      onChange={(e) => setImportText(e.target.value)}
+                      placeholder="code,name,phone,email,payment_terms_days&#10;SUP-001,Acme Inc,+1234567890,acme@example.com,30"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={buildImportPreview}
+                    >
+                      Preview
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={importing || !importPreview.length}
+                    >
+                      {importing
+                        ? "Importing..."
+                        : `Import (${importPreview.length})`}
+                    </Button>
+                  </div>
+                  {importErrors && (
+                    <p className="text-sm text-destructive">{importErrors}</p>
+                  )}
+                  {importPreview.length > 0 && (
+                    <div className="space-y-2">
+                      <Badge variant="secondary">
+                        {importPreview.length} rows ready
+                      </Badge>
+                      <ViewRaw
+                        value={importPreview}
+                        label="View preview (raw)"
+                      />
+                    </div>
+                  )}
+                </form>
+              </DialogContent>
+            </Dialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Directory</CardTitle>
-          <CardDescription>Search and open suppliers.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <DataTable<Supplier>
-            tableId="partners.suppliers"
-            rows={suppliers}
-            columns={columns}
-            isLoading={loading}
-            onRowClick={(s) => router.push(`/partners/suppliers/${encodeURIComponent(s.id)}`)}
-            emptyText="No suppliers."
-            globalFilterPlaceholder="Search name / code / phone / VAT..."
-            globalFilterValue={q}
-            onGlobalFilterValueChange={setQ}
-            initialSort={{ columnId: "supplier", dir: "asc" }}
-          />
-        </CardContent>
-      </Card>
+            <Button
+              size="sm"
+              onClick={() => router.push("/partners/suppliers/new")}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Supplier
+            </Button>
+          </>
+        }
+      />
+
+      {err && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {err}
+        </div>
+      )}
+
+      <DataTable
+        columns={columns}
+        data={suppliers}
+        isLoading={loading}
+        searchPlaceholder="Search by name, code, phone, VAT..."
+        onRowClick={(row) =>
+          router.push(
+            `/partners/suppliers/${encodeURIComponent(row.id)}`,
+          )
+        }
+        filterableColumns={[
+          {
+            id: "status",
+            title: "Status",
+            options: [
+              { label: "Active", value: "active" },
+              { label: "Inactive", value: "inactive" },
+            ],
+          },
+        ]}
+      />
     </div>
   );
 }

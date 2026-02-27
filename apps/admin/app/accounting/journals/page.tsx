@@ -1,16 +1,43 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { BookOpen, Plus, RefreshCw, RotateCcw, Filter } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { fmtUsd, fmtLbp } from "@/lib/money";
+import { formatDate } from "@/lib/datetime";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Chip } from "@/components/ui/chip";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type CoaAccount = {
   id: string;
@@ -56,8 +83,6 @@ type JournalDetail = {
   entries: JournalEntry[];
 };
 
-type RateRow = { id: string; rate_date: string; rate_type: string; usd_to_lbp: string | number };
-
 type LineDraft = {
   key: string;
   side: "debit" | "credit";
@@ -72,6 +97,10 @@ type LineDraft = {
 
 type LineField = "side" | "account_code" | "amount_usd" | "amount_lbp" | "memo" | "cost_center_id" | "project_id";
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
 const lineFieldOrder: LineField[] = ["side", "account_code", "amount_usd", "amount_lbp", "memo", "cost_center_id", "project_id"];
 
 function createLineDraft(side: "debit" | "credit" = "debit"): LineDraft {
@@ -84,7 +113,7 @@ function createLineDraft(side: "debit" | "credit" = "debit"): LineDraft {
     amount_usd: "",
     amount_lbp: "",
     cost_center_id: "",
-    project_id: ""
+    project_id: "",
   };
 }
 
@@ -97,17 +126,26 @@ function toNum(v: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function fmt(n: string | number, frac = 2) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
+function n(v: unknown) {
+  const x = Number(v || 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function fmt(val: string | number, frac = 2) {
+  return Number(val || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
 }
 
 function todayIso() {
-    const d = new Date();
+  const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function JournalsPage() {
   const [status, setStatus] = useState("");
@@ -119,12 +157,14 @@ export default function JournalsPage() {
   const [costCenters, setCostCenters] = useState<DimensionRow[]>([]);
   const [projects, setProjects] = useState<DimensionRow[]>([]);
 
+  // Filters
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [q, setQ] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [sourceType, setSourceType] = useState("");
 
+  // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [journalDate, setJournalDate] = useState(todayIso());
   const [rateType, setRateType] = useState("market");
@@ -133,8 +173,9 @@ export default function JournalsPage() {
   const [lines, setLines] = useState<LineDraft[]>(() => resetDraftLines());
   const [creating, setCreating] = useState(false);
 
-  const [reverseOpen, setReverseOpen] = useState(false);
+  // Reverse
   const [reversing, setReversing] = useState(false);
+
   const statusIsBusy = /^(Creating|Reversing)\b/i.test(status);
 
   const accountByCode = useMemo(() => {
@@ -163,48 +204,120 @@ export default function JournalsPage() {
   }, [lines]);
   const isBalanced = Math.abs(totals.diffUsd) < 0.0001 && Math.abs(totals.diffLbp) < 0.01;
 
-  const journalColumns = useMemo((): Array<DataTableColumn<JournalRow>> => {
-    return [
-      { id: "journal_date", header: "Date", accessor: (j) => j.journal_date, mono: true, sortable: true, globalSearch: false, cell: (j) => <span className="data-mono text-sm">{j.journal_date}</span> },
-      { id: "journal_no", header: "No", accessor: (j) => j.journal_no, mono: true, sortable: true, cell: (j) => <span className="data-mono text-sm">{j.journal_no}</span> },
-      { id: "source_type", header: "Source", accessor: (j) => j.source_type || "-", sortable: true, cell: (j) => <span className="text-sm text-fg-muted">{j.source_type || "-"}</span> },
-      { id: "memo", header: "Memo", accessor: (j) => j.memo || "", sortable: true, cell: (j) => <span className="text-sm text-fg-muted">{j.memo || ""}</span> },
-      { id: "created_by_email", header: "By", accessor: (j) => j.created_by_email || "-", sortable: true, cell: (j) => <span className="text-sm text-fg-muted">{j.created_by_email || "-"}</span> },
-    ];
-  }, []);
+  /* ---- Columns ---- */
 
-  const entryColumns = useMemo((): Array<DataTableColumn<JournalEntry>> => {
-    return [
+  const journalColumns = useMemo<ColumnDef<JournalRow>[]>(
+    () => [
+      {
+        id: "journal_date",
+        accessorFn: (r) => r.journal_date,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{formatDate(row.original.journal_date)}</span>,
+      },
+      {
+        id: "journal_no",
+        accessorFn: (r) => r.journal_no,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="No" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.journal_no}</span>,
+      },
+      {
+        id: "source_type",
+        accessorFn: (r) => r.source_type || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">{row.original.source_type || "-"}</span>
+        ),
+      },
+      {
+        id: "memo",
+        accessorFn: (r) => r.memo || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Memo" />,
+        cell: ({ row }) => (
+          <span className="max-w-[200px] truncate text-sm text-muted-foreground">
+            {row.original.memo || ""}
+          </span>
+        ),
+      },
+      {
+        id: "created_by_email",
+        accessorFn: (r) => r.created_by_email || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="By" />,
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">{row.original.created_by_email || "-"}</span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const entryColumns = useMemo<ColumnDef<JournalEntry>[]>(
+    () => [
       {
         id: "account",
-        header: "Account",
-        accessor: (e) => `${e.account_code || ""} ${e.name_en || ""}`.trim(),
-        sortable: true,
-        cell: (e) => (
+        accessorFn: (e) => `${e.account_code || ""} ${e.name_en || ""}`.trim(),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Account" />,
+        cell: ({ row }) => (
           <div>
-            <div className="font-mono text-sm">{e.account_code}</div>
-            <div className="text-sm text-fg-muted">{e.name_en || ""}</div>
+            <div className="font-mono text-sm">{row.original.account_code}</div>
+            <div className="text-xs text-muted-foreground">{row.original.name_en || ""}</div>
           </div>
         ),
       },
       {
         id: "dims",
+        accessorFn: (e) => `${e.cost_center_code || ""} ${e.project_code || ""}`.trim(),
         header: "Dims",
-        accessor: (e) => `${e.cost_center_code || ""} ${e.project_code || ""}`.trim(),
-        sortable: true,
-        cell: (e) => (
-          <div className="text-sm text-fg-muted">
-            {e.cost_center_code ? <span className="font-mono">{e.cost_center_code}</span> : <span>-</span>}
-            {e.project_code ? <span className="ml-2 font-mono">{e.project_code}</span> : null}
+        cell: ({ row }) => {
+          const e = row.original;
+          return (
+            <div className="text-xs text-muted-foreground">
+              {e.cost_center_code ? <span className="font-mono">{e.cost_center_code}</span> : <span>-</span>}
+              {e.project_code ? <span className="ml-2 font-mono">{e.project_code}</span> : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: "debit_usd",
+        accessorFn: (e) => n(e.debit_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Debit USD" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm">{fmtUsd(row.original.debit_usd, { maximumFractionDigits: 4 })}</div>
+        ),
+      },
+      {
+        id: "credit_usd",
+        accessorFn: (e) => n(e.credit_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Credit USD" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm">{fmtUsd(row.original.credit_usd, { maximumFractionDigits: 4 })}</div>
+        ),
+      },
+      {
+        id: "debit_lbp",
+        accessorFn: (e) => n(e.debit_lbp),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Debit LL" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm text-muted-foreground">
+            {fmtLbp(row.original.debit_lbp)}
           </div>
         ),
       },
-      { id: "debit_usd", header: "Debit USD", accessor: (e) => Number(e.debit_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-usd">{fmt(e.debit_usd, 4)}</span> },
-      { id: "credit_usd", header: "Credit USD", accessor: (e) => Number(e.credit_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-usd">{fmt(e.credit_usd, 4)}</span> },
-      { id: "debit_lbp", header: "Debit LL", accessor: (e) => Number(e.debit_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-lbp">{fmt(e.debit_lbp, 2)}</span> },
-      { id: "credit_lbp", header: "Credit LL", accessor: (e) => Number(e.credit_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-lbp">{fmt(e.credit_lbp, 2)}</span> },
-    ];
-  }, []);
+      {
+        id: "credit_lbp",
+        accessorFn: (e) => n(e.credit_lbp),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Credit LL" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm text-muted-foreground">
+            {fmtLbp(row.original.credit_lbp)}
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
+
+  /* ---- Data loading ---- */
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -219,15 +332,14 @@ export default function JournalsPage() {
         apiGet<{ journals: JournalRow[] }>(`/accounting/journals${params.toString() ? `?${params.toString()}` : ""}`),
         apiGet<{ accounts: CoaAccount[] }>("/coa/accounts"),
         apiGet<{ cost_centers: DimensionRow[] }>("/dimensions/cost-centers"),
-        apiGet<{ projects: DimensionRow[] }>("/dimensions/projects")
+        apiGet<{ projects: DimensionRow[] }>("/dimensions/projects"),
       ]);
       setJournals(j.journals || []);
       setAccounts(a.accounts || []);
       setCostCenters(cc.cost_centers || []);
       setProjects(pr.projects || []);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -244,8 +356,7 @@ export default function JournalsPage() {
       const res = await apiGet<JournalDetail>(`/accounting/journals/${id}`);
       setDetail(res);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingDetail(false);
     }
@@ -270,6 +381,8 @@ export default function JournalsPage() {
     primeExchangeRate(journalDate, rateType);
   }, [createOpen, journalDate, rateType, primeExchangeRate]);
 
+  /* ---- Line editing helpers ---- */
+
   function updateLine(idx: number, patch: Partial<LineDraft>) {
     setLines((prev) => {
       const next = [...prev];
@@ -286,15 +399,15 @@ export default function JournalsPage() {
 
   function applyUsd(idx: number, usd: string) {
     const rate = toNum(exchangeRate);
-    const n = toNum(usd);
-    const lbp = rate > 0 ? (n * rate).toFixed(2) : "";
+    const val = toNum(usd);
+    const lbp = rate > 0 ? (val * rate).toFixed(2) : "";
     updateLine(idx, { amount_usd: usd, amount_lbp: lbp });
   }
 
   function applyLbp(idx: number, lbp: string) {
     const rate = toNum(exchangeRate);
-    const n = toNum(lbp);
-    const usd = rate > 0 ? (n / rate).toFixed(4) : "";
+    const val = toNum(lbp);
+    const usd = rate > 0 ? (val / rate).toFixed(4) : "";
     updateLine(idx, { amount_lbp: lbp, amount_usd: usd });
   }
 
@@ -305,11 +418,7 @@ export default function JournalsPage() {
     if (!el) return;
     el.focus();
     if (el instanceof HTMLInputElement) {
-      try {
-        el.select();
-      } catch {
-        // no-op
-      }
+      try { el.select(); } catch { /* no-op */ }
     }
   }
 
@@ -338,6 +447,8 @@ export default function JournalsPage() {
     moveToNextLineField(lineIndex, field);
   }
 
+  /* ---- Actions ---- */
+
   async function createManualJournal(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
@@ -357,8 +468,8 @@ export default function JournalsPage() {
             amount_lbp: Number(l.amount_lbp || 0),
             memo: l.memo.trim() || null,
             cost_center_id: l.cost_center_id || null,
-            project_id: l.project_id || null
-          }))
+            project_id: l.project_id || null,
+          })),
       };
       const res = await apiPost<{ id: string; journal_no: string }>("/accounting/manual-journals", payload);
       setCreateOpen(false);
@@ -368,8 +479,7 @@ export default function JournalsPage() {
       await loadDetail(res.id);
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setCreating(false);
     }
@@ -380,411 +490,432 @@ export default function JournalsPage() {
     setReversing(true);
     setStatus("Reversing...");
     try {
-      const res = await apiPost<{ id: string; journal_no: string }>(`/accounting/journals/${detail.journal.id}/reverse`, {
-        memo: null
-      });
-      setReverseOpen(false);
+      const res = await apiPost<{ id: string; journal_no: string }>(
+        `/accounting/journals/${detail.journal.id}/reverse`,
+        { memo: null },
+      );
       await load();
       await loadDetail(res.id);
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setReversing(false);
     }
   }
 
+  /* ---- Render ---- */
+
   return (
-    <div className="ui-module-shell">
-        <div className="ui-module-head">
-          <div className="ui-module-head-row">
-            <div>
-              <p className="ui-module-kicker">Accounting</p>
-              <h1 className="ui-module-title">Journals</h1>
-              <p className="ui-module-subtitle">Review posted journals and create balanced manual entries.</p>
-            </div>
-          </div>
-        </div>
-        {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Journal List</CardTitle>
-              <CardDescription>{journals.length} recent journals (max 500)</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline">Filters</Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-xl">
-                      <DialogHeader>
-                        <DialogTitle>Filters</DialogTitle>
-                        <DialogDescription>Narrow down the journal list.</DialogDescription>
-                      </DialogHeader>
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="space-y-1 md:col-span-2">
-                          <label className="text-xs font-medium text-fg-muted">Search</label>
-                          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Journal no or memo..." />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-fg-muted">Start Date</label>
-                          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-fg-muted">End Date</label>
-                          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-1 md:col-span-2">
-                          <label className="text-xs font-medium text-fg-muted">Source Type</label>
-                          <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="manual_journal, sales_invoice..." />
-                        </div>
-                        <div className="flex justify-end md:col-span-2">
-                          <Button
-                            onClick={async () => {
-                              setFiltersOpen(false);
-                              await load();
-                            }}
-                          >
-                            Apply
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button variant="outline" onClick={load} disabled={loading}>
-                    {loading ? "Loading..." : "Refresh"}
-                  </Button>
+    <div className="mx-auto max-w-[1400px] space-y-6">
+      <PageHeader
+        title="Journals"
+        description="Review posted journals and create balanced manual entries."
+        actions={
+          <>
+            <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Filter className="mr-2 h-4 w-4" />
+                  Filters
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>Filter Journals</DialogTitle>
+                  <DialogDescription>Narrow down the journal list.</DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Search</Label>
+                    <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Journal no or memo..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Start Date</Label>
+                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Date</Label>
+                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Source Type</Label>
+                    <Input
+                      value={sourceType}
+                      onChange={(e) => setSourceType(e.target.value)}
+                      placeholder="manual_journal, sales_invoice..."
+                    />
+                  </div>
+                  <div className="flex justify-end sm:col-span-2">
+                    <Button onClick={async () => { setFiltersOpen(false); await load(); }}>Apply</Button>
+                  </div>
                 </div>
+              </DialogContent>
+            </Dialog>
 
-                <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                  <DialogTrigger asChild>
-                    <Button>New Manual Journal</Button>
-                  </DialogTrigger>
-                  <DialogContent className="w-[min(98vw,1200px)] max-w-none p-0">
-                    <DialogHeader className="border-b border-border-subtle bg-bg-elevated px-4 pb-4 pt-5 pr-14 sm:px-6">
-                      <DialogTitle className="text-2xl font-semibold tracking-tight">Manual Journal</DialogTitle>
-                      <DialogDescription className="max-w-4xl text-sm leading-relaxed text-fg-muted">
-                        Balanced dual-currency entry. Small rounding differences auto-balance to the ROUNDING account.
-                      </DialogDescription>
-                    </DialogHeader>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
 
-                    <datalist id="coa-accounts">
-                      {accounts.map((a) => (
-                        <option key={a.id} value={a.account_code}>
-                          {a.name_en || ""}
-                        </option>
-                      ))}
-                    </datalist>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Manual Journal
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="w-[min(98vw,1200px)] max-w-none p-0">
+                <DialogHeader className="border-b px-6 py-5">
+                  <DialogTitle className="text-xl font-semibold">Manual Journal</DialogTitle>
+                  <DialogDescription>
+                    Balanced dual-currency entry. Small rounding differences auto-balance to the ROUNDING account.
+                  </DialogDescription>
+                </DialogHeader>
 
-                    <form onSubmit={createManualJournal} className="space-y-5 px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5">
-                      <section className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-3 sm:p-4">
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                          <div className="space-y-1 md:col-span-3">
-                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Date</label>
-                            <Input
-                              autoFocus
-                              type="date"
-                              value={journalDate}
-                              onChange={(e) => {
-                                setJournalDate(e.target.value);
-                                primeExchangeRate(e.target.value, rateType);
-                              }}
-                            />
-                          </div>
-                          <div className="space-y-1 md:col-span-3">
-                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Rate Type</label>
-                            <Input
-                              value={rateType}
-                              onChange={(e) => {
-                                setRateType(e.target.value);
-                                primeExchangeRate(journalDate, e.target.value);
-                              }}
-                              placeholder="market"
-                            />
-                          </div>
-                          <div className="space-y-1 md:col-span-6">
-                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Exchange Rate (USD→LL)</label>
-                            <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" />
-                          </div>
-                          <div className="space-y-1 md:col-span-12">
-                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Memo (optional)</label>
-                            <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Why are we booking this?" />
-                          </div>
+                <datalist id="coa-accounts">
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.account_code}>
+                      {a.name_en || ""}
+                    </option>
+                  ))}
+                </datalist>
+
+                <form onSubmit={createManualJournal} className="space-y-5 px-6 pb-6 pt-5">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                        <div className="space-y-2 md:col-span-3">
+                          <Label>Date</Label>
+                          <Input
+                            autoFocus
+                            type="date"
+                            value={journalDate}
+                            onChange={(e) => {
+                              setJournalDate(e.target.value);
+                              primeExchangeRate(e.target.value, rateType);
+                            }}
+                          />
                         </div>
-                      </section>
-
-                      <section className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <h3 className="text-sm font-semibold text-foreground">Entry Lines</h3>
-                            <p className="text-xs text-fg-subtle">Use matching debit and credit totals before creating the journal.</p>
-                          </div>
-                          <Chip variant={isBalanced ? "success" : "danger"}>
-                            {isBalanced ? "Balanced" : "Out of balance"}
-                          </Chip>
+                        <div className="space-y-2 md:col-span-3">
+                          <Label>Rate Type</Label>
+                          <Input
+                            value={rateType}
+                            onChange={(e) => {
+                              setRateType(e.target.value);
+                              primeExchangeRate(journalDate, e.target.value);
+                            }}
+                            placeholder="market"
+                          />
                         </div>
+                        <div className="space-y-2 md:col-span-6">
+                          <Label>Exchange Rate (USD to LL)</Label>
+                          <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" />
+                        </div>
+                        <div className="space-y-2 md:col-span-12">
+                          <Label>Memo (optional)</Label>
+                          <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Why are we booking this?" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                        <div className="ui-table-scroll">
-                          <table className="ui-table min-w-[1100px]">
-                            <colgroup>
-                              <col className="w-[130px]" />
-                              <col className="w-[280px]" />
-                              <col className="w-[140px]" />
-                              <col className="w-[150px]" />
-                              <col className="w-[220px]" />
-                              <col className="w-[170px]" />
-                              <col className="w-[170px]" />
-                              <col className="w-[130px]" />
-                            </colgroup>
-                            <thead className="ui-thead">
-                              <tr>
-                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Side</th>
-                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Account</th>
-                                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">USD</th>
-                                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">LL</th>
-                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Memo</th>
-                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Cost Center</th>
-                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Project</th>
-                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {lines.map((l, idx) => {
-                                const acc = l.account_code ? accountByCode.get(l.account_code) : undefined;
-                                return (
-                                  <tr key={l.key} className="border-t border-border-subtle align-top">
-                                    <td className="px-3 py-2">
-                                      <select
-                                        className="ui-select h-10 min-w-[120px]"
-                                        data-line-index={idx}
-                                        data-line-field="side"
-                                        value={l.side}
-                                        onChange={(e) => updateLine(idx, { side: e.target.value as "debit" | "credit" })}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "side")}
-                                      >
-                                        <option value="debit">Debit</option>
-                                        <option value="credit">Credit</option>
-                                      </select>
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <Input
-                                        list="coa-accounts"
-                                        data-line-index={idx}
-                                        data-line-field="account_code"
-                                        value={l.account_code}
-                                        onChange={(e) => onAccountCodeChange(idx, e.target.value)}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "account_code")}
-                                        placeholder="Type account code..."
-                                      />
-                                      <div className="mt-1 min-h-[1rem] truncate text-xs text-fg-subtle">
-                                        {acc?.name_en || (l.account_code ? "Unknown account" : "")}
-                                      </div>
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <Input
-                                        className="text-right font-mono"
-                                        data-line-index={idx}
-                                        data-line-field="amount_usd"
-                                        value={l.amount_usd}
-                                        onChange={(e) => applyUsd(idx, e.target.value)}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "amount_usd")}
-                                        placeholder="0.0000"
-                                        inputMode="decimal"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <Input
-                                        className="text-right font-mono"
-                                        data-line-index={idx}
-                                        data-line-field="amount_lbp"
-                                        value={l.amount_lbp}
-                                        onChange={(e) => applyLbp(idx, e.target.value)}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "amount_lbp")}
-                                        placeholder="0.00"
-                                        inputMode="decimal"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <Input
-                                        data-line-index={idx}
-                                        data-line-field="memo"
-                                        value={l.memo}
-                                        onChange={(e) => updateLine(idx, { memo: e.target.value })}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "memo")}
-                                        placeholder="Line memo..."
-                                      />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <select
-                                        className="ui-select"
-                                        data-line-index={idx}
-                                        data-line-field="cost_center_id"
-                                        value={l.cost_center_id}
-                                        onChange={(e) => updateLine(idx, { cost_center_id: e.target.value })}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "cost_center_id")}
-                                      >
-                                        <option value="">-</option>
-                                        {costCenters
-                                          .filter((x) => x.is_active)
-                                          .map((x) => (
-                                            <option key={x.id} value={x.id}>
-                                              {x.code} {x.name ? `- ${x.name}` : ""}
-                                            </option>
-                                          ))}
-                                      </select>
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <select
-                                        className="ui-select"
-                                        data-line-index={idx}
-                                        data-line-field="project_id"
-                                        value={l.project_id}
-                                        onChange={(e) => updateLine(idx, { project_id: e.target.value })}
-                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "project_id")}
-                                      >
-                                        <option value="">-</option>
-                                        {projects
-                                          .filter((x) => x.is_active)
-                                          .map((x) => (
-                                            <option key={x.id} value={x.id}>
-                                              {x.code} {x.name ? `- ${x.name}` : ""}
-                                            </option>
-                                          ))}
-                                      </select>
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
-                                        disabled={lines.length <= 2}
-                                      >
-                                        Remove
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                            <tfoot className="border-t border-border bg-bg-sunken/20">
-                              <tr>
-                                <td className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle" colSpan={2}>
-                                  Totals
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-semibold">Entry Lines</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Use matching debit and credit totals before creating the journal.
+                        </p>
+                      </div>
+                      <Badge variant={isBalanced ? "success" : "destructive"}>
+                        {isBalanced ? "Balanced" : "Out of balance"}
+                      </Badge>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full min-w-[1100px]">
+                        <colgroup>
+                          <col className="w-[130px]" />
+                          <col className="w-[280px]" />
+                          <col className="w-[140px]" />
+                          <col className="w-[150px]" />
+                          <col className="w-[220px]" />
+                          <col className="w-[170px]" />
+                          <col className="w-[170px]" />
+                          <col className="w-[80px]" />
+                        </colgroup>
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Side</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Account</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">USD</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">LL</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Memo</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Cost Center</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Project</th>
+                            <th className="px-3 py-2.5" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lines.map((l, idx) => {
+                            const acc = l.account_code ? accountByCode.get(l.account_code) : undefined;
+                            return (
+                              <tr key={l.key} className="border-b align-top">
+                                <td className="px-3 py-2">
+                                  <select
+                                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                    data-line-index={idx}
+                                    data-line-field="side"
+                                    value={l.side}
+                                    onChange={(e) => updateLine(idx, { side: e.target.value as "debit" | "credit" })}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "side")}
+                                  >
+                                    <option value="debit">Debit</option>
+                                    <option value="credit">Credit</option>
+                                  </select>
                                 </td>
-                                <td className="px-3 py-3 text-right font-mono text-xs">
-                                  D {fmt(totals.dUsd, 4)} / C {fmt(totals.cUsd, 4)}
+                                <td className="px-3 py-2">
+                                  <Input
+                                    list="coa-accounts"
+                                    data-line-index={idx}
+                                    data-line-field="account_code"
+                                    value={l.account_code}
+                                    onChange={(e) => onAccountCodeChange(idx, e.target.value)}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "account_code")}
+                                    placeholder="Type account code..."
+                                    className="h-9"
+                                  />
+                                  <div className="mt-1 min-h-[1rem] truncate text-xs text-muted-foreground">
+                                    {acc?.name_en || (l.account_code ? "Unknown account" : "")}
+                                  </div>
                                 </td>
-                                <td className="px-3 py-3 text-right font-mono text-xs">
-                                  D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
+                                <td className="px-3 py-2">
+                                  <Input
+                                    className="h-9 text-right font-mono"
+                                    data-line-index={idx}
+                                    data-line-field="amount_usd"
+                                    value={l.amount_usd}
+                                    onChange={(e) => applyUsd(idx, e.target.value)}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "amount_usd")}
+                                    placeholder="0.0000"
+                                    inputMode="decimal"
+                                  />
                                 </td>
-                                <td className="px-3 py-3 text-xs text-fg-muted" colSpan={4}>
-                                  Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
+                                <td className="px-3 py-2">
+                                  <Input
+                                    className="h-9 text-right font-mono"
+                                    data-line-index={idx}
+                                    data-line-field="amount_lbp"
+                                    value={l.amount_lbp}
+                                    onChange={(e) => applyLbp(idx, e.target.value)}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "amount_lbp")}
+                                    placeholder="0.00"
+                                    inputMode="decimal"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input
+                                    className="h-9"
+                                    data-line-index={idx}
+                                    data-line-field="memo"
+                                    value={l.memo}
+                                    onChange={(e) => updateLine(idx, { memo: e.target.value })}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "memo")}
+                                    placeholder="Line memo..."
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <select
+                                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                    data-line-index={idx}
+                                    data-line-field="cost_center_id"
+                                    value={l.cost_center_id}
+                                    onChange={(e) => updateLine(idx, { cost_center_id: e.target.value })}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "cost_center_id")}
+                                  >
+                                    <option value="">-</option>
+                                    {costCenters
+                                      .filter((x) => x.is_active)
+                                      .map((x) => (
+                                        <option key={x.id} value={x.id}>
+                                          {x.code} {x.name ? `- ${x.name}` : ""}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <select
+                                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                    data-line-index={idx}
+                                    data-line-field="project_id"
+                                    value={l.project_id}
+                                    onChange={(e) => updateLine(idx, { project_id: e.target.value })}
+                                    onKeyDown={(e) => handleLineKeyDown(e, idx, "project_id")}
+                                  >
+                                    <option value="">-</option>
+                                    {projects
+                                      .filter((x) => x.is_active)
+                                      .map((x) => (
+                                        <option key={x.id} value={x.id}>
+                                          {x.code} {x.name ? `- ${x.name}` : ""}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
+                                    disabled={lines.length <= 2}
+                                  >
+                                    Remove
+                                  </Button>
                                 </td>
                               </tr>
-                            </tfoot>
-                          </table>
-                        </div>
-                      </section>
-
-                      <div className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-bg-sunken/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                        <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setLines((prev) => [...prev, createLineDraft("debit")])}>
-                          Add Line
-                        </Button>
-                        <Button type="submit" disabled={creating} className="w-full min-w-[180px] sm:w-auto">
-                          {creating ? "..." : "Create Journal"}
-                        </Button>
-                      </div>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              </div>
-
-              <DataTable<JournalRow>
-                tableId="accounting.journals.list"
-                rows={journals}
-                columns={journalColumns}
-                isLoading={loading}
-                onRowClick={(j) => loadDetail(j.id)}
-                getRowId={(j) => j.id}
-                initialSort={{ columnId: "journal_date", dir: "desc" }}
-                globalFilterPlaceholder="Search journal no / memo / source..."
-                emptyText={loading ? "Loading..." : "No journals."}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Journal Detail</CardTitle>
-              <CardDescription>{loadingDetail ? "Loading journal..." : detail ? detail.journal.journal_no : "Select a journal to inspect entries."}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {detail ? (
-                <>
-                  <div className="rounded-md border border-border bg-bg-elevated p-3 text-sm">
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <div>
-                        <div className="text-sm text-fg-subtle">Date</div>
-                        <div className="font-mono text-sm">{detail.journal.journal_date}</div>
-                      </div>
-                      <div>
-                        <div className="text-sm text-fg-subtle">Source</div>
-                        <div className="text-sm text-fg-muted">{detail.journal.source_type || "-"}</div>
-                      </div>
-                      <div className="md:col-span-2">
-                        <div className="text-sm text-fg-subtle">Memo</div>
-                        <div className="text-sm text-fg-muted">{detail.journal.memo || "-"}</div>
-                      </div>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t bg-muted/30">
+                            <td className="px-3 py-2.5 text-xs font-medium text-muted-foreground" colSpan={2}>
+                              Totals
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-xs">
+                              D {fmt(totals.dUsd, 4)} / C {fmt(totals.cUsd, 4)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-xs">
+                              D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-muted-foreground" colSpan={4}>
+                              Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <Button variant="outline" onClick={() => loadDetail(detail.journal.id)} disabled={loadingDetail}>
-                      {loadingDetail ? "Loading..." : "Refresh"}
+                  <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLines((prev) => [...prev, createLineDraft("debit")])}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Line
                     </Button>
-                    <Dialog open={reverseOpen} onOpenChange={setReverseOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="secondary">Reverse</Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Reverse Journal</DialogTitle>
-                          <DialogDescription>This creates a new journal with inverted debits/credits.</DialogDescription>
-                        </DialogHeader>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" onClick={() => setReverseOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button onClick={reverseSelected} disabled={reversing}>
-                            {reversing ? "..." : "Reverse"}
-                          </Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                    <Button type="submit" disabled={creating} className="min-w-[180px]">
+                      {creating ? "Creating..." : "Create Journal"}
+                    </Button>
                   </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
 
-                  <DataTable<JournalEntry>
-                    tableId={`accounting.journals.${detail.journal.id}.entries`}
-                    rows={detail.entries}
-                    columns={entryColumns}
-                    isLoading={loadingDetail}
-                    initialSort={{ columnId: "account", dir: "asc" }}
-                    globalFilterPlaceholder="Search account / dims..."
-                    emptyText={loadingDetail ? "Loading..." : "No entries."}
+      {status && !statusIsBusy && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
+        {/* Journal List */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Journal List</CardTitle>
+            <p className="text-sm text-muted-foreground">{journals.length} recent journals (max 500)</p>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={journalColumns}
+              data={journals}
+              isLoading={loading}
+              searchPlaceholder="Search journal no / memo / source..."
+              onRowClick={(j) => loadDetail(j.id)}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Journal Detail */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Journal Detail</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {loadingDetail ? "Loading journal..." : detail ? detail.journal.journal_no : "Select a journal to inspect entries."}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {detail ? (
+              <>
+                <Card className="bg-muted/30">
+                  <CardContent className="pt-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Date</p>
+                        <p className="font-mono text-sm">{detail.journal.journal_date}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Source</p>
+                        <p className="text-sm">{detail.journal.source_type || "-"}</p>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <p className="text-xs text-muted-foreground">Memo</p>
+                        <p className="text-sm">{detail.journal.memo || "-"}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="flex items-center justify-between gap-2">
+                  <Button variant="outline" size="sm" onClick={() => loadDetail(detail.journal.id)} disabled={loadingDetail}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${loadingDetail ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                  <ConfirmDialog
+                    title="Reverse Journal"
+                    description="This creates a new journal with inverted debits/credits."
+                    confirmLabel={reversing ? "Reversing..." : "Reverse"}
+                    variant="destructive"
+                    onConfirm={reverseSelected}
+                    trigger={
+                      <Button variant="outline" size="sm">
+                        <RotateCcw className="mr-2 h-4 w-4" />
+                        Reverse
+                      </Button>
+                    }
                   />
-                </>
-              ) : (
-                <p className="text-sm text-fg-muted">Pick a journal from the list to see entries.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>);
+                </div>
+
+                <DataTable
+                  columns={entryColumns}
+                  data={detail.entries}
+                  isLoading={loadingDetail}
+                  searchPlaceholder="Search account / dims..."
+                  pageSize={50}
+                />
+              </>
+            ) : (
+              <EmptyState
+                icon={BookOpen}
+                title="No journal selected"
+                description="Pick a journal from the list to see entries."
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }

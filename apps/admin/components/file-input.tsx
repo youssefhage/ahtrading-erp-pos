@@ -113,8 +113,8 @@ export function FileInput(props: Props) {
       </Button>
 
       <div className="min-w-0 flex-1">
-        <div className={cn("truncate text-sm", label ? "text-foreground" : "text-fg-muted")}>{label || placeholder}</div>
-        {meta ? <div className="truncate text-sm text-fg-subtle">{meta}</div> : null}
+        <div className={cn("truncate text-sm", label ? "text-foreground" : "text-muted-foreground")}>{label || placeholder}</div>
+        {meta ? <div className="truncate text-sm text-muted-foreground">{meta}</div> : null}
       </div>
 
       {showClear && !!label ? (
@@ -123,8 +123,8 @@ export function FileInput(props: Props) {
           onClick={clear}
           disabled={disabled}
           className={cn(
-            "inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-bg-elevated text-fg-muted transition-colors",
-            "hover:border-border-strong hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            "inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors",
+            "hover:border hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           )}
           aria-label="Clear selected file"
           title="Clear"

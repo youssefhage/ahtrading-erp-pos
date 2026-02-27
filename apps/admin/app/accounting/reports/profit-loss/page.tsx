@@ -2,15 +2,22 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw, Printer, Download } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { KpiCard } from "@/components/business/kpi-card";
+import { CurrencyDisplay } from "@/components/business/currency-display";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Badge } from "@/components/ui/badge";
+
+/* ---------- types ---------- */
 
 type PlRow = {
   account_code: string;
@@ -32,6 +39,8 @@ type PlRes = {
   rows: PlRow[];
 };
 
+/* ---------- helpers ---------- */
+
 function todayIso() {
   const d = new Date();
   const y = d.getFullYear();
@@ -47,26 +56,34 @@ function monthStartIso() {
   return `${y}-${m}-01`;
 }
 
+function toNum(v: unknown) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/* ---------- page ---------- */
+
 export default function ProfitLossPage() {
-  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [data, setData] = useState<PlRes | null>(null);
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [startDate, setStartDate] = useState(monthStartIso());
   const [endDate, setEndDate] = useState(todayIso());
 
   const load = useCallback(async () => {
-    setStatus("");
+    setError("");
+    setLoading(true);
     try {
       const params = new URLSearchParams();
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
       const res = await apiGet<PlRes>(`/reports/profit-loss?${params.toString()}`);
       setData(res);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }, [startDate, endDate]);
 
@@ -74,156 +91,150 @@ export default function ProfitLossPage() {
     load();
   }, [load]);
 
-  const columns = useMemo((): Array<DataTableColumn<PlRow>> => {
-    return [
-      { id: "kind", header: "Kind", accessor: (r) => r.kind, sortable: true, globalSearch: false },
-      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
-      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "-", sortable: true },
-      {
-        id: "amount_usd",
-        header: "USD",
-        accessor: (r) => Number(r.amount_usd || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.amount_usd)}</span>,
-      },
-      {
-        id: "amount_lbp",
-        header: "LL",
-        accessor: (r) => Number(r.amount_lbp || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.amount_lbp)}</span>,
-      },
-    ];
-  }, []);
-
-  const netProfitUsd = Number(data?.net_profit_usd || 0);
-  const netProfitTone = netProfitUsd < 0 ? "danger" : netProfitUsd > 0 ? "success" : "info";
   const printQuery = useMemo(() => {
     const qs = new URLSearchParams();
     if (startDate) qs.set("start_date", startDate);
     if (endDate) qs.set("end_date", endDate);
     const s = qs.toString();
     return s ? `?${s}` : "";
-  }, [endDate, startDate]);
+  }, [startDate, endDate]);
+
+  const netProfitUsd = toNum(data?.net_profit_usd);
+  const netTrend = netProfitUsd > 0 ? "up" as const : netProfitUsd < 0 ? "down" as const : "neutral" as const;
+
+  const columns = useMemo<ColumnDef<PlRow>[]>(() => [
+    {
+      id: "kind",
+      accessorFn: (r) => r.kind,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Kind" />,
+      cell: ({ row }) => (
+        <Badge variant={row.original.kind === "revenue" ? "success" : "warning"}>
+          {row.original.kind === "revenue" ? "Revenue" : "Expense"}
+        </Badge>
+      ),
+      filterFn: "equals",
+    },
+    {
+      id: "account_code",
+      accessorFn: (r) => r.account_code,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.account_code}</span>,
+    },
+    {
+      id: "name_en",
+      accessorFn: (r) => r.name_en || "-",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Account" />,
+    },
+    {
+      id: "amount_usd",
+      accessorFn: (r) => toNum(r.amount_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
+      cell: ({ row }) => (
+        <div className="text-right">
+          <CurrencyDisplay amount={toNum(row.original.amount_usd)} currency="USD" className="font-mono text-sm" />
+        </div>
+      ),
+    },
+    {
+      id: "amount_lbp",
+      accessorFn: (r) => toNum(r.amount_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
+      cell: ({ row }) => (
+        <div className="text-right">
+          <CurrencyDisplay amount={toNum(row.original.amount_lbp)} currency="LBP" className="font-mono text-sm" />
+        </div>
+      ),
+    },
+  ], []);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Summary</CardTitle>
-          <CardDescription>
-            Period:{" "}
-            <span className="font-mono text-xs">
-              {data?.start_date || startDate} → {data?.end_date || endDate}
-            </span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="ui-kpi-grid w-full max-w-4xl">
-              <div className="ui-kpi-card" data-tone="success">
-                <div className="ui-kpi-label">Revenue</div>
-                <div className="ui-kpi-value">{fmtUsdMaybe(data?.revenue_usd)}</div>
-                <div className="ui-kpi-subvalue">
-                  {fmtLbpMaybe(data?.revenue_lbp, { dashIfZero: Number(data?.revenue_usd || 0) !== 0 })}
-                </div>
-              </div>
-              <div className="ui-kpi-card" data-tone="warning">
-                <div className="ui-kpi-label">Expenses</div>
-                <div className="ui-kpi-value">{fmtUsdMaybe(data?.expense_usd)}</div>
-                <div className="ui-kpi-subvalue">
-                  {fmtLbpMaybe(data?.expense_lbp, { dashIfZero: Number(data?.expense_usd || 0) !== 0 })}
-                </div>
-              </div>
-              <div className="ui-kpi-card" data-tone={netProfitTone}>
-                <div className="ui-kpi-label">Net Profit</div>
-                <div className="ui-kpi-value">{fmtUsdMaybe(data?.net_profit_usd)}</div>
-                <div className="ui-kpi-subvalue">
-                  {fmtLbpMaybe(data?.net_profit_lbp, { dashIfZero: Number(data?.net_profit_usd || 0) !== 0 })}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Button asChild variant="outline">
-                <Link
-                  href={`/accounting/reports/profit-loss/print${printQuery}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Print / PDF
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <a
-                  href={`/exports/reports/profit-loss/pdf${printQuery}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Download PDF
-                </a>
-              </Button>
-              <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline">Filters</Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-xl">
-                  <DialogHeader>
-                    <DialogTitle>Report Filters</DialogTitle>
-                    <DialogDescription>Select the P&L period.</DialogDescription>
-                  </DialogHeader>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Start Date</label>
-                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">End Date</label>
-                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                    </div>
-                    <div className="flex justify-end md:col-span-2">
-                      <Button
-                        onClick={async () => {
-                          setFiltersOpen(false);
-                          await load();
-                        }}
-                      >
-                        Apply
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
+      <PageHeader
+        title="Profit & Loss"
+        description={`Period: ${data?.start_date || startDate} to ${data?.end_date || endDate}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/accounting/reports/profit-loss/print${printQuery}`} target="_blank" rel="noopener noreferrer">
+                <Printer className="mr-2 h-4 w-4" />
+                Print
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <a href={`/exports/reports/profit-loss/pdf${printQuery}`} target="_blank" rel="noopener noreferrer">
+                <Download className="mr-2 h-4 w-4" />
+                PDF
+              </a>
+            </Button>
           </div>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <Button variant="link" size="sm" className="ml-2" onClick={load}>Retry</Button>
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-4 pt-6">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Start Date</label>
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-[180px]" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">End Date</label>
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-[180px]" />
+          </div>
+          <Button onClick={load} disabled={loading}>Apply</Button>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Details</CardTitle>
-          <CardDescription>{data?.rows?.length || 0} accounts</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<PlRow>
-            tableId="accounting.reports.profit_loss"
-            rows={data?.rows || []}
-            columns={columns}
-            initialSort={{ columnId: "amount_usd", dir: "desc" }}
-            globalFilterPlaceholder="Search account..."
-            emptyText="No rows."
-          />
-        </CardContent>
-      </Card>
+      {/* KPI cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <KpiCard
+          title="Revenue"
+          value={fmtUsdMaybe(data?.revenue_usd)}
+          description={fmtLbpMaybe(data?.revenue_lbp, { dashIfZero: toNum(data?.revenue_usd) !== 0 })}
+          trend="up"
+        />
+        <KpiCard
+          title="Expenses"
+          value={fmtUsdMaybe(data?.expense_usd)}
+          description={fmtLbpMaybe(data?.expense_lbp, { dashIfZero: toNum(data?.expense_usd) !== 0 })}
+          trend="down"
+        />
+        <KpiCard
+          title="Net Profit"
+          value={fmtUsdMaybe(data?.net_profit_usd)}
+          description={fmtLbpMaybe(data?.net_profit_lbp, { dashIfZero: toNum(data?.net_profit_usd) !== 0 })}
+          trend={netTrend}
+        />
+      </div>
+
+      {/* Data table */}
+      <DataTable
+        columns={columns}
+        data={data?.rows || []}
+        isLoading={loading}
+        searchPlaceholder="Search account..."
+        filterableColumns={[
+          {
+            id: "kind",
+            title: "Kind",
+            options: [
+              { label: "Revenue", value: "revenue" },
+              { label: "Expense", value: "expense" },
+            ],
+          },
+        ]}
+      />
     </div>
   );
 }

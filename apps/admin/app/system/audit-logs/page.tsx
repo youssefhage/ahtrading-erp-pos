@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { FileSearch, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
 import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
 
 type AuditLogRow = {
   id: string;
@@ -64,110 +67,124 @@ export default function AuditLogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const columns = useMemo((): Array<DataTableColumn<AuditLogRow>> => {
-    return [
+  const columns = useMemo<ColumnDef<AuditLogRow>[]>(
+    () => [
       {
         id: "created_at",
-        header: "Time",
-        accessor: (r) => r.created_at,
-        sortable: true,
-        mono: true,
-        cell: (r) => <span className="text-xs text-fg-subtle">{formatDateTime(r.created_at)}</span>,
+        accessorFn: (r) => r.created_at,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Time" />,
+        cell: ({ row }) => <span className="font-mono text-sm text-muted-foreground">{formatDateTime(row.original.created_at)}</span>,
       },
       {
-        id: "action",
-        header: "Action",
-        accessor: (r) => r.action,
-        sortable: true,
-        cell: (r) => <span className="text-sm text-fg-muted">{r.action}</span>,
+        accessorKey: "action",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Action" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.action}</span>,
       },
       {
         id: "entity",
-        header: "Entity",
-        accessor: (r) => `${r.entity_type} ${r.entity_id}`,
-        cell: (r) => (
-          <div className="text-fg-muted">
-            <div className="text-sm">{r.entity_type}</div>
-            <div className="text-fg-subtle data-mono text-xs">{r.entity_id}</div>
+        accessorFn: (r) => `${r.entity_type} ${r.entity_id}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Entity" />,
+        cell: ({ row }) => (
+          <div>
+            <div className="text-sm">{row.original.entity_type}</div>
+            <div className="font-mono text-xs text-muted-foreground">{row.original.entity_id}</div>
           </div>
         ),
       },
       {
         id: "user",
-        header: "User",
-        accessor: (r) => r.user_email || r.user_id || "",
-        cell: (r) => <span className="text-sm text-fg-subtle">{r.user_email || r.user_id || "-"}</span>,
+        accessorFn: (r) => r.user_email || r.user_id || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="User" />,
+        cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.user_email || row.original.user_id || "-"}</span>,
       },
       {
         id: "details",
         header: "Details",
-        accessor: (r) => "",
-        globalSearch: false,
-        defaultHidden: true,
-        cell: (r) => <ViewRaw value={r.details ?? {}} label="Details" />,
+        cell: ({ row }) => <ViewRaw value={row.original.details ?? {}} label="Details" />,
       },
-      {
-        id: "id",
-        header: "ID",
-        accessor: (r) => r.id,
-        mono: true,
-        globalSearch: false,
-        defaultHidden: true,
-        cell: (r) => <span className="text-xs text-fg-subtle">{r.id}</span>,
-      },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
   return (
-    <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Audit Logs"
         description="Read-only audit feed. Use filters to narrow down to a document or action."
         actions={
-          <Button variant="outline" onClick={load} disabled={loading}>
-            {loading ? "Loading..." : "Refresh"}
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
         }
       />
 
-      <Section title="Filters" description="Filter by entity, action prefix, and user.">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Entity Type</label>
-            <Input value={entityType} onChange={(e) => setEntityType(e.target.value)} placeholder="sales_invoice" />
-          </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Entity ID</label>
-            <Input value={entityId} onChange={(e) => setEntityId(e.target.value)} placeholder="uuid" />
-          </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Action Prefix</label>
-            <Input value={actionPrefix} onChange={(e) => setActionPrefix(e.target.value)} placeholder="sales." />
-          </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">User ID</label>
-            <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="uuid" />
-          </div>
-          <div className="space-y-1 md:col-span-1">
-            <label className="text-xs font-medium text-fg-muted">Limit</label>
-            <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
-          </div>
-        </div>
-      </Section>
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-      <Section title="Entries" description="Most recent first.">
-        <DataTable<AuditLogRow>
-          tableId="system.auditLogs"
-          rows={rows}
-          columns={columns}
-          isLoading={loading}
-          emptyText={loading ? "Loading..." : "No audit logs found."}
-          globalFilterPlaceholder="Search action / entity / user..."
-          initialSort={{ columnId: "created_at", dir: "desc" }}
-        />
-      </Section>
-    </Page>
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileSearch className="h-4 w-4" />
+            Filters
+          </CardTitle>
+          <CardDescription>Filter by entity, action prefix, and user.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Entity Type</label>
+              <Input value={entityType} onChange={(e) => setEntityType(e.target.value)} placeholder="sales_invoice" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Entity ID</label>
+              <Input value={entityId} onChange={(e) => setEntityId(e.target.value)} placeholder="uuid" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Action Prefix</label>
+              <Input value={actionPrefix} onChange={(e) => setActionPrefix(e.target.value)} placeholder="sales." />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">User ID</label>
+              <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="uuid" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Limit</label>
+              <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={load} disabled={loading}>
+              {loading ? "Loading..." : "Apply Filters"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Entries */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Entries</CardTitle>
+          <CardDescription>Most recent first. {rows.length} row(s) loaded.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={rows}
+            isLoading={loading}
+            searchPlaceholder="Search action / entity / user..."
+          />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

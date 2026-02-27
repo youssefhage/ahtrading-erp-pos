@@ -1,15 +1,43 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, Plus, RefreshCw, Tag } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ShortcutLink } from "@/components/shortcut-link";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 type ItemRow = { id: string; sku: string; name: string; barcode: string | null };
 
@@ -38,12 +66,17 @@ type PromotionItemRow = {
   updated_at: string;
 };
 
-export default function PromotionsPage() {
-  const [status, setStatus] = useState("");
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
 
+export default function PromotionsPage() {
   const [items, setItems] = useState<ItemRow[]>([]);
   const [promos, setPromos] = useState<PromotionRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
+  /* ---- Create promo ---- */
   const [createOpen, setCreateOpen] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -53,6 +86,7 @@ export default function PromotionsPage() {
   const [active, setActive] = useState(true);
   const [creating, setCreating] = useState(false);
 
+  /* ---- Edit promo ---- */
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState("");
   const [editCode, setEditCode] = useState("");
@@ -63,6 +97,7 @@ export default function PromotionsPage() {
   const [editActive, setEditActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  /* ---- Promo items dialog ---- */
   const [itemsOpen, setItemsOpen] = useState(false);
   const [itemsPromo, setItemsPromo] = useState<PromotionRow | null>(null);
   const [promoItems, setPromoItems] = useState<PromotionItemRow[]>([]);
@@ -74,12 +109,34 @@ export default function PromotionsPage() {
   const [addDisc, setAddDisc] = useState("");
   const [adding, setAdding] = useState(false);
 
+  /* ---- Lookups ---- */
   const itemBySku = useMemo(() => {
     const m = new Map<string, ItemRow>();
     for (const it of items) m.set((it.sku || "").toUpperCase(), it);
     return m;
   }, [items]);
 
+  /* ---- Load ---- */
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const [p, it] = await Promise.all([
+        apiGet<{ promotions: PromotionRow[] }>("/promotions"),
+        apiGet<{ items: ItemRow[] }>("/items/min"),
+      ]);
+      setPromos(p.promotions || []);
+      setItems(it.items || []);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  /* ---- Edit ---- */
   const openEdit = useCallback((p: PromotionRow) => {
     setEditId(p.id);
     setEditCode(p.code || "");
@@ -91,6 +148,7 @@ export default function PromotionsPage() {
     setEditOpen(true);
   }, []);
 
+  /* ---- Promo items ---- */
   const openPromotionItems = useCallback(async (p: PromotionRow) => {
     setItemsPromo(p);
     setPromoItems([]);
@@ -101,205 +159,41 @@ export default function PromotionsPage() {
     setAddLbp("");
     setAddDisc("");
     setItemsOpen(true);
-    setStatus("Loading promotion items...");
     try {
       const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${p.id}/items`);
       setPromoItems(res.items || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     }
   }, []);
 
-  const deletePromotionItem = useCallback(
-    async (id: string) => {
-      if (!itemsPromo) return;
-      setStatus("Deleting...");
-      try {
-        await apiDelete(`/promotions/items/${encodeURIComponent(id)}`);
-        const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${itemsPromo.id}/items`);
-        setPromoItems(res.items || []);
-        setStatus("");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setStatus(message);
-      }
-    },
-    [itemsPromo]
-  );
-
-  const promoColumns = useMemo((): Array<DataTableColumn<PromotionRow>> => {
-    return [
-      {
-        id: "code",
-        header: "Code",
-        sortable: true,
-        mono: true,
-        accessor: (p) => p.code,
-        cell: (p) => <span className="font-mono text-xs">{p.code}</span>,
-      },
-      {
-        id: "name",
-        header: "Name",
-        sortable: true,
-        accessor: (p) => p.name,
-        cell: (p) => <span className="text-sm">{p.name}</span>,
-      },
-      {
-        id: "dates",
-        header: "Dates",
-        sortable: true,
-        mono: true,
-        accessor: (p) => `${p.starts_on || ""} ${p.ends_on || ""}`,
-        cell: (p) => <span className="text-xs text-fg-muted">{(p.starts_on || "-") + " → " + (p.ends_on || "-")}</span>,
-      },
-      {
-        id: "priority",
-        header: "Priority",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (p) => Number(p.priority || 0),
-        cell: (p) => <span className="font-mono text-xs">{Number(p.priority || 0)}</span>,
-      },
-      {
-        id: "active",
-        header: "Active",
-        sortable: true,
-        accessor: (p) => (p.is_active ? 1 : 0),
-        cell: (p) => <span className="text-xs">{p.is_active ? "Yes" : "No"}</span>,
-      },
-      {
-        id: "actions",
-        header: "Actions",
-        align: "right",
-        sortable: false,
-        accessor: (p) => p.id,
-        cell: (p) => (
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => openPromotionItems(p)}>
-              Items
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => openEdit(p)}>
-              Edit
-            </Button>
-          </div>
-        ),
-      },
-    ];
-  }, [openEdit, openPromotionItems]);
-
-  const promoItemColumns = useMemo((): Array<DataTableColumn<PromotionItemRow>> => {
-    return [
-      {
-        id: "sku",
-        header: "SKU",
-        sortable: true,
-        mono: true,
-        accessor: (pi) => pi.sku,
-        cell: (pi) => (
-          <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item" className="font-mono text-xs">
-            {pi.sku}
-          </ShortcutLink>
-        ),
-      },
-      {
-        id: "item",
-        header: "Item",
-        sortable: true,
-        accessor: (pi) => pi.name,
-        cell: (pi) => (
-          <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item">
-            {pi.name}
-          </ShortcutLink>
-        ),
-      },
-      {
-        id: "min_qty",
-        header: "Min Qty",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (pi) => Number(pi.min_qty || 0),
-        cell: (pi) => <span className="font-mono text-xs">{Number(pi.min_qty || 0).toLocaleString("en-US")}</span>,
-      },
-      {
-        id: "promo_price_usd",
-        header: "Promo USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (pi) => Number(pi.promo_price_usd || 0),
-        cell: (pi) => <span className="font-mono text-xs">{Number(pi.promo_price_usd || 0).toFixed(2)}</span>,
-      },
-      {
-        id: "promo_price_lbp",
-        header: "Promo LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (pi) => Number(pi.promo_price_lbp || 0),
-        cell: (pi) => <span className="font-mono text-xs">{Number(pi.promo_price_lbp || 0).toLocaleString("en-US")}</span>,
-      },
-      {
-        id: "discount_pct",
-        header: "Discount %",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (pi) => Number(pi.discount_pct || 0),
-        cell: (pi) => <span className="font-mono text-xs">{(Number(pi.discount_pct || 0) * 100).toFixed(2)}%</span>,
-      },
-      {
-        id: "actions",
-        header: "Actions",
-        align: "right",
-        sortable: false,
-        accessor: (pi) => pi.id,
-        cell: (pi) => (
-          <Button type="button" variant="outline" size="sm" onClick={() => deletePromotionItem(pi.id)}>
-            Delete
-          </Button>
-        ),
-      },
-    ];
-  }, [deletePromotionItem]);
-
-  async function load() {
-    setStatus("Loading...");
+  const deletePromotionItem = useCallback(async (id: string) => {
+    if (!itemsPromo) return;
+    setErr(null);
     try {
-      const [p, it] = await Promise.all([
-        apiGet<{ promotions: PromotionRow[] }>("/promotions"),
-        apiGet<{ items: ItemRow[] }>("/items/min")
-      ]);
-      setPromos(p.promotions || []);
-      setItems(it.items || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      await apiDelete(`/promotions/items/${encodeURIComponent(id)}`);
+      const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${itemsPromo.id}/items`);
+      setPromoItems(res.items || []);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     }
-  }
+  }, [itemsPromo]);
 
-  useEffect(() => {
-    load();
-  }, []);
-
+  /* ---- Promo CRUD ---- */
   async function createPromotion(e: React.FormEvent) {
     e.preventDefault();
-    if (!code.trim()) return setStatus("code is required");
-    if (!name.trim()) return setStatus("name is required");
+    if (!code.trim()) return setErr("Code is required.");
+    if (!name.trim()) return setErr("Name is required.");
     setCreating(true);
-    setStatus("Creating...");
+    setErr(null);
     try {
       await apiPost<{ id: string }>("/promotions", {
         code: code.trim(),
         name: name.trim(),
-        starts_on: startsOn ? startsOn : null,
-        ends_on: endsOn ? endsOn : null,
+        starts_on: startsOn || null,
+        ends_on: endsOn || null,
         is_active: !!active,
-        priority: Number(priority || 0)
+        priority: Number(priority || 0),
       });
       setCreateOpen(false);
       setCode("");
@@ -309,10 +203,8 @@ export default function PromotionsPage() {
       setPriority("0");
       setActive(true);
       await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setCreating(false);
     }
@@ -321,25 +213,23 @@ export default function PromotionsPage() {
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editId) return;
-    if (!editCode.trim()) return setStatus("code is required");
-    if (!editName.trim()) return setStatus("name is required");
+    if (!editCode.trim()) return setErr("Code is required.");
+    if (!editName.trim()) return setErr("Name is required.");
     setSaving(true);
-    setStatus("Saving...");
+    setErr(null);
     try {
       await apiPatch(`/promotions/${editId}`, {
         code: editCode.trim(),
         name: editName.trim(),
-        starts_on: editStartsOn ? editStartsOn : null,
-        ends_on: editEndsOn ? editEndsOn : null,
+        starts_on: editStartsOn || null,
+        ends_on: editEndsOn || null,
         is_active: !!editActive,
-        priority: Number(editPriority || 0)
+        priority: Number(editPriority || 0),
       });
       setEditOpen(false);
       await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -355,24 +245,23 @@ export default function PromotionsPage() {
   async function addPromotionItem(e: React.FormEvent) {
     e.preventDefault();
     if (!itemsPromo) return;
-    if (!addItemId) return setStatus("Pick a valid SKU / item.");
+    if (!addItemId) return setErr("Pick a valid SKU / item.");
     const min = Number(addMinQty || 0);
-    if (!Number.isFinite(min) || min <= 0) return setStatus("min_qty must be > 0");
+    if (!Number.isFinite(min) || min <= 0) return setErr("Min qty must be > 0.");
     const usd = Number(addUsd || 0);
     const lbp = Number(addLbp || 0);
     const disc = Number(addDisc || 0);
-    if (usd <= 0 && lbp <= 0 && disc <= 0) return setStatus("Set promo_price_usd, promo_price_lbp, or discount_pct.");
-    if (disc < 0 || disc > 1) return setStatus("discount_pct must be between 0 and 1 (e.g. 0.10)");
-
+    if (usd <= 0 && lbp <= 0 && disc <= 0) return setErr("Set promo price (USD or LL) or discount %.");
+    if (disc < 0 || disc > 1) return setErr("Discount % must be between 0 and 1 (e.g. 0.10).");
     setAdding(true);
-    setStatus("Saving promo rule...");
+    setErr(null);
     try {
       await apiPost(`/promotions/${itemsPromo.id}/items`, {
         item_id: addItemId,
         min_qty: min,
         promo_price_usd: usd,
         promo_price_lbp: lbp,
-        discount_pct: disc
+        discount_pct: disc,
       });
       const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${itemsPromo.id}/items`);
       setPromoItems(res.items || []);
@@ -382,194 +271,364 @@ export default function PromotionsPage() {
       setAddUsd("");
       setAddLbp("");
       setAddDisc("");
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setAdding(false);
     }
   }
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+  /* ---- Columns: promotions ---- */
+  const promoColumns = useMemo<ColumnDef<PromotionRow>[]>(() => [
+    {
+      accessorKey: "code",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+      cell: ({ row }) => <span className="font-mono text-xs font-medium">{row.original.code}</span>,
+    },
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+    },
+    {
+      accessorFn: (p) => `${p.starts_on || ""} ${p.ends_on || ""}`,
+      id: "dates",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Dates" />,
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.starts_on || "---"} to {row.original.ends_on || "---"}
+        </span>
+      ),
+    },
+    {
+      accessorFn: (p) => Number(p.priority || 0),
+      id: "priority",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Priority" />,
+      cell: ({ row }) => <Badge variant="secondary" className="font-mono text-xs">{Number(row.original.priority || 0)}</Badge>,
+    },
+    {
+      accessorFn: (p) => (p.is_active ? "active" : "inactive"),
+      id: "status",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+      cell: ({ row }) => <StatusBadge status={row.original.is_active ? "active" : "inactive"} />,
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => {
+        const p = row.original;
+        return (
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => openPromotionItems(p)}>
+              Items
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openEdit(p)}>
+              Edit
+            </Button>
+          </div>
+        );
+      },
+    },
+  ], [openEdit, openPromotionItems]);
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Promotions</CardTitle>
-            <CardDescription>{promos.length} active/inactive promos</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
+  /* ---- Columns: promotion items ---- */
+  const promoItemColumns = useMemo<ColumnDef<PromotionItemRow>[]>(() => [
+    {
+      accessorKey: "sku",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
+      cell: ({ row }) => (
+        <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-mono text-xs text-primary hover:underline">
+          {row.original.sku}
+        </Link>
+      ),
+    },
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
+      cell: ({ row }) => (
+        <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-medium text-primary hover:underline">
+          {row.original.name}
+        </Link>
+      ),
+    },
+    {
+      accessorFn: (pi) => Number(pi.min_qty || 0),
+      id: "min_qty",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Min Qty" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{Number(row.original.min_qty || 0).toLocaleString("en-US")}</span>,
+    },
+    {
+      accessorFn: (pi) => Number(pi.promo_price_usd || 0),
+      id: "promo_usd",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Promo USD" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{Number(row.original.promo_price_usd || 0).toFixed(2)}</span>,
+    },
+    {
+      accessorFn: (pi) => Number(pi.promo_price_lbp || 0),
+      id: "promo_lbp",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Promo LL" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{Number(row.original.promo_price_lbp || 0).toLocaleString("en-US")}</span>,
+    },
+    {
+      accessorFn: (pi) => Number(pi.discount_pct || 0),
+      id: "discount_pct",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Discount %" />,
+      cell: ({ row }) => (
+        <span className="font-mono text-xs">{(Number(row.original.discount_pct || 0) * 100).toFixed(2)}%</span>
+      ),
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <ConfirmDialog
+            title="Delete Promotion Rule?"
+            description="This removes the item rule from this promotion."
+            confirmLabel="Delete"
+            variant="destructive"
+            onConfirm={() => deletePromotionItem(row.original.id)}
+            trigger={
+              <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                Delete
               </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>New Promotion</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Promotion</DialogTitle>
-                    <DialogDescription>Item tier pricing or discount rules for POS (offline).</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createPromotion} className="grid grid-cols-1 gap-3">
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Code</label>
-                        <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="BULK10" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Name</label>
-                        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bulk discount 10%" />
-                      </div>
+            }
+          />
+        </div>
+      ),
+    },
+  ], [deletePromotionItem]);
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-6">
+      <PageHeader
+        title="Promotions"
+        description={`${promos.length} promotion${promos.length === 1 ? "" : "s"}`}
+        actions={
+          <>
+            <Button variant="outline" onClick={load} disabled={loading}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) { setCode(""); setName(""); setStartsOn(""); setEndsOn(""); setPriority("0"); setActive(true); } }}>
+              <DialogTrigger asChild>
+                <Button><Plus className="mr-2 h-4 w-4" /> New Promotion</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Create Promotion</DialogTitle>
+                  <DialogDescription>Item tier pricing or discount rules for POS (offline-ready).</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createPromotion} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Code <span className="text-destructive">*</span></Label>
+                      <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="BULK10" />
                     </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Starts On</label>
-                        <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Ends On</label>
-                        <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Priority</label>
-                        <Input value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="0" />
-                      </div>
+                    <div className="space-y-2">
+                      <Label>Name <span className="text-destructive">*</span></Label>
+                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bulk discount 10%" />
                     </div>
-                    <label className="flex items-center gap-2 text-xs text-fg-muted">
-                      <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                      Active
-                    </label>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Starts On</Label>
+                      <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
                     </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-            <DataTable<PromotionRow>
-              tableId="catalog.promotions.list"
-              rows={promos}
-              columns={promoColumns}
-              getRowId={(r) => r.id}
-              emptyText="No promotions yet."
-              globalFilterPlaceholder="Search code / name"
-              initialSort={{ columnId: "priority", dir: "desc" }}
+                    <div className="space-y-2">
+                      <Label>Ends On</Label>
+                      <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Priority</Label>
+                      <Input value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="0" inputMode="numeric" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch checked={active} onCheckedChange={setActive} />
+                    <Label>Active</Label>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit" disabled={creating}>
+                      {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Create
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
+
+      {err ? <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert> : null}
+
+      {!loading && promos.length === 0 ? (
+        <Card>
+          <CardContent className="py-12">
+            <EmptyState
+              icon={Tag}
+              title="No promotions yet"
+              description="Create a promotion to set up tier pricing or discount rules for POS."
+              action={{ label: "New Promotion", onClick: () => setCreateOpen(true) }}
             />
           </CardContent>
         </Card>
-
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Promotion</DialogTitle>
-              <DialogDescription>Changes apply to POS after the next Sync.</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Code</label>
-                  <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Name</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Starts On</label>
-                  <Input type="date" value={editStartsOn} onChange={(e) => setEditStartsOn(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Ends On</label>
-                  <Input type="date" value={editEndsOn} onChange={(e) => setEditEndsOn(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Priority</label>
-                  <Input value={editPriority} onChange={(e) => setEditPriority(e.target.value)} />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-xs text-fg-muted">
-                <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
-                Active
-              </label>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={saving}>
-                  {saving ? "..." : "Save"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog
-          open={itemsOpen}
-          onOpenChange={(o) => {
-            setItemsOpen(o);
-            if (!o) {
-              setItemsPromo(null);
-              setPromoItems([]);
-            }
-          }}
-        >
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Promotion Items</DialogTitle>
-              <DialogDescription>
-                {itemsPromo ? (
-                  <span className="font-mono text-xs">
-                    {itemsPromo.code} · {itemsPromo.name}
-                  </span>
-                ) : (
-                  "Tier rules by item and min qty."
-                )}
-              </DialogDescription>
-            </DialogHeader>
-
-            <DataTable<PromotionItemRow>
-              tableId="catalog.promotions.items"
-              rows={promoItems}
-              columns={promoItemColumns}
-              getRowId={(r) => r.id}
-              emptyText="No promo rules yet."
-              globalFilterPlaceholder="Search sku / item"
-              initialSort={{ columnId: "sku", dir: "asc" }}
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>All Promotions</CardTitle>
+            <CardDescription>Manage tier pricing and discount rules. Changes apply after next POS sync.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={promoColumns}
+              data={promos}
+              isLoading={loading}
+              searchPlaceholder="Search code / name..."
+              pageSize={25}
             />
+          </CardContent>
+        </Card>
+      )}
 
-            <form onSubmit={addPromotionItem} className="grid grid-cols-1 gap-3 md:grid-cols-8">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">SKU</label>
-                <Input value={addSku} onChange={(e) => onSkuChange(e.target.value)} placeholder="SKU-001" />
+      {/* ---- Edit Promotion Dialog ---- */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Promotion</DialogTitle>
+            <DialogDescription>Changes apply to POS after the next sync.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Code</Label>
+                <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
               </div>
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-fg-muted">Min Qty</label>
-                <Input value={addMinQty} onChange={(e) => setAddMinQty(e.target.value)} placeholder="12" />
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
               </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Promo Price USD</label>
-                <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Starts On</Label>
+                <Input type="date" value={editStartsOn} onChange={(e) => setEditStartsOn(e.target.value)} />
               </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Promo Price LL</label>
-                <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
+              <div className="space-y-2">
+                <Label>Ends On</Label>
+                <Input type="date" value={editEndsOn} onChange={(e) => setEditEndsOn(e.target.value)} />
               </div>
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-fg-muted">Discount Pct</label>
-                <Input value={addDisc} onChange={(e) => setAddDisc(e.target.value)} placeholder="0.10" />
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Input value={editPriority} onChange={(e) => setEditPriority(e.target.value)} />
               </div>
-              <div className="md:col-span-8 flex justify-end">
-                <Button type="submit" disabled={adding || !itemsPromo}>
-                  {adding ? "..." : "Add / Update Rule"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>);
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch checked={editActive} onCheckedChange={setEditActive} />
+              <Label>Active</Label>
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Promotion Items Dialog ---- */}
+      <Dialog
+        open={itemsOpen}
+        onOpenChange={(o) => {
+          setItemsOpen(o);
+          if (!o) { setItemsPromo(null); setPromoItems([]); }
+        }}
+      >
+        <DialogContent className="w-[96vw] max-w-[1200px] max-h-[92vh] overflow-hidden p-0">
+          <div className="flex h-full min-h-0 flex-col">
+            <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6 pr-12">
+              <DialogTitle>
+                Promotion Items
+                {itemsPromo ? (
+                  <Badge variant="outline" className="ml-3 font-mono text-xs">
+                    {itemsPromo.code} -- {itemsPromo.name}
+                  </Badge>
+                ) : null}
+              </DialogTitle>
+              <DialogDescription>Tier rules by item and minimum quantity.</DialogDescription>
+            </DialogHeader>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+              <DataTable
+                columns={promoItemColumns}
+                data={promoItems}
+                searchPlaceholder="Search SKU / item..."
+                pageSize={25}
+              />
+
+              {/* Add form */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Add / Update Rule</CardTitle>
+                  <CardDescription>Set a promo price (USD or LL) or a discount percentage.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={addPromotionItem} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>SKU</Label>
+                        <Input
+                          value={addSku}
+                          onChange={(e) => onSkuChange(e.target.value)}
+                          placeholder="SKU-001"
+                          list="promoSkuList"
+                        />
+                        <datalist id="promoSkuList">
+                          {items.slice(0, 2000).map((it) => (
+                            <option key={it.id} value={(it.sku || "").toUpperCase()}>
+                              {it.name}
+                            </option>
+                          ))}
+                        </datalist>
+                        {addItemId ? (
+                          <p className="text-xs text-muted-foreground">
+                            {items.find((i) => i.id === addItemId)?.name || addItemId}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Min Qty</Label>
+                        <Input value={addMinQty} onChange={(e) => setAddMinQty(e.target.value)} placeholder="12" inputMode="numeric" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Discount % (fraction)</Label>
+                        <Input value={addDisc} onChange={(e) => setAddDisc(e.target.value)} placeholder="0.10" inputMode="decimal" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Promo Price USD</Label>
+                        <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Promo Price LL</Label>
+                        <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="submit" disabled={adding || !itemsPromo}>
+                        {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Add / Update Rule
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }

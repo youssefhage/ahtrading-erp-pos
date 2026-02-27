@@ -1,222 +1,149 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { EmptyState } from "@/components/empty-state";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Chip } from "@/components/ui/chip";
+import { Badge } from "@/components/ui/badge";
 
 type ItemRow = {
-  id: string;
-  sku: string;
-  name: string;
-  barcode: string | null;
-  barcode_count?: number;
-  unit_of_measure: string;
-  category_id?: string | null;
-  is_active?: boolean;
-  updated_at?: string | null;
+  id: string; sku: string; name: string; barcode: string | null;
+  barcode_count?: number; unit_of_measure: string;
+  category_id?: string | null; is_active?: boolean; updated_at?: string | null;
 };
-
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
 
 export default function ItemsListPage() {
+  const router = useRouter();
   const [items, setItems] = useState<ItemRow[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
   const [q, setQ] = useState("");
-  const [pageSize, setPageSize] = useState(25);
-  const [page, setPage] = useState(0);
 
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
-  const offset = page * pageSize;
-  const query = useMemo(() => ({ q: q.trim(), limit: pageSize, offset }), [q, pageSize, offset]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (search?: string) => {
     setLoading(true);
-    setErr(null);
     try {
-      const params = new URLSearchParams();
-      params.set("limit", String(query.limit));
-      params.set("offset", String(query.offset));
-      if (query.q) params.set("q", query.q);
-      const res = await apiGet<{ items: ItemRow[]; total?: number }>(`/items/list?${params.toString()}`);
+      const params = new URLSearchParams({ limit: "100" });
+      const term = (search ?? q).trim();
+      if (term) params.set("q", term);
+      const res = await apiGet<{ items: ItemRow[]; total?: number }>(`/items/list?${params}`);
       setItems(res.items || []);
       setTotal(typeof res.total === "number" ? res.total : null);
-    } catch (e) {
+    } catch {
       setItems([]);
       setTotal(null);
-      setErr(e);
     } finally {
       setLoading(false);
     }
-  }, [query.limit, query.offset, query.q]);
+  }, [q]);
 
-  const loadCategories = useCallback(async () => {
-    try {
-      const cats = await apiGet<{ categories: Category[] }>("/item-categories");
-      setCategories(cats.categories || []);
-    } catch {
-      setCategories([]);
-    }
+  useEffect(() => {
+    apiGet<{ categories: Category[] }>("/item-categories")
+      .then((res) => setCategories(res.categories || []))
+      .catch(() => setCategories([]));
   }, []);
 
   useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
-
-  useEffect(() => {
-    setPage(0);
-  }, [q, pageSize]);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => load(), 250);
-    return () => window.clearTimeout(t);
+    const t = setTimeout(() => load(), 250);
+    return () => clearTimeout(t);
   }, [load]);
 
-  const columns = useMemo(() => {
-    const cols: Array<DataTableColumn<ItemRow>> = [
-      {
-        id: "sku",
-        header: "SKU",
-        sortable: true,
-        mono: true,
-        accessor: (i) => i.sku,
-        cell: (i) => (
-          <Link href={`/catalog/items/${encodeURIComponent(i.id)}`} className="ui-link font-mono text-xs">
-            {i.sku}
-          </Link>
-        ),
-      },
-      {
-        id: "name",
-        header: "Name",
-        sortable: true,
-        accessor: (i) => i.name,
-        cell: (i) => (
-          <Link href={`/catalog/items/${encodeURIComponent(i.id)}`} className="ui-link font-medium">
-            {i.name}
-          </Link>
-        ),
-      },
-      { id: "uom", header: "UOM", sortable: true, accessor: (i) => i.unit_of_measure || "-", defaultHidden: true },
-      {
-        id: "category",
-        header: "Category",
-        sortable: true,
-        accessor: (i) => categoryNameById.get(String(i.category_id || "")) || "",
-        cell: (i) => categoryNameById.get(String(i.category_id || "")) || "-",
-        defaultHidden: true,
-      },
-      { id: "barcode", header: "Primary Barcode", sortable: true, accessor: (i) => i.barcode || "-", defaultHidden: true },
-      {
-        id: "barcode_count",
-        header: "Barcodes",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (i) => Number(i.barcode_count || 0),
-        cell: (i) => String(i.barcode_count || 0),
-      },
-      {
-        id: "active",
-        header: "Active",
-        sortable: true,
-        accessor: (i) => (i.is_active === false ? "No" : "Yes"),
-        cell: (i) => <Chip variant={i.is_active === false ? "default" : "success"}>{i.is_active === false ? "No" : "Yes"}</Chip>,
-      },
-      {
-        id: "actions",
-        header: "Actions",
-        align: "right",
-        cell: (i) => (
-          <div className="text-right">
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/catalog/items/${encodeURIComponent(i.id)}/edit`}>Edit</Link>
-            </Button>
-          </div>
-        ),
-      },
-    ];
-    return cols;
-  }, [categoryNameById]);
-
-  if (err) {
-    return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Items</h1>
-            <p className="text-sm text-fg-muted">Catalog items</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button asChild>
-              <Link href="/catalog/items/new">New Item</Link>
-            </Button>
-          </div>
-        </div>
-        <ErrorBanner error={err} onRetry={load} />
-      </div>
-    );
-  }
+  const columns = useMemo<ColumnDef<ItemRow>[]>(() => [
+    {
+      accessorKey: "sku",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.sku}</span>,
+    },
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+    },
+    {
+      id: "category",
+      accessorFn: (row) => categoryNameById.get(String(row.category_id || "")) || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+      cell: ({ row }) => categoryNameById.get(String(row.original.category_id || "")) || "-",
+    },
+    {
+      accessorKey: "unit_of_measure",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      cell: ({ row }) => row.original.unit_of_measure || "-",
+    },
+    {
+      id: "barcodes",
+      accessorFn: (row) => Number(row.barcode_count || 0),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Barcodes" />,
+      cell: ({ row }) => <Badge variant="secondary">{row.original.barcode_count || 0}</Badge>,
+    },
+    {
+      id: "status",
+      accessorFn: (row) => (row.is_active === false ? "inactive" : "active"),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+      cell: ({ row }) => <StatusBadge status={row.original.is_active === false ? "inactive" : "active"} />,
+      filterFn: (row, id, value) => value.includes(row.getValue(id)),
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => (
+        <Button size="sm" variant="outline" onClick={(e) => {
+          e.stopPropagation();
+          router.push(`/catalog/items/${row.original.id}/edit`);
+        }}>
+          Edit
+        </Button>
+      ),
+    },
+  ], [categoryNameById, router]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Items</h1>
-          <p className="text-sm text-fg-muted">
-            {total != null ? `${total.toLocaleString("en-US")} total` : `${items.length} shown`}
-            {loading ? " · refreshing..." : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button asChild>
-            <Link href="/catalog/items/new">New Item</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Items"
+        description="Manage your product catalog"
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button size="sm" onClick={() => router.push("/catalog/items/new")}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Item
+            </Button>
+          </>
+        }
+      />
 
-      {!loading && items.length === 0 ? (
-        <EmptyState title="No items yet" description="Create your first item to start selling and stocking." actionLabel="New Item" onAction={() => (window.location.href = "/catalog/items/new")} />
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Catalog</CardTitle>
-            <CardDescription>Search by SKU, name, or barcode.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <DataTable<ItemRow>
-              tableId="catalog.items.list"
-              rows={items}
-              columns={columns}
-              getRowId={(r) => r.id}
-              initialSort={{ columnId: "sku", dir: "asc" }}
-              globalFilterPlaceholder="SKU / name / barcode"
-              globalFilterValue={q}
-              onGlobalFilterValueChange={setQ}
-              isLoading={loading}
-              serverPagination={{
-                page,
-                pageSize,
-                total,
-                onPageChange: setPage,
-                onPageSizeChange: setPageSize,
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
+      <DataTable
+        columns={columns}
+        data={items}
+        isLoading={loading}
+        searchPlaceholder="Search by SKU, name, or barcode..."
+        onRowClick={(row) => router.push(`/catalog/items/${row.id}`)}
+        totalRows={total ?? undefined}
+        filterableColumns={[
+          {
+            id: "status",
+            title: "Status",
+            options: [
+              { label: "Active", value: "active" },
+              { label: "Inactive", value: "inactive" },
+            ],
+          },
+        ]}
+      />
     </div>
   );
 }

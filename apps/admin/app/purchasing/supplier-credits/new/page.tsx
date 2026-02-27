@@ -177,7 +177,7 @@ export default function SupplierCreditNewPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Supplier</label>
+              <label className="text-xs font-medium text-muted-foreground">Supplier</label>
               <SupplierTypeahead
                 onSelect={(s) => setSupplier(s)}
                 onClear={() => setSupplier(null)}
@@ -185,9 +185,9 @@ export default function SupplierCreditNewPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Kind</label>
+              <label className="text-xs font-medium text-muted-foreground">Kind</label>
               <select
-                className="ui-select w-full"
+                className="w-full"
                 value={kind}
                 onChange={(e) => {
                   const v = e.target.value as any;
@@ -205,7 +205,7 @@ export default function SupplierCreditNewPage() {
 
             {kind === "receipt" ? (
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Goods Receipt (posted)</label>
+                <label className="text-xs font-medium text-muted-foreground">Goods Receipt (posted)</label>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input value={goodsReceiptLabel} readOnly placeholder="Select a goods receipt..." className="flex-1" />
                   <Dialog open={pickOpen} onOpenChange={setPickOpen}>
@@ -231,9 +231,9 @@ export default function SupplierCreditNewPage() {
                             {receiptsLoading ? "Loading..." : "Search"}
                           </Button>
                         </div>
-                        <div className="ui-table-scroll">
-                          <table className="ui-table">
-                            <thead className="ui-thead">
+                        <div className="overflow-auto rounded-md border">
+                          <table className="w-full text-sm">
+                            <thead className="border-b bg-muted/50">
                               <tr>
                                 <th className="px-3 py-2">Receipt</th>
                                 <th className="px-3 py-2">Warehouse</th>
@@ -244,13 +244,13 @@ export default function SupplierCreditNewPage() {
                             </thead>
                             <tbody>
                               {receipts.map((r) => (
-                                <tr key={r.id} className="ui-tr-hover">
+                                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                                   <td className="px-3 py-2 font-mono text-xs">{r.receipt_no}</td>
                                   <td className="px-3 py-2 text-xs">{r.warehouse_name || r.warehouse_id}</td>
-                                  <td className="px-3 py-2 text-xs text-fg-muted">{r.supplier_ref || "-"}</td>
+                                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.supplier_ref || "-"}</td>
                                   <td className="px-3 py-2 text-right data-mono text-sm">
                                     {fmtUsd(r.total_usd)}
-                                    <div className="text-xs text-fg-muted">{fmtLbp(r.total_lbp)}</div>
+                                    <div className="text-xs text-muted-foreground">{fmtLbp(r.total_lbp)}</div>
                                   </td>
                                   <td className="px-3 py-2 text-right">
                                     <Button
@@ -269,7 +269,7 @@ export default function SupplierCreditNewPage() {
                               ))}
                               {receipts.length === 0 ? (
                                 <tr>
-                                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                                  <td className="px-3 py-6 text-center text-muted-foreground" colSpan={5}>
                                     {supplier?.id ? "No posted receipts found." : "Select a supplier first."}
                                   </td>
                                 </tr>
@@ -285,23 +285,23 @@ export default function SupplierCreditNewPage() {
             ) : null}
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Credit Date</label>
+              <label className="text-xs font-medium text-muted-foreground">Credit Date</label>
               <Input type="date" value={creditDate} onChange={(e) => setCreditDate(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Rate Type</label>
-              <select className="ui-select w-full" value={rateType} onChange={(e) => setRateType(e.target.value)}>
+              <label className="text-xs font-medium text-muted-foreground">Rate Type</label>
+              <select className="w-full" value={rateType} onChange={(e) => setRateType(e.target.value)}>
                 <option value="market">market</option>
                 <option value="official">official</option>
                 <option value="internal">internal</option>
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Exchange Rate</label>
+              <label className="text-xs font-medium text-muted-foreground">Exchange Rate</label>
               <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" />
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">Memo</label>
+              <label className="text-xs font-medium text-muted-foreground">Memo</label>
               <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Optional..." />
             </div>
           </div>
@@ -315,16 +315,16 @@ export default function SupplierCreditNewPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {lines.map((l) => (
-                <div key={l.key} className="rounded-md border border-border bg-bg-elevated p-3">
+                <div key={l.key} className="rounded-md border border-border bg-card p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-fg-muted">Item</div>
+                    <div className="text-xs font-medium text-muted-foreground">Item</div>
                     <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
                       Remove
                     </Button>
                   </div>
                   <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Description</label>
+                      <label className="text-xs font-medium text-muted-foreground">Description</label>
                       <Input value={l.description} onChange={(e) => updateLine(l.key, { description: e.target.value })} />
                     </div>
                     <MoneyInput

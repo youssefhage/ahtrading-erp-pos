@@ -1,15 +1,42 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, Plus, FolderTree } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 type Category = {
   id: string;
@@ -19,9 +46,14 @@ type Category = {
   updated_at: string;
 };
 
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
+
 export default function ItemCategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -46,93 +78,71 @@ export default function ItemCategoriesPage() {
     setEditOpen(true);
   }, []);
 
-  const columns = useMemo((): Array<DataTableColumn<Category>> => {
-    return [
-      {
-        id: "name",
-        header: "Name",
-        accessor: (c) => c.name || "",
-        sortable: true,
-        cell: (c) => (
-          <button type="button" className="ui-link text-left font-medium" onClick={() => openEdit(c)}>
-            {c.name}
-          </button>
-        ),
-      },
-      {
-        id: "parent",
-        header: "Parent",
-        accessor: (c) => (c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : ""),
-        sortable: true,
-        cell: (c) => (c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : <span className="text-fg-subtle">-</span>),
-      },
-      {
-        id: "is_active",
-        header: "Active",
-        accessor: (c) => (c.is_active === false ? "No" : "Yes"),
-        sortable: true,
-        globalSearch: false,
-        cell: (c) => (c.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"),
-      },
-      {
-        id: "actions",
-        header: "",
-        accessor: () => "",
-        align: "right",
-        globalSearch: false,
-        cell: (c) => (
-          <Button
-            size="sm"
-            variant="outline"
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              openEdit(c);
-            }}
-          >
-            Edit
-          </Button>
-        ),
-      },
-    ];
-  }, [parentNameById, openEdit]);
-
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ categories: Category[] }>("/item-categories");
       setCategories(res.categories || []);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
+
+  const columns = useMemo<ColumnDef<Category>[]>(() => [
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+      cell: ({ row }) => (
+        <button type="button" className="font-medium text-primary hover:underline" onClick={() => openEdit(row.original)}>
+          {row.original.name}
+        </button>
+      ),
+    },
+    {
+      accessorFn: (c) => (c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : ""),
+      id: "parent",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Parent" />,
+      cell: ({ row }) => {
+        const pid = row.original.parent_id;
+        return pid ? parentNameById.get(pid) || pid : <span className="text-muted-foreground">-</span>;
+      },
+    },
+    {
+      accessorFn: (c) => (c.is_active === false ? "inactive" : "active"),
+      id: "status",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+      cell: ({ row }) => <StatusBadge status={row.original.is_active === false ? "inactive" : "active"} />,
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={() => openEdit(row.original)}>Edit</Button>
+        </div>
+      ),
+    },
+  ], [parentNameById, openEdit]);
 
   async function createCategory(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return setStatus("name is required");
+    if (!name.trim()) return setStatus("Name is required");
     setCreating(true);
-    setStatus("Creating...");
+    setStatus("");
     try {
-      await apiPost("/item-categories", {
-        name: name.trim(),
-        parent_id: parentId || null,
-        is_active: isActive
-      });
+      await apiPost("/item-categories", { name: name.trim(), parent_id: parentId || null, is_active: isActive });
       setName("");
       setParentId("");
       setIsActive(true);
       setCreateOpen(false);
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setCreating(false);
     }
@@ -141,148 +151,109 @@ export default function ItemCategoriesPage() {
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editCat) return;
-    if (!editName.trim()) return setStatus("name is required");
+    if (!editName.trim()) return setStatus("Name is required");
     setSaving(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
-      await apiPatch(`/item-categories/${editCat.id}`, {
-        name: editName.trim(),
-        parent_id: editParentId || null,
-        is_active: editIsActive
-      });
+      await apiPatch(`/item-categories/${editCat.id}`, { name: editName.trim(), parent_id: editParentId || null, is_active: editIsActive });
       setEditOpen(false);
       setEditCat(null);
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <div className="mx-auto max-w-5xl space-y-6 p-6">
+      <PageHeader
+        title="Item Categories"
+        description={`${categories.length} categories`}
+        actions={
+          <>
+            <Button variant="outline" onClick={load} disabled={loading}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) { setName(""); setParentId(""); setIsActive(true); } }}>
+              <DialogTrigger asChild>
+                <Button><Plus className="mr-2 h-4 w-4" /> New Category</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Create Category</DialogTitle>
+                  <DialogDescription>Use categories for reporting, pricing, and shelf labels.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createCategory} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Name <span className="text-destructive">*</span></Label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Dairy, Beverages..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Parent (optional)</Label>
+                    <SearchableSelect value={parentId} onChange={setParentId} searchPlaceholder="Search categories..." options={[{ value: "", label: "None" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch checked={isActive} onCheckedChange={setIsActive} />
+                    <Label>Active</Label>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit" disabled={creating}>
+                      {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Create
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
+
+      {status ? <Alert variant="destructive"><AlertDescription>{status}</AlertDescription></Alert> : null}
 
       <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <CardTitle>Item Categories</CardTitle>
-              <CardDescription>{categories.length} categories</CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog
-                open={createOpen}
-                onOpenChange={(o) => {
-                  setCreateOpen(o);
-                  if (!o) {
-                    setName("");
-                    setParentId("");
-                    setIsActive(true);
-                  }
-                }}
-              >
-                <DialogTrigger asChild>
-                  <Button>New Category</Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-xl">
-                  <DialogHeader>
-                    <DialogTitle>Create Category</DialogTitle>
-                    <DialogDescription>Use categories for reporting, pricing, and shelf labels.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createCategory} className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Dairy, Beverages..." />
-                    </div>
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Parent (optional)</label>
-                      <SearchableSelect
-                        value={parentId}
-                        onChange={setParentId}
-                        searchPlaceholder="Search categories..."
-                        options={[
-                          { value: "", label: "None" },
-                          ...categories.map((c) => ({ value: c.id, label: c.name })),
-                        ]}
-                      />
-                    </div>
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Active?</label>
-                      <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
-                      </select>
-                    </div>
-                    <div className="md:col-span-2 flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <DataTable<Category>
-            tableId="catalog.itemCategories"
-            rows={categories}
+        <CardContent className="pt-6">
+          <DataTable
             columns={columns}
-            initialSort={{ columnId: "name", dir: "asc" }}
-            globalFilterPlaceholder="Search categories..."
-            emptyText="No categories."
+            data={categories}
+            isLoading={loading}
+            searchPlaceholder="Search categories..."
+            pageSize={25}
           />
-
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogContent className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Edit Category</DialogTitle>
-                <DialogDescription>Keep category names stable for reporting.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Name</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Parent (optional)</label>
-                  <SearchableSelect
-                    value={editParentId}
-                    onChange={setEditParentId}
-                    searchPlaceholder="Search categories..."
-                    options={[
-                      { value: "", label: "None" },
-                      ...categories
-                        .filter((c) => c.id !== editCat?.id)
-                        .map((c) => ({ value: c.id, label: c.name })),
-                    ]}
-                  />
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Active?</label>
-                  <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </div>
-                <div className="md:col-span-2 flex justify-end">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? "..." : "Save"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Category</DialogTitle>
+            <DialogDescription>Keep category names stable for reporting.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Parent (optional)</Label>
+              <SearchableSelect value={editParentId} onChange={setEditParentId} searchPlaceholder="Search categories..." options={[{ value: "", label: "None" }, ...categories.filter((c) => c.id !== editCat?.id).map((c) => ({ value: c.id, label: c.name }))]} />
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch checked={editIsActive} onCheckedChange={setEditIsActive} />
+              <Label>Active</Label>
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
