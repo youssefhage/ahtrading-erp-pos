@@ -9,16 +9,16 @@ import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
+import { StatusBadge } from "@/components/business/status-badge";
 import { Button } from "@/components/ui/button";
-import { TabBar } from "@/components/tab-bar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string };
@@ -148,21 +148,16 @@ export default function GoodsReceiptViewPage() {
   const [cancelDraftReason, setCancelDraftReason] = useState("");
   const [cancelDrafting, setCancelDrafting] = useState(false);
 
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "lines" || t === "items") return "items";
     return "overview";
-  })();
-  const receiptTabs = [
-    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
-  ];
+  }, [searchParams]);
 
-  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
-  useEffect(() => {
-    const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") router.replace("?tab=items");
-  }, [router, searchParams]);
+  const onTabChange = useCallback(
+    (val: string) => router.replace(`?tab=${val}`, { scroll: false }),
+    [router],
+  );
 
   const [createInvOpen, setCreateInvOpen] = useState(false);
   const [createInvSubmitting, setCreateInvSubmitting] = useState(false);
@@ -304,106 +299,59 @@ export default function GoodsReceiptViewPage() {
 
   if (!loading && !detail && !err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <DetailPageLayout backHref="/purchasing/goods-receipts" title="Goods Receipt" description="Not found">
         <EmptyState title="Goods receipt not found" description="This goods receipt may not exist or you may not have access." actionLabel="Back" onAction={() => router.push("/purchasing/goods-receipts")} />
-      </div>
+      </DetailPageLayout>
     );
   }
 
+  const receipt = detail?.receipt;
+  const status = receipt?.status || "";
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{detail?.receipt?.receipt_no || (loading ? "Loading..." : "Goods Receipt")}</h1>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-mono text-xs">{id}</span>
-              {detail?.receipt ? <StatusChip value={detail.receipt.status} /> : null}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => router.push("/purchasing/goods-receipts")}>
-              Back
-            </Button>
-            <Button type="button" variant="outline" onClick={load} disabled={loading}>
-              Refresh
-            </Button>
-            <Button asChild variant="outline">
-              <a
-                href={`/purchasing/goods-receipts/${encodeURIComponent(id)}/print`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Print / PDF
-              </a>
-            </Button>
-            <Button asChild variant="outline">
-              <a
-                href={`/exports/goods-receipts/${encodeURIComponent(id)}/pdf`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Download PDF
-              </a>
-            </Button>
-            {detail?.receipt?.status === "draft" ? (
-              <Button type="button" variant="outline" onClick={() => router.push(`/purchasing/goods-receipts/${encodeURIComponent(id)}/edit`)}>
-                Edit Draft
-              </Button>
-            ) : null}
-            {detail?.receipt?.status === "draft" ? (
-              <>
-                <Button type="button" onClick={openPost}>
-                  Post
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={() => {
-                    setCancelDraftReason("");
-                    setCancelDraftOpen(true);
-                  }}
-                >
-                  Cancel Draft
-                </Button>
-              </>
-            ) : null}
-            {detail?.receipt?.status === "posted" ? (
-              <>
-                <Button type="button" variant="outline" onClick={openCreateInvoice}>
-                  Create Supplier Invoice Draft
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={() => {
-                    setCancelDate(todayIso());
-                    setCancelReason("");
-                    setCancelOpen(true);
-                  }}
-                >
-                  Void
-                </Button>
-              </>
-            ) : null}
-            {detail?.receipt ? (
-              <DocumentUtilitiesDrawer
-                entityType="goods_receipt"
-                entityId={detail.receipt.id}
-                allowUploadAttachments={detail.receipt.status === "draft"}
-                className="ml-1"
-              />
-            ) : null}
-          </div>
+    <DetailPageLayout
+      backHref="/purchasing/goods-receipts"
+      title={receipt?.receipt_no || (loading ? "Loading..." : "Goods Receipt")}
+      description={receipt ? `${supplierById.get(receipt.supplier_id || "")?.name || ""}` : undefined}
+      badge={receipt ? <StatusBadge status={status} /> : undefined}
+      meta={<span className="font-mono text-xs text-muted-foreground">{id}</span>}
+      error={err}
+      actionsNode={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={load} disabled={loading}>
+            Refresh
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <a href={`/purchasing/goods-receipts/${encodeURIComponent(id)}/print`} target="_blank" rel="noopener noreferrer">Print / PDF</a>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <a href={`/exports/goods-receipts/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">Download PDF</a>
+          </Button>
+          {status === "draft" && (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={() => router.push(`/purchasing/goods-receipts/${encodeURIComponent(id)}/edit`)}>Edit Draft</Button>
+              <Button type="button" size="sm" onClick={openPost}>Post</Button>
+              <Button type="button" variant="destructive" size="sm" onClick={() => { setCancelDraftReason(""); setCancelDraftOpen(true); }}>Cancel Draft</Button>
+            </>
+          )}
+          {status === "posted" && (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={openCreateInvoice}>Create Invoice Draft</Button>
+              <Button type="button" variant="destructive" size="sm" onClick={() => { setCancelDate(todayIso()); setCancelReason(""); setCancelOpen(true); }}>Void</Button>
+            </>
+          )}
+          {receipt && <DocumentUtilitiesDrawer entityType="goods_receipt" entityId={receipt.id} allowUploadAttachments={status === "draft"} className="ml-1" />}
         </div>
-      </div>
+      }
+    >
+      {detail && (
+        <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="items">Items</TabsTrigger>
+          </TabsList>
 
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
-
-      {detail ? (
-        <>
-          <TabBar tabs={receiptTabs} />
-          {activeTab === "overview" ? (
+          <TabsContent value="overview">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
               <Card className="md:col-span-8">
                 <CardContent className="p-5">
@@ -433,10 +381,6 @@ export default function GoodsReceiptViewPage() {
                     <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
                       <span className="text-muted-foreground">Exchange</span>
                       <span className="data-mono text-foreground">{Number(detail.receipt.exchange_rate || 0).toFixed(0)}</span>
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                      <span className="text-muted-foreground">Status</span>
-                      <span className="data-mono text-foreground">{detail.receipt.status}</span>
                     </span>
                   </div>
                 </div>
@@ -506,9 +450,9 @@ export default function GoodsReceiptViewPage() {
                 </CardContent>
               </Card>
             </div>
-          ) : null}
+          </TabsContent>
 
-          {activeTab === "items" ? (
+          <TabsContent value="items">
             <Card>
               <CardHeader>
                 <CardTitle>Items</CardTitle>
@@ -526,7 +470,9 @@ export default function GoodsReceiptViewPage() {
                 />
               </CardContent>
             </Card>
-          ) : null}
+          </TabsContent>
+        </Tabs>
+      )}
 
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-lg">
@@ -638,8 +584,6 @@ export default function GoodsReceiptViewPage() {
               </form>
             </DialogContent>
           </Dialog>
-        </>
-      ) : null}
-    </div>
+    </DetailPageLayout>
   );
 }

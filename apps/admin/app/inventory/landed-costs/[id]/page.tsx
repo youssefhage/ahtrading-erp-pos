@@ -8,16 +8,16 @@ import { apiGet, apiPost } from "@/lib/api";
 import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
-import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { StatusBadge } from "@/components/business/status-badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type LandedCostDoc = {
   id: string;
@@ -165,45 +165,34 @@ function Inner({ id }: { id: string }) {
     );
   }
 
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "lines") return "lines";
     return "overview";
-  })();
-  const landedCostTabs = [
-    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
-  ];
+  }, [searchParams]);
+  const onTabChange = useCallback((val: string) => {
+    router.replace(`?tab=${val}`, { scroll: false });
+  }, [router]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{lc?.landed_cost_no || (loading ? "Loading..." : "Landed Cost")}</h1>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-mono text-xs">{id}</span>
-          </p>
-        </div>
+    <DetailPageLayout
+      backHref="/inventory/landed-costs/list"
+      title={lc?.landed_cost_no || (loading ? "Loading..." : "Landed Cost")}
+      description={id}
+      badge={lc ? <StatusBadge status={lc.status} /> : undefined}
+      error={err}
+      actionsNode={lc ? (
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/inventory/landed-costs/list")}>
-            Back
-          </Button>
-          {lc?.status === "draft" ? (
+          {lc.status === "draft" && (
             <>
-              <Button type="button" variant="outline" onClick={() => setCancelOpen(true)}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={() => setPostOpen(true)}>
-                Post
-              </Button>
+              <Button onClick={() => setPostOpen(true)}>Post</Button>
+              <Button variant="destructive" onClick={() => setCancelOpen(true)}>Cancel</Button>
             </>
-          ) : null}
-          {lc ? <DocumentUtilitiesDrawer entityType="landed_cost" entityId={lc.id} showAttachments={false} className="ml-1" /> : null}
+          )}
+          <DocumentUtilitiesDrawer entityType="landed_cost" entityId={lc.id} showAttachments={false} className="ml-1" />
         </div>
-      </div>
-
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
-
+      ) : undefined}
+    >
       {lastWarnings.length ? (
         <Card className="border">
           <CardHeader>
@@ -220,58 +209,61 @@ function Inner({ id }: { id: string }) {
         </Card>
       ) : null}
 
-      <TabBar tabs={landedCostTabs} />
       {lc ? (
-        <>
-          {activeTab === "overview" ? (
+        <Tabs value={activeTab} onValueChange={onTabChange}>
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="lines">Lines</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview">
             <Card>
-            <CardHeader>
-              <CardTitle>Header</CardTitle>
-              <CardDescription>Status, totals, and linked receipt.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-              <div>
-                <div className="text-xs text-muted-foreground">Status</div>
-                <div className="mt-1">
-                  <StatusChip value={lc.status} />
+              <CardHeader>
+                <CardTitle>Header</CardTitle>
+                <CardDescription>Status, totals, and linked receipt.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2 text-sm md:grid-cols-2">
+                <div>
+                  <div className="text-xs text-muted-foreground">Status</div>
+                  <div className="mt-1">
+                    <StatusBadge status={lc.status} />
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Goods receipt</div>
-                <div className="mt-1">
-                  <Link className="focus-ring text-primary hover:underline" href={`/purchasing/goods-receipts/${encodeURIComponent(lc.goods_receipt_id)}`}>
-                    {lc.goods_receipt_no || lc.goods_receipt_id.slice(0, 8)}
-                  </Link>
+                <div>
+                  <div className="text-xs text-muted-foreground">Goods receipt</div>
+                  <div className="mt-1">
+                    <Link className="focus-ring text-primary hover:underline" href={`/purchasing/goods-receipts/${encodeURIComponent(lc.goods_receipt_id)}`}>
+                      {lc.goods_receipt_no || lc.goods_receipt_id.slice(0, 8)}
+                    </Link>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Totals</div>
-                <div className="mt-1 data-mono">
-                  {totalUsd} · {totalLbp}
+                <div>
+                  <div className="text-xs text-muted-foreground">Totals</div>
+                  <div className="mt-1 data-mono">
+                    {totalUsd} · {totalLbp}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Exchange rate</div>
-                <div className="mt-1 data-mono">{String(lc.exchange_rate || "")}</div>
-              </div>
-              <div className="md:col-span-2">
-                <div className="text-xs text-muted-foreground">Memo</div>
-                <div className="mt-1">{lc.memo || "-"}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Created</div>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(lc.created_at)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Posted</div>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(lc.posted_at)}</div>
-              </div>
-            </CardContent>
-          </Card>
+                <div>
+                  <div className="text-xs text-muted-foreground">Exchange rate</div>
+                  <div className="mt-1 data-mono">{String(lc.exchange_rate || "")}</div>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-xs text-muted-foreground">Memo</div>
+                  <div className="mt-1">{lc.memo || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Created</div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(lc.created_at)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Posted</div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">{fmtIso(lc.posted_at)}</div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-          ) : null}
-
-          {activeTab === "lines" ? (
+          <TabsContent value="lines">
             <Card>
               <CardHeader>
                 <CardTitle>Lines</CardTitle>
@@ -289,10 +281,8 @@ function Inner({ id }: { id: string }) {
                 />
               </CardContent>
             </Card>
-          ) : null}
-
-          {/* Audit trail is available via the right-rail utilities drawer. */}
-        </>
+          </TabsContent>
+        </Tabs>
       ) : null}
 
       <Dialog open={postOpen} onOpenChange={setPostOpen}>
@@ -339,7 +329,7 @@ function Inner({ id }: { id: string }) {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </DetailPageLayout>
   );
 }
 

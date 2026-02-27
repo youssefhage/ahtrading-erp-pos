@@ -8,17 +8,17 @@ import { apiGet, apiPost } from "@/lib/api";
 import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
-import { TabBar } from "@/components/tab-bar";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
+import { StatusBadge } from "@/components/business/status-badge";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Warehouse = { id: string; name: string };
 
@@ -210,22 +210,16 @@ export default function PurchaseOrderViewPage() {
   const canPost = order?.status === "draft" && lines.length > 0;
   const canCancel = order && order.status !== "canceled";
   const canCreateReceipt = order?.status === "posted";
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "lines" || t === "items") return "items";
     return "overview";
-  })();
+  }, [searchParams]);
 
-  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
-  useEffect(() => {
-    const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") router.replace("?tab=items");
-  }, [router, searchParams]);
-
-  const purchaseOrderTabs = [
-    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
-  ];
+  const onTabChange = useCallback(
+    (val: string) => router.replace(`?tab=${val}`, { scroll: false }),
+    [router],
+  );
 
   const totals = useMemo(() => {
     return {
@@ -288,106 +282,43 @@ export default function PurchaseOrderViewPage() {
     }
   }
 
-  if (err) {
+  if (!loading && !detail && !err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Purchase Order</h1>
-            <p className="text-sm text-muted-foreground">{id}</p>
-          </div>
-          <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders/list")}>
-            Back
-          </Button>
-        </div>
-        <ErrorBanner error={err} onRetry={load} />
-      </div>
-    );
-  }
-
-  if (!loading && !detail) {
-    return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <DetailPageLayout backHref="/purchasing/purchase-orders/list" title="Purchase Order" description="Not found">
         <EmptyState title="Purchase order not found" description="This order may have been deleted or you may not have access." actionLabel="Back" onAction={() => router.push("/purchasing/purchase-orders/list")} />
-      </div>
+      </DetailPageLayout>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{order?.order_no || (loading ? "Loading..." : "Purchase Order")}</h1>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-mono text-xs">{id}</span>
-              {order ? (
-                <>
-                  {" "}
-                  · <StatusChip value={order.status} />
-                </>
-              ) : null}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders/list")} disabled={busy}>
-              Back
-            </Button>
-            <Button type="button" variant="outline" onClick={load} disabled={busy || loading}>
-              Refresh
-            </Button>
-            <Button asChild variant="outline" disabled={busy || !id}>
-              <Link
-                href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Print / PDF
-              </Link>
-            </Button>
-            <Button asChild variant="outline" disabled={busy || !id}>
-              <a href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">
-                Download PDF
-              </a>
-            </Button>
-            {canEditDraft ? (
-              <Button asChild variant="outline" disabled={busy}>
-                <Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link>
-              </Button>
-            ) : null}
-            {canPost ? (
-              <Button type="button" onClick={post} disabled={busy}>
-                Post
-              </Button>
-            ) : null}
-            {canCreateReceipt ? (
-              <Button type="button" variant="outline" onClick={openReceive} disabled={busy}>
-                Create GR Draft
-              </Button>
-            ) : null}
-            {canCancel ? (
-              <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
-                Cancel
-              </Button>
-            ) : null}
-            {order ? (
-              <DocumentUtilitiesDrawer
-                entityType="purchase_order"
-                entityId={order.id}
-                allowUploadAttachments={order.status === "draft"}
-                className="ml-1"
-              />
-            ) : null}
-            <Button asChild disabled={busy}>
-              <Link href="/purchasing/purchase-orders/new">New Draft</Link>
-            </Button>
-          </div>
+    <DetailPageLayout
+      backHref="/purchasing/purchase-orders/list"
+      title={order?.order_no || (loading ? "Loading..." : "Purchase Order")}
+      description={order?.supplier_name || undefined}
+      badge={order ? <StatusBadge status={order.status} /> : undefined}
+      meta={<span className="font-mono text-xs text-muted-foreground">{id}</span>}
+      error={err}
+      actionsNode={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={load} disabled={busy || loading}>Refresh</Button>
+          <Button asChild variant="outline" size="sm"><Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`} target="_blank" rel="noopener noreferrer">Print / PDF</Link></Button>
+          <Button asChild variant="outline" size="sm"><a href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">Download PDF</a></Button>
+          {canEditDraft && <Button asChild variant="outline" size="sm"><Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link></Button>}
+          {canPost && <Button type="button" size="sm" onClick={post} disabled={busy}>Post</Button>}
+          {canCreateReceipt && <Button type="button" variant="outline" size="sm" onClick={openReceive} disabled={busy}>Create GR Draft</Button>}
+          {canCancel && <Button type="button" variant="destructive" size="sm" onClick={cancel} disabled={busy}>Cancel</Button>}
+          {order && <DocumentUtilitiesDrawer entityType="purchase_order" entityId={order.id} allowUploadAttachments={order.status === "draft"} className="ml-1" />}
+          <Button asChild size="sm"><Link href="/purchasing/purchase-orders/new">New Draft</Link></Button>
         </div>
-      </div>
+      }
+    >
+      <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="items">Items</TabsTrigger>
+        </TabsList>
 
-      <TabBar tabs={purchaseOrderTabs} />
-
-      {activeTab === "overview" ? (
+        <TabsContent value="overview">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
           <Card className="md:col-span-8">
             <CardContent className="p-5">
@@ -484,9 +415,9 @@ export default function PurchaseOrderViewPage() {
             </CardContent>
           </Card>
         </div>
-      ) : null}
+        </TabsContent>
 
-      {activeTab === "items" ? (
+        <TabsContent value="items">
         <Card>
           <CardHeader>
             <CardTitle>Items</CardTitle>
@@ -504,9 +435,8 @@ export default function PurchaseOrderViewPage() {
             />
           </CardContent>
         </Card>
-      ) : null}
-
-      {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
         <DialogContent className="max-w-2xl">
@@ -535,6 +465,6 @@ export default function PurchaseOrderViewPage() {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </DetailPageLayout>
   );
 }

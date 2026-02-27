@@ -8,17 +8,17 @@ import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { formatDateLike } from "@/lib/datetime";
 import { parseNumberInput } from "@/lib/numbers";
 
-import { ErrorBanner } from "@/components/error-banner";
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ItemTypeahead, ItemTypeaheadItem } from "@/components/item-typeahead";
 import { SearchableSelect } from "@/components/searchable-select";
-import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { StatusBadge } from "@/components/business/status-badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type LocationRow = { id: string; code: string; name: string | null; is_active: boolean };
 
@@ -113,15 +113,14 @@ function Inner({ id }: { id: string }) {
   const lines = detail?.lines || [];
   const alloc = detail?.allocations_by_line || {};
   const searchParams = useSearchParams();
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "allocations") return "allocations";
     return "overview";
-  })();
-  const transferTabs = [
-    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Allocations", href: "?tab=allocations", activeQuery: { key: "tab", value: "allocations" } },
-  ];
+  }, [searchParams]);
+  const onTabChange = useCallback((val: string) => {
+    router.replace(`?tab=${val}`, { scroll: false });
+  }, [router]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -409,59 +408,48 @@ function Inner({ id }: { id: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{tr?.transfer_no || (loading ? "Loading..." : "Stock Transfer")}</h1>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-mono text-xs">{id}</span>
-          </p>
-        </div>
+    <DetailPageLayout
+      backHref="/inventory/transfers/list"
+      title={tr?.transfer_no || (loading ? "Loading..." : "Stock Transfer")}
+      description={id}
+      badge={tr ? <StatusBadge status={tr.status} /> : undefined}
+      error={err}
+      actionsNode={tr ? (
         <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/inventory/transfers/list")}>
-            Back
-          </Button>
-          {canEdit ? (
-            <Button type="button" variant="outline" onClick={() => setEditMode((v) => !v)}>
+          {canEdit && (
+            <Button variant="outline" onClick={() => setEditMode((v) => !v)}>
               {editMode ? "Close Edit" : "Edit Draft"}
             </Button>
-          ) : null}
-          {canCancel ? (
-            <Button type="button" variant="outline" onClick={() => setCancelOpen(true)}>
-              Cancel
-            </Button>
-          ) : null}
-          {canPick ? (
-            <Button type="button" variant="outline" onClick={() => setPickOpen(true)} disabled={editMode || editPickMode}>
+          )}
+          {canPick && (
+            <Button variant="outline" onClick={() => setPickOpen(true)} disabled={editMode || editPickMode}>
               Pick
             </Button>
-          ) : null}
-          {canEditPick ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => (editPickMode ? setEditPickMode(false) : startEditPick())}
-              disabled={editMode}
-            >
+          )}
+          {canEditPick && (
+            <Button variant="outline" onClick={() => (editPickMode ? setEditPickMode(false) : startEditPick())} disabled={editMode}>
               {editPickMode ? "Close Pick Edit" : "Edit Pick"}
             </Button>
-          ) : null}
-          {canPost ? (
-            <Button type="button" onClick={() => setPostOpen(true)} disabled={editMode || editPickMode}>
+          )}
+          {canPost && (
+            <Button onClick={() => setPostOpen(true)} disabled={editMode || editPickMode}>
               Post
             </Button>
-          ) : null}
-          {canReverse ? (
-            <Button type="button" variant="outline" onClick={() => setReverseOpen(true)}>
+          )}
+          {canReverse && (
+            <Button variant="outline" onClick={() => setReverseOpen(true)}>
               Reverse
             </Button>
-          ) : null}
-          {tr ? <DocumentUtilitiesDrawer entityType="stock_transfer" entityId={tr.id} showAttachments={false} className="ml-1" /> : null}
+          )}
+          {canCancel && (
+            <Button variant="destructive" onClick={() => setCancelOpen(true)}>
+              Cancel
+            </Button>
+          )}
+          <DocumentUtilitiesDrawer entityType="stock_transfer" entityId={tr.id} showAttachments={false} className="ml-1" />
         </div>
-      </div>
-
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
-
+      ) : undefined}
+    >
       {lastWarnings.length ? (
         <Card className="border">
           <CardHeader>
@@ -479,12 +467,14 @@ function Inner({ id }: { id: string }) {
       ) : null}
 
       {tr ? (
-        <>
-          <TabBar tabs={transferTabs} />
+        <Tabs value={activeTab} onValueChange={onTabChange}>
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="allocations">Allocations</TabsTrigger>
+          </TabsList>
 
-          {activeTab === "overview" ? (
-            <>
-              <Card>
+          <TabsContent value="overview" className="space-y-6">
+            <Card>
                 <CardHeader>
                   <CardTitle>Header</CardTitle>
                   <CardDescription>Status and warehouse context.</CardDescription>
@@ -493,7 +483,7 @@ function Inner({ id }: { id: string }) {
                   <div>
                     <div className="text-xs text-muted-foreground">Status</div>
                     <div className="mt-1">
-                      <StatusChip value={tr.status} />
+                      <StatusBadge status={tr.status} />
                     </div>
                   </div>
                   <div>
@@ -659,10 +649,9 @@ function Inner({ id }: { id: string }) {
                   </CardContent>
                 </Card>
               ) : null}
-            </>
-          ) : null}
+          </TabsContent>
 
-          {activeTab === "allocations" ? (
+          <TabsContent value="allocations">
             <Card>
               <CardHeader>
                 <CardTitle>Lines</CardTitle>
@@ -758,10 +747,8 @@ function Inner({ id }: { id: string }) {
                 ) : null}
               </CardContent>
             </Card>
-          ) : null}
-
-          {/* Audit trail is available via the right-rail utilities drawer. */}
-        </>
+          </TabsContent>
+        </Tabs>
       ) : null}
 
       <Dialog open={pickOpen} onOpenChange={setPickOpen}>
@@ -852,7 +839,7 @@ function Inner({ id }: { id: string }) {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </DetailPageLayout>
   );
 }
 

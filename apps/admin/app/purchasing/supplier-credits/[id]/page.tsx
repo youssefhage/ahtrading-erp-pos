@@ -9,14 +9,14 @@ import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
+import { StatusBadge } from "@/components/business/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MoneyInput } from "@/components/money-input";
-import { TabBar } from "@/components/tab-bar";
 
 type CreditDoc = {
   id: string;
@@ -108,26 +108,18 @@ export default function SupplierCreditDetailPage() {
     return { usd: totalUsd - appliedTotals.usd, lbp: totalLbp - appliedTotals.lbp };
   }, [data, appliedTotals]);
 
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "lines" || t === "items") return "items";
     if (t === "applications") return "applications";
     if (t === "allocations") return "allocations";
     return "overview";
-  })();
+  }, [searchParams]);
 
-  const creditTabs = [
-    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
-    { label: "Applications", href: "?tab=applications", activeQuery: { key: "tab", value: "applications" } },
-    { label: "Allocations", href: "?tab=allocations", activeQuery: { key: "tab", value: "allocations" } },
-  ];
-
-  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
-  useEffect(() => {
-    const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") router.replace("?tab=items");
-  }, [router, searchParams]);
+  const onTabChange = useCallback(
+    (val: string) => router.replace(`?tab=${val}`, { scroll: false }),
+    [router],
+  );
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -393,264 +385,210 @@ export default function SupplierCreditDetailPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Supplier Credit Overview</CardTitle>
-          <CardDescription className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-mono">{credit?.credit_no || id}</span>
-            <StatusChip value={credit?.status || ""} />
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm text-muted-foreground space-y-2">
-            <div>
-              Supplier:{" "}
-              {credit?.supplier_id ? (
-                <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(credit.supplier_id)}`} title="Open supplier">
-                  {credit.supplier_name || credit.supplier_id}
-                </ShortcutLink>
-              ) : (
-                "-"
-              )}
-            </div>
-            <div>
-              Kind: <span className="font-mono">{credit?.kind}</span>{" "}
-              {credit?.goods_receipt_id ? (
-                <>
-                  {" "}
-                  · Receipt:{" "}
-                  <ShortcutLink href={`/purchasing/goods-receipts/${encodeURIComponent(credit.goods_receipt_id)}`} title="Open goods receipt">
-                    {credit.goods_receipt_no || credit.goods_receipt_id}
-                  </ShortcutLink>
-                </>
-              ) : null}
-            </div>
-            <div>
-              Date: <span className="font-mono">{credit?.credit_date}</span> · Rate:{" "}
-              <span className="font-mono">{credit?.rate_type}</span> @{" "}
-              <span className="font-mono">{String(credit?.exchange_rate ?? "")}</span>
-            </div>
-            {credit?.memo ? <div>Memo: {credit.memo}</div> : null}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button asChild variant="outline">
-              <Link
-                href={`/purchasing/supplier-credits/${encodeURIComponent(id)}/print`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Print / PDF
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <a
-                href={`/exports/supplier-credits/${encodeURIComponent(id)}/pdf`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Download PDF
-              </a>
-            </Button>
-            {credit?.status === "draft" ? (
-              <>
-                <Button variant="outline" onClick={() => router.push(`/purchasing/supplier-credits/${encodeURIComponent(id)}/edit`)}>
-                  Edit Draft
-                </Button>
-                <Button onClick={post} disabled={posting}>
-                  {posting ? "Posting..." : "Post"}
-                </Button>
-              </>
-            ) : null}
-
-            {credit?.status === "posted" ? (
-              <>
-                <Dialog open={applyOpen} onOpenChange={setApplyOpen}>
-                  <DialogTrigger asChild>
-                    <Button disabled={remaining.usd <= 0 && remaining.lbp <= 0}>Apply to Invoice</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-4xl">
-                    <DialogHeader>
-                      <DialogTitle>Apply Credit</DialogTitle>
-                      <DialogDescription>Apply this posted credit note to a posted supplier invoice.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <div className="text-muted-foreground">
-                          Remaining: <span className="data-mono">{fmtUsd(remaining.usd)}</span> /{" "}
-                          <span className="data-mono">{fmtLbp(remaining.lbp)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Input value={invoiceQ} onChange={(e) => setInvoiceQ(e.target.value)} placeholder="Search invoice no..." />
-                          <Button type="button" variant="outline" onClick={loadOpenInvoices}>
-                            Search
-                          </Button>
-                        </div>
-                      </div>
-
-                      <DataTable<OpenInvoiceRow>
-                        tableId="purchasing.supplier_credit.open_invoices"
-                        rows={openInvoices}
-                        columns={openInvoiceColumns}
-                        getRowId={(inv) => inv.id}
-                        emptyText="No open invoices found."
-                        enableGlobalFilter={false}
-                        initialSort={{ columnId: "invoice_date", dir: "desc" }}
-                      />
-
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <MoneyInput label="Apply USD" currency="USD" value={applyUsd} onChange={setApplyUsd} quick={[0]} />
-                        <MoneyInput label="Apply LL" currency="LBP" value={applyLbp} onChange={setApplyLbp} quick={[0]} />
-                      </div>
-
-                      <div className="flex items-center justify-end gap-2">
-                        <Button type="button" variant="outline" onClick={() => setApplyOpen(false)}>
-                          Close
-                        </Button>
-                        <Button type="button" onClick={apply} disabled={applying}>
-                          {applying ? "Applying..." : "Apply"}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-
-                <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline">Cancel</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-xl">
-                    <DialogHeader>
-                      <DialogTitle>Cancel Credit Note</DialogTitle>
-                      <DialogDescription>Creates a reversing journal and reverses rebate allocations.</DialogDescription>
-                    </DialogHeader>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">Cancel Date</label>
-                        <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
-                      </div>
-                      <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-muted-foreground">Reason</label>
-                        <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Optional..." />
-                      </div>
-                      <div className="flex justify-end md:col-span-2">
-                        <Button type="button" onClick={cancel} disabled={canceling}>
-                          {canceling ? "Canceling..." : "Confirm Cancel"}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
-
-      <TabBar tabs={creditTabs} />
-
-      {activeTab === "overview" ? (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Totals</CardTitle>
-              <CardDescription>
-                Total: {fmtUsdLbp(credit?.total_usd, credit?.total_lbp)} · Applied: {fmtUsdLbp(appliedTotals.usd, appliedTotals.lbp)}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <div className="rounded-md border border-border bg-card p-3">
-                <div className="text-sm text-muted-foreground">Remaining USD</div>
-                <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
-              </div>
-              <div className="rounded-md border border-border bg-card p-3">
-                <div className="text-sm text-muted-foreground">Remaining LL</div>
-                <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
-              <CardDescription>Quick status and application count.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
-              <div>Status: <span className="font-mono">{credit?.status || "-"}</span></div>
-              <div>Applications: <span className="font-mono">{data?.applications?.length || 0}</span></div>
-              <div>Items: <span className="font-mono">{data?.lines?.length || 0}</span></div>
-              <div>Allocations: <span className="font-mono">{data?.allocations?.length || 0}</span></div>
-            </CardContent>
-          </Card>
+    <DetailPageLayout
+      backHref="/purchasing/supplier-credits"
+      title={credit?.credit_no || id}
+      description={credit ? `${credit.supplier_name || ""} · ${credit.kind} · ${credit.credit_date}` : undefined}
+      badge={credit ? <StatusBadge status={credit.status} /> : undefined}
+      meta={
+        <span className="font-mono text-xs text-muted-foreground">
+          {id}
+          {credit?.goods_receipt_id ? (
+            <> · Receipt: <ShortcutLink href={`/purchasing/goods-receipts/${encodeURIComponent(credit.goods_receipt_id)}`} title="Open goods receipt">{credit.goods_receipt_no || credit.goods_receipt_id.slice(0, 8)}</ShortcutLink></>
+          ) : null}
+        </span>
+      }
+      error={status}
+      maxWidth="max-w-7xl"
+      actionsNode={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm"><Link href={`/purchasing/supplier-credits/${encodeURIComponent(id)}/print`} target="_blank" rel="noopener noreferrer">Print / PDF</Link></Button>
+          <Button asChild variant="outline" size="sm"><a href={`/exports/supplier-credits/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">Download PDF</a></Button>
+          {credit?.status === "draft" && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => router.push(`/purchasing/supplier-credits/${encodeURIComponent(id)}/edit`)}>Edit Draft</Button>
+              <Button size="sm" onClick={post} disabled={posting}>{posting ? "Posting..." : "Post"}</Button>
+            </>
+          )}
+          {credit?.status === "posted" && (
+            <>
+              <Button size="sm" disabled={remaining.usd <= 0 && remaining.lbp <= 0} onClick={() => setApplyOpen(true)}>Apply to Invoice</Button>
+              <Button variant="destructive" size="sm" onClick={() => setCancelOpen(true)}>Cancel</Button>
+            </>
+          )}
         </div>
-      ) : null}
+      }
+    >
+      <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="items">Items</TabsTrigger>
+          <TabsTrigger value="applications">Applications</TabsTrigger>
+          <TabsTrigger value="allocations">Allocations</TabsTrigger>
+        </TabsList>
 
-      {activeTab === "items" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Items</CardTitle>
-            <CardDescription>{data?.lines?.length || 0} items</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable<LineRow>
-              tableId="purchasing.supplier_credit.lines"
-              rows={data?.lines || []}
-              columns={lineColumns}
-              getRowId={(l) => l.id}
-              emptyText="No items."
-              enableGlobalFilter={false}
-              initialSort={{ columnId: "line_no", dir: "asc" }}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
+        <TabsContent value="overview">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Totals</CardTitle>
+                <CardDescription>
+                  Total: {fmtUsdLbp(credit?.total_usd, credit?.total_lbp)} · Applied: {fmtUsdLbp(appliedTotals.usd, appliedTotals.lbp)}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="rounded-md border border-border bg-card p-3">
+                  <div className="text-sm text-muted-foreground">Remaining USD</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
+                </div>
+                <div className="rounded-md border border-border bg-card p-3">
+                  <div className="text-sm text-muted-foreground">Remaining LL</div>
+                  <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
+                </div>
+              </CardContent>
+            </Card>
 
-      {activeTab === "applications" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Applications</CardTitle>
-            <CardDescription>{data?.applications?.length || 0} applications</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable<AppRow>
-              tableId="purchasing.supplier_credit.applications"
-              rows={data?.applications || []}
-              columns={appColumns}
-              getRowId={(a) => a.id}
-              emptyText="No applications."
-              enableGlobalFilter={false}
-              initialSort={{ columnId: "created_at", dir: "desc" }}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
+            <Card>
+              <CardHeader>
+                <CardTitle>Summary</CardTitle>
+                <CardDescription>Quick status and application count.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                <div>Status: <span className="font-mono">{credit?.status || "-"}</span></div>
+                <div>Applications: <span className="font-mono">{data?.applications?.length || 0}</span></div>
+                <div>Items: <span className="font-mono">{data?.lines?.length || 0}</span></div>
+                <div>Allocations: <span className="font-mono">{data?.allocations?.length || 0}</span></div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
-      {activeTab === "allocations" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Allocations (Receipt Credits)</CardTitle>
-            <CardDescription>Rebate allocations applied to goods receipt lines/batches.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {data?.allocations?.length ? (
-              <DataTable<AllocRow>
-                tableId="purchasing.supplier_credit.allocations"
-                rows={data?.allocations || []}
-                columns={allocColumns}
-                getRowId={(a) => a.id}
-                emptyText="No allocations."
+        <TabsContent value="items">
+          <Card>
+            <CardHeader>
+              <CardTitle>Items</CardTitle>
+              <CardDescription>{data?.lines?.length || 0} items</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable<LineRow>
+                tableId="purchasing.supplier_credit.lines"
+                rows={data?.lines || []}
+                columns={lineColumns}
+                getRowId={(l) => l.id}
+                emptyText="No items."
                 enableGlobalFilter={false}
-                initialSort={{ columnId: "goods_receipt_line_id", dir: "asc" }}
+                initialSort={{ columnId: "line_no", dir: "asc" }}
               />
-            ) : (
-              <p className="text-sm text-muted-foreground">No allocations yet.</p>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="applications">
+          <Card>
+            <CardHeader>
+              <CardTitle>Applications</CardTitle>
+              <CardDescription>{data?.applications?.length || 0} applications</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable<AppRow>
+                tableId="purchasing.supplier_credit.applications"
+                rows={data?.applications || []}
+                columns={appColumns}
+                getRowId={(a) => a.id}
+                emptyText="No applications."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "created_at", dir: "desc" }}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="allocations">
+          <Card>
+            <CardHeader>
+              <CardTitle>Allocations (Receipt Credits)</CardTitle>
+              <CardDescription>Rebate allocations applied to goods receipt lines/batches.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data?.allocations?.length ? (
+                <DataTable<AllocRow>
+                  tableId="purchasing.supplier_credit.allocations"
+                  rows={data?.allocations || []}
+                  columns={allocColumns}
+                  getRowId={(a) => a.id}
+                  emptyText="No allocations."
+                  enableGlobalFilter={false}
+                  initialSort={{ columnId: "goods_receipt_line_id", dir: "asc" }}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">No allocations yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Apply credit dialog */}
+      <Dialog open={applyOpen} onOpenChange={setApplyOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Apply Credit</DialogTitle>
+            <DialogDescription>Apply this posted credit note to a posted supplier invoice.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div className="text-muted-foreground">
+                Remaining: <span className="data-mono">{fmtUsd(remaining.usd)}</span> /{" "}
+                <span className="data-mono">{fmtLbp(remaining.lbp)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input value={invoiceQ} onChange={(e) => setInvoiceQ(e.target.value)} placeholder="Search invoice no..." />
+                <Button type="button" variant="outline" onClick={loadOpenInvoices}>Search</Button>
+              </div>
+            </div>
+            <DataTable<OpenInvoiceRow>
+              tableId="purchasing.supplier_credit.open_invoices"
+              rows={openInvoices}
+              columns={openInvoiceColumns}
+              getRowId={(inv) => inv.id}
+              emptyText="No open invoices found."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "invoice_date", dir: "desc" }}
+            />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <MoneyInput label="Apply USD" currency="USD" value={applyUsd} onChange={setApplyUsd} quick={[0]} />
+              <MoneyInput label="Apply LL" currency="LBP" value={applyLbp} onChange={setApplyLbp} quick={[0]} />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setApplyOpen(false)}>Close</Button>
+              <Button type="button" onClick={apply} disabled={applying}>{applying ? "Applying..." : "Apply"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel credit dialog */}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Cancel Credit Note</DialogTitle>
+            <DialogDescription>Creates a reversing journal and reverses rebate allocations.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Cancel Date</label>
+              <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-xs font-medium text-muted-foreground">Reason</label>
+              <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Optional..." />
+            </div>
+            <div className="flex justify-end md:col-span-2">
+              <Button type="button" onClick={cancel} disabled={canceling}>{canceling ? "Canceling..." : "Confirm Cancel"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </DetailPageLayout>
   );
 }
