@@ -153,6 +153,6 @@ def test_vat_report_csv_contract(monkeypatch):
     assert isinstance(out, Response)
     assert out.media_type == "text/csv"
     text = out.body.decode("utf-8")
-    assert "direction,direction_label,base_lbp,tax_lbp,line_count,source_types" in text
+    assert "tax_code_id,tax_name,period,direction,direction_label,base_usd,tax_usd,base_lbp,tax_lbp,line_count,source_types" in text
     assert "Output VAT" in text
     assert "sales_invoice,sales_return" in text
