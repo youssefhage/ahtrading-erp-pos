@@ -223,12 +223,15 @@
       const hostname = String(window.location.hostname || "").trim();
       if (!_isLoopbackHost(hostname)) return null;
       const currentPort = String(window.location.port || "").trim();
+      const portNum = Number(currentPort) || 0;
       const currentOrigin = _normalizeOriginUrl(window.location.origin || `${protocol}//${hostname}${currentPort ? `:${currentPort}` : ""}`);
+      // Convention: official and unofficial agents are 2 ports apart.
+      // The launcher navigates to the official agent, so the other is +2.
+      const otherPort = portNum >= 1024 ? portNum + 2 : 0;
       return {
         currentPort,
         currentOrigin,
-        officialOrigin: `${protocol}//${hostname}:7070`,
-        unofficialOrigin: `${protocol}//${hostname}:7072`,
+        otherOrigin: otherPort ? `${protocol}//${hostname}:${otherPort}` : "",
       };
     } catch (_) {
       return null;
@@ -239,9 +242,7 @@
     // When running on a loopback agent (desktop app), default to the other agent's port
     // so unofficial traffic goes through the local agent instead of cloud-only mode.
     const ctx = _currentLoopbackAgentContext();
-    if (ctx?.currentPort === "7070") return ctx.unofficialOrigin;
-    if (ctx?.currentPort === "7072") return ctx.officialOrigin;
-    return "";
+    return ctx?.otherOrigin || "";
   };
 
   const _sanitizeOtherAgentUrl = (value) => {
@@ -251,9 +252,7 @@
     if (!ctx) return candidate;
     // Avoid pointing the "other company" route back to this same agent.
     if (candidate !== ctx.currentOrigin) return candidate;
-    if (ctx.currentPort === "7070") return ctx.unofficialOrigin;
-    if (ctx.currentPort === "7072") return ctx.officialOrigin;
-    return candidate;
+    return ctx.otherOrigin || candidate;
   };
 
   const _detectOriginCompanyKey = (companyId) => {
