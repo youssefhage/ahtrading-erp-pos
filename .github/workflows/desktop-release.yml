@@ -21,6 +21,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version-bump:
+    name: Auto-bump versions
+    runs-on: ubuntu-latest
+    # Skip for tag pushes and for commits that already bumped the version.
+    if: "!startsWith(github.ref, 'refs/tags/') && !contains(github.event.head_commit.message, '[auto-version]')"
+    outputs:
+      ref: ${{ steps.bump.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump patch versions
+        id: bump
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bump_tauri_app() {
+            local conf="$1/src-tauri/tauri.conf.json"
+            local cargo="$1/src-tauri/Cargo.toml"
+            local label="$2"
+
+            if [ ! -f "$conf" ]; then
+              echo "⚠️  $label: tauri.conf.json not found, skipping"
+              return
+            fi
+
+            local current
+            current=$(python3 -c "import json; print(json.load(open('$conf'))['version'])")
+            IFS='.' read -r major minor patch <<< "$current"
+            local new_version="$major.$minor.$((patch + 1))"
+
+            # Update tauri.conf.json
+            python3 -c "
+          import json, pathlib
+          p = pathlib.Path('$conf')
+          d = json.loads(p.read_text())
+          d['version'] = '$new_version'
+          p.write_text(json.dumps(d, indent=2) + '\n')
+          "
+
+            # Update Cargo.toml
+            if [ -f "$cargo" ]; then
+              sed -i "s/^version = \"$current\"/version = \"$new_version\"/" "$cargo"
+            fi
+
+            git add "$conf" "$cargo" 2>/dev/null || true
+            echo "✅ $label: $current → $new_version"
+          }
+
+          bump_tauri_app "apps/pos-desktop" "POS Desktop"
+          bump_tauri_app "apps/admin-desktop" "Admin Desktop"
+
+          if git diff --cached --quiet; then
+            echo "No version changes needed"
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Auto-bump desktop versions [auto-version]"
+          git push
+
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   run:
+    needs: version-bump
+    if: "!failure() && !cancelled()"
     uses: ./.github/workflows/desktop-build-and-publish-reusable.yml
+    with:
+      ref: ${{ needs.version-bump.outputs.ref || '' }}
     secrets: inherit

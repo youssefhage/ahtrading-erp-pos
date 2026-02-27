@@ -2,6 +2,12 @@ name: Desktop build & publish (Reusable)
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to checkout (defaults to triggering SHA)"
+        required: false
+        type: string
+        default: ""
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
         required: true
@@ -39,6 +45,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -119,6 +127,8 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
