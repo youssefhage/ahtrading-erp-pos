@@ -3899,6 +3899,23 @@
       return await _fetchLastReturnDetailWeb(companyKey);
     }
     if (method === "GET" && pathname === "/printers") {
+      // Printers are OS-level resources — when a local agent exists, fetch from it
+      // so the cloud-transport company still sees all available printers.
+      if (!webHostUnsupported) {
+        try {
+          const localUrl = `${apiBase}/printers${params.toString() ? "?" + params.toString() : ""}`;
+          const res = await fetch(localUrl, {
+            method: "GET",
+            headers: requestHeaders(originCompanyKey),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data?.printers) && data.printers.length > 0) {
+              return data;
+            }
+          }
+        } catch (_) {}
+      }
       return {
         printers: [{ name: "Browser Print Dialog", type: "browser" }],
         default_printer: "Browser Print Dialog",
@@ -3906,6 +3923,19 @@
       };
     }
     if (method === "POST" && pathname === "/printers/test") {
+      const printerName = String(body?.printer || "").trim();
+      // If a real printer is selected and a local agent exists, test through it.
+      if (!webHostUnsupported && printerName && printerName !== "Browser Print Dialog") {
+        try {
+          const localUrl = `${apiBase}/printers/test`;
+          const res = await fetch(localUrl, {
+            method: "POST",
+            headers: requestHeaders(originCompanyKey),
+            body: JSON.stringify({ printer: printerName }),
+          });
+          if (res.ok) return await res.json();
+        } catch (_) {}
+      }
       const html = `<!doctype html><html><head><meta charset="utf-8"><title>Print Test</title></head><body style="font-family:sans-serif;padding:16px"><h3>Browser Print Test</h3><p>${new Date().toLocaleString()}</p></body></html>`;
       _openPrintWindowWithHtml(html, null);
       return { ok: true, mode: "browser" };
