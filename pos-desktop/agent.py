@@ -5687,6 +5687,17 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 limit = 120
             rows = list_shift_invoice_events(shift_id=shift_id, limit=limit)
+            # Server fallback: if local data is empty, try fetching from backend.
+            if not rows and shift_id:
+                try:
+                    base = _require_api_base(cfg)
+                    hdrs = device_headers(cfg)
+                    url = f"{base}/pos/shifts/{shift_id}/invoices?limit={limit}"
+                    server_data = _fetch_json_timeout(url, headers=hdrs, timeout_s=5.0)
+                    if isinstance(server_data, dict) and server_data.get("ok"):
+                        rows = server_data.get("invoices") or []
+                except Exception:
+                    pass
             json_response(
                 self,
                 {

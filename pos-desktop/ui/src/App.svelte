@@ -4142,6 +4142,21 @@
         unique.push(row);
         if (unique.length >= limit) break;
       }
+      // Server fallback: if local data is empty, try fetching from backend.
+      if (unique.length === 0 && shiftId) {
+        try {
+          const serverData = await _webPosCall(
+            companyKey,
+            `/pos/shifts/${encodeURIComponent(shiftId)}/invoices?limit=${limit}`,
+            { method: "GET", timeoutMs: 8000 },
+          );
+          if (serverData?.ok && Array.isArray(serverData?.invoices)) {
+            return { ok: true, shift_id: shiftId, invoices: serverData.invoices.slice(0, limit) };
+          }
+        } catch (_fallbackErr) {
+          // Silently fall through to return empty local result.
+        }
+      }
       return { ok: true, shift_id: shiftId || null, invoices: unique };
     }
     if (method === "POST" && pathname === "/shift/open") {

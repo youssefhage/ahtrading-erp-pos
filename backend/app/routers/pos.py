@@ -2464,6 +2464,142 @@ def _expected_cash(
     return expected_usd, expected_lbp
 
 
+@router.get("/shifts/{shift_id}/invoices")
+def pos_shift_invoices(
+    shift_id: str,
+    limit: int = 120,
+    device=Depends(require_device),
+):
+    """
+    Server-side shift invoice listing.  Used as a fallback when local
+    (SQLite / localStorage) invoice data is missing (e.g. after a cache clear).
+    Returns the same shape the POS UI already consumes.
+    """
+    shift_id = _normalize_required_uuid_text(shift_id, "shift_id")
+    limit = max(1, min(500, limit))
+    company_id = str(device["company_id"])
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    si.id            AS invoice_id,
+                    si.created_at,
+                    si.company_id,
+                    si.cashier_id,
+                    pc.name          AS cashier_name,
+                    si.customer_id,
+                    cust.name        AS customer_name,
+                    si.shift_id,
+                    si.source_event_id AS event_id,
+                    si.status,
+                    si.subtotal_usd,
+                    COALESCE(si.subtotal_lbp, 0) AS subtotal_lbp,
+                    si.total_usd,
+                    COALESCE(si.total_lbp, 0)    AS total_lbp,
+                    COALESCE(lc.line_count, 0)   AS line_count,
+                    COALESCE(tx.tax_usd, 0)      AS tax_usd,
+                    COALESCE(tx.tax_lbp, 0)      AS tax_lbp,
+                    pm.method                    AS payment_method,
+                    COALESCE(ref.refund_count, 0)        AS refund_count,
+                    COALESCE(ref.refunded_total_usd, 0)  AS refunded_total_usd,
+                    COALESCE(ref.refunded_total_lbp, 0)  AS refunded_total_lbp
+                FROM sales_invoices si
+                LEFT JOIN pos_cashiers pc
+                    ON pc.id = si.cashier_id
+                LEFT JOIN customers cust
+                    ON cust.company_id = si.company_id AND cust.id = si.customer_id
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*)::int AS line_count
+                    FROM sales_invoice_lines
+                    WHERE invoice_id = si.id
+                ) lc ON true
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(tl.tax_usd), 0) AS tax_usd,
+                           COALESCE(SUM(tl.tax_lbp), 0) AS tax_lbp
+                    FROM tax_lines tl
+                    WHERE tl.company_id = si.company_id
+                      AND tl.source_type = 'sales_invoice'
+                      AND tl.source_id = si.id
+                ) tx ON true
+                LEFT JOIN LATERAL (
+                    SELECT sp.method
+                    FROM sales_payments sp
+                    WHERE sp.invoice_id = si.id AND sp.voided_at IS NULL
+                    ORDER BY sp.created_at ASC
+                    LIMIT 1
+                ) pm ON true
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(rf.id)::int              AS refund_count,
+                           COALESCE(SUM(rf.amount_usd), 0) AS refunded_total_usd,
+                           COALESCE(SUM(rf.amount_lbp), 0) AS refunded_total_lbp
+                    FROM sales_refunds rf
+                    JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                    WHERE sr.company_id = si.company_id
+                      AND sr.invoice_id = si.id
+                      AND sr.status = 'posted'
+                ) ref ON true
+                WHERE si.company_id = %s
+                  AND si.shift_id = %s
+                ORDER BY si.created_at DESC
+                LIMIT %s
+                """,
+                (company_id, shift_id, limit),
+            )
+            rows = cur.fetchall()
+
+    def _refund_status(total_usd, total_lbp, refunded_usd, refunded_lbp, refund_count):
+        if refund_count <= 0:
+            return "none"
+        if total_usd > 0 and refunded_usd >= (total_usd - Decimal("0.01")):
+            return "refunded"
+        if total_usd <= 0 and total_lbp > 0 and refunded_lbp >= max(0, total_lbp - 1):
+            return "refunded"
+        if total_usd <= 0 and total_lbp <= 0 and (refunded_usd > 0 or refunded_lbp > 0):
+            return "refunded"
+        return "partial"
+
+    invoices = []
+    for r in rows:
+        total_usd = Decimal(str(r["total_usd"] or 0))
+        total_lbp = Decimal(str(r["total_lbp"] or 0))
+        refunded_usd = Decimal(str(r["refunded_total_usd"] or 0))
+        refunded_lbp = Decimal(str(r["refunded_total_lbp"] or 0))
+        refund_count = int(r["refund_count"] or 0)
+        invoices.append({
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "company_id": str(r["company_id"]) if r["company_id"] else None,
+            "cashier_id": str(r["cashier_id"]) if r["cashier_id"] else None,
+            "cashier_name": r["cashier_name"] or None,
+            "customer_id": str(r["customer_id"]) if r["customer_id"] else None,
+            "customer_name": r["customer_name"] or None,
+            "shift_id": str(r["shift_id"]) if r["shift_id"] else None,
+            "event_id": str(r["event_id"]) if r["event_id"] else None,
+            "resolved_event_id": str(r["event_id"]) if r["event_id"] else None,
+            "idempotency_key": None,
+            "invoice_id": str(r["invoice_id"]) if r["invoice_id"] else None,
+            "status": r["status"] or "posted",
+            "audit_status": "acked",
+            "outbox_status": "acked",
+            "payment_method": (r["payment_method"] or "").lower() or None,
+            "line_count": int(r["line_count"] or 0),
+            "subtotal_usd": float(r["subtotal_usd"] or 0),
+            "subtotal_lbp": int(r["subtotal_lbp"] or 0),
+            "tax_usd": float(r["tax_usd"] or 0),
+            "tax_lbp": int(r["tax_lbp"] or 0),
+            "total_usd": float(total_usd),
+            "total_lbp": int(total_lbp),
+            "refund_count": refund_count,
+            "refunded_total_usd": float(refunded_usd),
+            "refunded_total_lbp": int(refunded_lbp),
+            "refund_status": _refund_status(total_usd, total_lbp, refunded_usd, refunded_lbp, refund_count),
+        })
+
+    return {"ok": True, "shift_id": shift_id, "invoices": invoices}
+
+
 @router.post("/shifts/{shift_id}/close")
 def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device)):
     _assert_non_negative_shift_cash(data.closing_cash_usd, data.closing_cash_lbp, "closing")
