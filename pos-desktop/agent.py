@@ -2122,7 +2122,37 @@ def _receipt_text(
     return "\n".join(out) + "\n"
 
 
-def _print_raw_win(text: str, printer_name: str, copies: int = 1) -> bool:
+def _escpos_encode(text: str, bold: bool = True) -> bytes:
+    """
+    Encode receipt text with ESC/POS control sequences for thermal printers.
+
+    Wraps the text in:
+      - ESC @       : initialise printer (reset to defaults)
+      - ESC E 1/0   : bold on / off
+      - GS V 0      : full cut (auto-cut after receipt)
+      - LF feed     : extra line feeds before cut for tear-off
+    """
+    buf = bytearray()
+    # ESC @ — initialise / reset
+    buf += b"\x1b\x40"
+    # ESC E n — select bold (emphasized) mode: n=1 on, n=0 off
+    if bold:
+        buf += b"\x1b\x45\x01"
+    # Encode the receipt body (CP437 is the ESC/POS default codepage).
+    try:
+        buf += (text or "").encode("cp437", errors="replace")
+    except Exception:
+        buf += (text or "").encode("utf-8", errors="replace")
+    # Turn bold off before footer commands
+    if bold:
+        buf += b"\x1b\x45\x00"
+    # Feed a few lines then partial cut (GS V 66 0 = feed + partial cut).
+    buf += b"\n\n\n\n"
+    buf += b"\x1d\x56\x42\x00"
+    return bytes(buf)
+
+
+def _print_raw_win(text: str, printer_name: str, copies: int = 1, bold: bool = True) -> bool:
     """
     Send raw text to a Windows printer using the winspool.drv RAW datatype.
     This bypasses GDI font rendering and lets the printer use its built-in
@@ -2136,18 +2166,14 @@ def _print_raw_win(text: str, printer_name: str, copies: int = 1) -> bool:
     def ps_sq(s: str) -> str:
         return "'" + str(s or "").replace("'", "''") + "'"
 
-    # Encode text as CP437 (standard receipt codepage) with UTF-8 fallback.
-    try:
-        raw_bytes = (text or "").encode("cp437", errors="replace")
-    except Exception:
-        raw_bytes = (text or "").encode("utf-8", errors="replace")
+    # Encode receipt with ESC/POS commands (bold, init, cut).
+    receipt_bytes = _escpos_encode(text, bold=bold)
 
     tmp = None
     try:
         tmp = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".bin")
         for _ in range(max(1, copies)):
-            tmp.write(raw_bytes)
-            tmp.write(b"\n\n\n")  # feed a few lines between copies
+            tmp.write(receipt_bytes)
         tmp.flush()
         tmp.close()
 
@@ -2266,6 +2292,32 @@ def _print_text_to_printer(text: str, printer: Optional[str] = None, copies: int
     if not lp:
         raise RuntimeError("Printing is not available: 'lp' command not found")
 
+    # Try ESC/POS raw mode first (bold, auto-cut) — best for thermal printers.
+    raw_tmp = None
+    try:
+        receipt_bytes = _escpos_encode(text, bold=True)
+        raw_tmp = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".bin")
+        raw_tmp.write(receipt_bytes)
+        raw_tmp.flush()
+        raw_tmp.close()
+        raw_cmd = [lp]
+        if printer:
+            raw_cmd += ["-d", str(printer)]
+        if copies_i != 1:
+            raw_cmd += ["-n", str(copies_i)]
+        raw_cmd += ["-o", "raw", raw_tmp.name]
+        subprocess.run(raw_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=12)
+        return  # raw ESC/POS succeeded
+    except Exception:
+        pass  # fall through to GDI/text mode
+    finally:
+        try:
+            if raw_tmp and raw_tmp.name and os.path.exists(raw_tmp.name):
+                os.unlink(raw_tmp.name)
+        except Exception:
+            pass
+
+    # Fallback: plain-text mode with thermal-friendly CUPS options.
     tmp = None
     try:
         tmp = tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8")
