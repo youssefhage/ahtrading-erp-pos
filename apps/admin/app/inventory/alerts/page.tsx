@@ -70,8 +70,10 @@ export default function InventoryAlertsPage() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadAll(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-  useEffect(() => { loadReorder(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [warehouseId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadAll(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadReorder(); }, [warehouseId]);
 
   const aiColumns = useMemo<ColumnDef<AiRecRow>[]>(() => [
     { id: "type", accessorFn: (r) => recommendationView(r).kindLabel, header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />, cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{recommendationView(row.original).kindLabel}</span> },
