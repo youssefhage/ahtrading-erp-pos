@@ -3,23 +3,23 @@
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Check, Copy, FileText, Package, Receipt } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { formatDateLike } from "@/lib/datetime";
-import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
-import { parseNumberInput } from "@/lib/numbers";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
-import { ConfirmButton } from "@/components/confirm-button";
-import { MoneyInput } from "@/components/money-input";
+import { fmtLbp, fmtUsd } from "@/lib/money";
+import { cn } from "@/lib/utils";
+import { type DataTableColumn } from "@/components/data-table";
 import { ShortcutLink } from "@/components/shortcut-link";
-import { TabBar } from "@/components/tab-bar";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
+import { StatusBadge } from "@/components/business/status-badge";
+import { Banner } from "@/components/ui/banner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
 import {
   VatBreakdownPanel,
   buildVatSharePct,
@@ -29,8 +29,17 @@ import {
   type VatSummaryModel,
 } from "../_components/vat-breakdown-panel";
 
-type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
+import { InvoiceOverviewTab, type SalesOverview, type CustomerAccountOverviewData } from "./_components/invoice-overview-tab";
+import { InvoiceItemsTab } from "./_components/invoice-items-tab";
+import { InvoiceTaxTab } from "./_components/invoice-tax-tab";
+import { PostInvoiceDialog } from "./_components/post-invoice-dialog";
+import { VoidInvoiceDialog, CancelDraftDialog, PrintPreviewDialog } from "./_components/void-invoice-dialog";
 
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
+
+type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency: string };
 
 type InvoiceRow = {
@@ -115,13 +124,9 @@ type CustomerAccountSnapshot = {
   credit_balance_lbp: string | number;
 };
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function fmtIso(iso?: string | null) {
-  return formatDateLike(iso);
-}
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
 
 function n(v: unknown) {
   const x = Number(v || 0);
@@ -144,16 +149,6 @@ function hasTender(p: SalesPayment) {
   return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
 }
 
-function formatMethodLabel(method: string) {
-  const s = String(method || "").trim();
-  if (!s) return "";
-  return s
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function normalizeSalesChannel(value: unknown) {
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "pos" || raw === "admin" || raw === "import" || raw === "api") return raw;
@@ -168,62 +163,77 @@ function salesChannelLabel(value: unknown) {
   return "Admin";
 }
 
-function salesChannelTone(value: unknown) {
-  const channel = normalizeSalesChannel(value);
-  if (channel === "pos") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
-  if (channel === "import") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-  if (channel === "api") return "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400";
-  return "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400";
+function shortId(v: string, head = 8, tail = 4) {
+  const s = (v || "").trim();
+  if (!s) return "-";
+  if (s.length <= head + tail + 3) return s;
+  return `${s.slice(0, head)}...${s.slice(-tail)}`;
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Copy button                                                               */
+/* -------------------------------------------------------------------------- */
+
+function CopyButton({ text, label }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            disabled={!text || text === "-"}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              } catch { /* ignore */ }
+            }}
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{copied ? "Copied!" : `Copy ${label || ""}`}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Main Component                                                            */
+/* -------------------------------------------------------------------------- */
 
 function SalesInvoiceShowInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
+  const searchParams = useSearchParams();
 
+  /* ---- Core state ---- */
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [customerAccount, setCustomerAccount] = useState<CustomerAccountSnapshot | null>(null);
-
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [taxPreview, setTaxPreview] = useState<{
-    base_usd: number;
-    base_lbp: number;
-    tax_usd: number;
-    tax_lbp: number;
-    total_usd: number;
-    total_lbp: number;
-    tax_code_id: string | null;
+    base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number;
+    total_usd: number; total_lbp: number; tax_code_id: string | null;
     tax_rows: Array<{ tax_code_id: string; base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number }>;
   } | null>(null);
 
+  /* ---- Dialog state ---- */
   const [postOpen, setPostOpen] = useState(false);
-  const [postApplyingVat, setPostApplyingVat] = useState(true);
-  const [postVatAdvancedOpen, setPostVatAdvancedOpen] = useState(false);
-  const [postRecordPayment, setPostRecordPayment] = useState(false);
-  const [postMethod, setPostMethod] = useState("cash");
-  const [postUsd, setPostUsd] = useState("0");
-  const [postLbp, setPostLbp] = useState("0");
-  const [postSubmitting, setPostSubmitting] = useState(false);
-  const [postPreview, setPostPreview] = useState<{ total_usd: number; total_lbp: number; tax_usd: number; tax_lbp: number } | null>(
-    null
-  );
-
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelDate, setCancelDate] = useState(() => todayIso());
-  const [cancelReason, setCancelReason] = useState("");
-  const [canceling, setCanceling] = useState(false);
-
   const [cancelDraftOpen, setCancelDraftOpen] = useState(false);
-  const [cancelDraftReason, setCancelDraftReason] = useState("");
-  const [cancelDrafting, setCancelDrafting] = useState(false);
-  const [invoiceMathOpen, setInvoiceMathOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewTemplate, setPreviewTemplate] = useState("official_classic");
-  const searchParams = useSearchParams();
+  const [invoiceMathOpen, setInvoiceMathOpen] = useState(false);
 
+  /* ---- Derived ---- */
   const methodChoices = useMemo(() => {
     const fromConfig = paymentMethods.map((m) => String(m.method || "").trim().toLowerCase()).filter(Boolean);
     const merged = Array.from(new Set(fromConfig));
@@ -232,32 +242,16 @@ function SalesInvoiceShowInner() {
   }, [paymentMethods]);
   const hasPaymentMethodMappings = methodChoices.length > 0;
 
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "lines" || t === "items") return "items";
     if (t === "tax") return "tax";
     return "overview";
-  })();
+  }, [searchParams]);
 
-  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
-  useEffect(() => {
-    const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "payments") router.replace("?tab=overview");
-    if (t === "lines") router.replace("?tab=items");
-  }, [router, searchParams]);
-
-  const salesInvoiceTabs = useMemo(
-    () => [
-      { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-      { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
-      { label: "Tax", href: "?tab=tax", activeQuery: { key: "tab", value: "tax" } }
-    ],
-    []
-  );
-
-  const salesOverview = useMemo(() => {
+  /* ---- Sales overview ---- */
+  const salesOverview = useMemo((): SalesOverview | null => {
     if (!detail) return null;
-
     const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
     const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
     const tenderUsd = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_usd) : 0), 0);
@@ -286,256 +280,101 @@ function SalesInvoiceShowInner() {
     const primaryTone = settle === "LBP" ? "text-sky-600" : "text-emerald-600";
 
     return {
-      paidUsd,
-      paidLbp,
-      tenderUsd,
-      tenderLbp,
-      hasAnyTender,
-      vatUsd,
-      vatLbp,
-      totalUsd,
-      totalLbp,
-      settle,
-      balUsd,
-      balLbp,
-      subUsd,
-      subLbp,
-      discUsd,
-      discLbp,
-      rate,
-      primaryTotal,
-      primaryPaid,
-      primaryBal,
-      secondaryTotal,
-      secondaryPaid,
-      secondaryBal,
-      primaryFmt,
-      secondaryFmt,
-      primaryTone
+      paidUsd, paidLbp, tenderUsd, tenderLbp, hasAnyTender, vatUsd, vatLbp,
+      totalUsd, totalLbp, settle, balUsd, balLbp, subUsd, subLbp, discUsd, discLbp,
+      rate, primaryTotal, primaryPaid, primaryBal, secondaryTotal, secondaryPaid, secondaryBal,
+      primaryFmt, secondaryFmt, primaryTone,
     };
   }, [detail]);
 
-  const customerAccountOverview = useMemo(() => {
+  const customerAccountOverview = useMemo((): CustomerAccountOverviewData | null => {
     if (!salesOverview) return null;
     const hasCustomer = Boolean(String(detail?.invoice?.customer_id || "").trim());
-    if (!hasCustomer) {
-      return {
-        hasCustomer: false,
-        hasBalance: false,
-        overallUsd: 0,
-        overallLbp: 0,
-        excludingInvoiceUsd: 0,
-        excludingInvoiceLbp: 0,
-        includingInvoiceUsd: 0,
-        includingInvoiceLbp: 0,
-        invoiceIncludedNow: false,
-      };
-    }
-    if (!customerAccount) {
-      return {
-        hasCustomer: true,
-        hasBalance: false,
-        overallUsd: 0,
-        overallLbp: 0,
-        excludingInvoiceUsd: 0,
-        excludingInvoiceLbp: 0,
-        includingInvoiceUsd: 0,
-        includingInvoiceLbp: 0,
-        invoiceIncludedNow: detail?.invoice?.status === "posted",
-      };
-    }
-
+    if (!hasCustomer) return { hasCustomer: false, hasBalance: false, overallUsd: 0, overallLbp: 0, excludingInvoiceUsd: 0, excludingInvoiceLbp: 0, includingInvoiceUsd: 0, includingInvoiceLbp: 0, invoiceIncludedNow: false };
+    if (!customerAccount) return { hasCustomer: true, hasBalance: false, overallUsd: 0, overallLbp: 0, excludingInvoiceUsd: 0, excludingInvoiceLbp: 0, includingInvoiceUsd: 0, includingInvoiceLbp: 0, invoiceIncludedNow: detail?.invoice?.status === "posted" };
     const overallUsd = n(customerAccount.credit_balance_usd);
     const overallLbp = n(customerAccount.credit_balance_lbp);
     const invoiceDueUsd = n(salesOverview.balUsd);
     const invoiceDueLbp = n(salesOverview.balLbp);
     const invoiceIncludedNow = detail?.invoice?.status === "posted";
-
     const excludingInvoiceUsd = invoiceIncludedNow ? overallUsd - invoiceDueUsd : overallUsd;
     const excludingInvoiceLbp = invoiceIncludedNow ? overallLbp - invoiceDueLbp : overallLbp;
     const includingInvoiceUsd = invoiceIncludedNow ? overallUsd : overallUsd + invoiceDueUsd;
     const includingInvoiceLbp = invoiceIncludedNow ? overallLbp : overallLbp + invoiceDueLbp;
-
-    return {
-      hasCustomer: true,
-      hasBalance: true,
-      overallUsd,
-      overallLbp,
-      excludingInvoiceUsd,
-      excludingInvoiceLbp,
-      includingInvoiceUsd,
-      includingInvoiceLbp,
-      invoiceIncludedNow,
-    };
+    return { hasCustomer: true, hasBalance: true, overallUsd, overallLbp, excludingInvoiceUsd, excludingInvoiceLbp, includingInvoiceUsd, includingInvoiceLbp, invoiceIncludedNow };
   }, [customerAccount, detail?.invoice?.customer_id, detail?.invoice?.status, salesOverview]);
 
   const invoicePrimaryBal = salesOverview?.primaryBal ?? 0;
+  useEffect(() => { setInvoiceMathOpen(invoicePrimaryBal > 0); }, [detail?.invoice?.id, invoicePrimaryBal]);
 
-  useEffect(() => {
-    setInvoiceMathOpen(invoicePrimaryBal > 0);
-  }, [detail?.invoice?.id, invoicePrimaryBal]);
-
-  const taxById = useMemo(() => {
-    return new Map((taxCodes || []).map((t) => [String(t.id), t]));
-  }, [taxCodes]);
-
+  /* ---- Tax computations ---- */
+  const taxById = useMemo(() => new Map((taxCodes || []).map((t) => [String(t.id), t])), [taxCodes]);
   const defaultVatTaxCodeId = useMemo(() => {
     const vats = (taxCodes || []).filter((t) => String(t.tax_type || "").toLowerCase() === "vat");
     vats.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-    const id = vats[0]?.id;
-    return id ? String(id) : null;
+    return vats[0]?.id ? String(vats[0].id) : null;
   }, [taxCodes]);
-
-  const taxBreakdown = useMemo(() => {
-    const lines = detail?.tax_lines || [];
-    const acc = new Map<
-      string,
-      {
-        tax_code_id: string;
-        label: string;
-        ratePct: number | null;
-        base_usd: number;
-        base_lbp: number;
-        tax_usd: number;
-        tax_lbp: number;
-      }
-    >();
-
-    for (const t of lines) {
-      const id = String((t as any)?.tax_code_id || "").trim();
-      if (!id) continue;
-      const tc = taxById.get(id);
-      const label = tc?.name ? String(tc.name) : id;
-      const ratePct = tc ? taxRateToPercent(tc.rate) : null;
-
-      const prev = acc.get(id) || {
-        tax_code_id: id,
-        label,
-        ratePct,
-        base_usd: 0,
-        base_lbp: 0,
-        tax_usd: 0,
-        tax_lbp: 0,
-      };
-
-      prev.base_usd += n((t as any)?.base_usd);
-      prev.base_lbp += n((t as any)?.base_lbp);
-      prev.tax_usd += n((t as any)?.tax_usd);
-      prev.tax_lbp += n((t as any)?.tax_lbp);
-      // Keep the most-informative label/rate if tax codes loaded after initial render.
-      prev.label = label;
-      prev.ratePct = ratePct;
-
-      acc.set(id, prev);
-    }
-
-    const out = Array.from(acc.values());
-    out.sort((a, b) => a.label.localeCompare(b.label));
-    return out;
-  }, [detail?.tax_lines, taxById]);
-
-  const draftTaxBreakdown = useMemo(() => {
-    const lines = taxPreview?.tax_rows || [];
-    const acc = new Map<
-      string,
-      {
-        tax_code_id: string;
-        label: string;
-        ratePct: number | null;
-        base_usd: number;
-        base_lbp: number;
-        tax_usd: number;
-        tax_lbp: number;
-      }
-    >();
-
-    for (const t of lines) {
-      const id = String((t as any)?.tax_code_id || "").trim();
-      if (!id) continue;
-      const tc = taxById.get(id);
-      const label = tc?.name ? String(tc.name) : id;
-      const ratePct = tc ? taxRateToPercent(tc.rate) : null;
-
-      const prev = acc.get(id) || {
-        tax_code_id: id,
-        label,
-        ratePct,
-        base_usd: 0,
-        base_lbp: 0,
-        tax_usd: 0,
-        tax_lbp: 0,
-      };
-
-      prev.base_usd += n((t as any)?.base_usd);
-      prev.base_lbp += n((t as any)?.base_lbp);
-      prev.tax_usd += n((t as any)?.tax_usd);
-      prev.tax_lbp += n((t as any)?.tax_lbp);
-      prev.label = label;
-      prev.ratePct = ratePct;
-
-      acc.set(id, prev);
-    }
-
-    const out = Array.from(acc.values());
-    out.sort((a, b) => a.label.localeCompare(b.label));
-    return out;
-  }, [taxPreview?.tax_rows, taxById]);
-
-  const taxBreakdownTotals = useMemo(() => {
-    let base_usd = 0;
-    let base_lbp = 0;
-    let tax_usd = 0;
-    let tax_lbp = 0;
-    for (const r of taxBreakdown) {
-      base_usd += n(r.base_usd);
-      base_lbp += n(r.base_lbp);
-      tax_usd += n(r.tax_usd);
-      tax_lbp += n(r.tax_lbp);
-    }
-    return { base_usd, base_lbp, tax_usd, tax_lbp };
-  }, [taxBreakdown]);
-
-  const draftTaxBreakdownTotals = useMemo(() => {
-    let base_usd = 0;
-    let base_lbp = 0;
-    let tax_usd = 0;
-    let tax_lbp = 0;
-    for (const r of draftTaxBreakdown) {
-      base_usd += n(r.base_usd);
-      base_lbp += n(r.base_lbp);
-      tax_usd += n(r.tax_usd);
-      tax_lbp += n(r.tax_lbp);
-    }
-    return { base_usd, base_lbp, tax_usd, tax_lbp };
-  }, [draftTaxBreakdown]);
 
   const taxSettlementCurrency = useMemo(() => {
     return String(detail?.invoice?.settlement_currency || "USD").toUpperCase() === "LBP" ? "LBP" : "USD";
   }, [detail?.invoice?.settlement_currency]);
 
+  const taxBreakdown = useMemo(() => {
+    const lines = detail?.tax_lines || [];
+    const acc = new Map<string, { tax_code_id: string; label: string; ratePct: number | null; base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number }>();
+    for (const t of lines) {
+      const tid = String((t as any)?.tax_code_id || "").trim();
+      if (!tid) continue;
+      const tc = taxById.get(tid);
+      const label = tc?.name ? String(tc.name) : tid;
+      const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+      const prev = acc.get(tid) || { tax_code_id: tid, label, ratePct, base_usd: 0, base_lbp: 0, tax_usd: 0, tax_lbp: 0 };
+      prev.base_usd += n((t as any)?.base_usd); prev.base_lbp += n((t as any)?.base_lbp);
+      prev.tax_usd += n((t as any)?.tax_usd); prev.tax_lbp += n((t as any)?.tax_lbp);
+      prev.label = label; prev.ratePct = ratePct;
+      acc.set(tid, prev);
+    }
+    return Array.from(acc.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [detail?.tax_lines, taxById]);
+
+  const draftTaxBreakdown = useMemo(() => {
+    const lines = taxPreview?.tax_rows || [];
+    const acc = new Map<string, { tax_code_id: string; label: string; ratePct: number | null; base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number }>();
+    for (const t of lines) {
+      const tid = String((t as any)?.tax_code_id || "").trim();
+      if (!tid) continue;
+      const tc = taxById.get(tid);
+      const label = tc?.name ? String(tc.name) : tid;
+      const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+      const prev = acc.get(tid) || { tax_code_id: tid, label, ratePct, base_usd: 0, base_lbp: 0, tax_usd: 0, tax_lbp: 0 };
+      prev.base_usd += n((t as any)?.base_usd); prev.base_lbp += n((t as any)?.base_lbp);
+      prev.tax_usd += n((t as any)?.tax_usd); prev.tax_lbp += n((t as any)?.tax_lbp);
+      prev.label = label; prev.ratePct = ratePct;
+      acc.set(tid, prev);
+    }
+    return Array.from(acc.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [taxPreview?.tax_rows, taxById]);
+
+  function sumBreakdown(rows: typeof taxBreakdown) {
+    let base_usd = 0, base_lbp = 0, tax_usd = 0, tax_lbp = 0;
+    for (const r of rows) { base_usd += n(r.base_usd); base_lbp += n(r.base_lbp); tax_usd += n(r.tax_usd); tax_lbp += n(r.tax_lbp); }
+    return { base_usd, base_lbp, tax_usd, tax_lbp };
+  }
+  const taxBreakdownTotals = useMemo(() => sumBreakdown(taxBreakdown), [taxBreakdown]);
+  const draftTaxBreakdownTotals = useMemo(() => sumBreakdown(draftTaxBreakdown), [draftTaxBreakdown]);
+
   const activeTaxBreakdown = detail?.invoice?.status === "draft" ? draftTaxBreakdown : taxBreakdown;
   const activeTaxBreakdownTotals = detail?.invoice?.status === "draft" ? draftTaxBreakdownTotals : taxBreakdownTotals;
 
+  /* ---- Tax panel props ---- */
   const taxPanelRateRows = useMemo((): VatRateRow[] => {
     const totalTax = { usd: n(activeTaxBreakdownTotals.tax_usd), lbp: n(activeTaxBreakdownTotals.tax_lbp) };
     const rows = activeTaxBreakdown.map((r) => {
       const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
       const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
-      const effectiveRatePct = Number.isFinite(Number(effectivePctUsd))
-        ? effectivePctUsd
-        : Number.isFinite(Number(effectivePctLbp))
-          ? effectivePctLbp
-          : null;
+      const effectiveRatePct = Number.isFinite(Number(effectivePctUsd)) ? effectivePctUsd : Number.isFinite(Number(effectivePctLbp)) ? effectivePctLbp : null;
       const tax = { usd: n(r.tax_usd), lbp: n(r.tax_lbp) };
-      return {
-        id: r.tax_code_id,
-        label: r.label,
-        ratePct: r.ratePct,
-        effectiveRatePct,
-        taxableBase: { usd: n(r.base_usd), lbp: n(r.base_lbp) },
-        tax,
-        shareOfTotalTaxPct: buildVatSharePct(tax, totalTax, taxSettlementCurrency),
-      };
+      return { id: r.tax_code_id, label: r.label, ratePct: r.ratePct, effectiveRatePct, taxableBase: { usd: n(r.base_usd), lbp: n(r.base_lbp) }, tax, shareOfTotalTaxPct: buildVatSharePct(tax, totalTax, taxSettlementCurrency) };
     });
     rows.sort((a, b) => {
       const aRef = taxSettlementCurrency === "LBP" ? (Math.abs(a.tax.lbp) > 0 ? a.tax.lbp : a.tax.usd) : (Math.abs(a.tax.usd) > 0 ? a.tax.usd : a.tax.lbp);
@@ -543,82 +382,32 @@ function SalesInvoiceShowInner() {
       return Math.abs(bRef) - Math.abs(aRef);
     });
     return rows;
-  }, [activeTaxBreakdown, activeTaxBreakdownTotals.tax_lbp, activeTaxBreakdownTotals.tax_usd, taxSettlementCurrency]);
+  }, [activeTaxBreakdown, activeTaxBreakdownTotals, taxSettlementCurrency]);
 
   const taxPanelItemRows = useMemo((): VatItemAttributionRow[] => {
     if (!detail) return [];
     const exchangeRate = n(detail.invoice.exchange_rate);
     const vatApplied = detail.invoice.status === "draft" ? true : (detail.tax_lines || []).length > 0;
-    const baseRows = detail.lines
-      .map((l) => {
-        const itemLabel = String(l.item_name || "").trim() || String(l.item_sku || "").trim() || String(l.item_id || "").trim() || String(l.id);
-        const tcidRaw = String((l as any).item_tax_code_id || defaultVatTaxCodeId || "").trim();
-
-        if (!vatApplied || !tcidRaw) {
-          return {
-            id: String(l.id),
-            itemLabel,
-            qty: n(l.qty_entered ?? l.qty),
-            net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) },
-            vatRatePct: null,
-            vat: { usd: 0, lbp: 0 },
-            shareOfTotalTaxPct: null,
-          };
-        }
-
-        const tc = taxById.get(tcidRaw);
-        if (!tc || String(tc.tax_type || "").toLowerCase() !== "vat") {
-          return {
-            id: String(l.id),
-            itemLabel,
-            qty: n(l.qty_entered ?? l.qty),
-            net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) },
-            vatRatePct: null,
-            vat: { usd: 0, lbp: 0 },
-            shareOfTotalTaxPct: null,
-          };
-        }
-
-        const rateFrac = taxRateToFraction(tc.rate);
-        const vatRatePct = taxRateToPercent(tc.rate);
-        const baseLbp = n((l as any).line_total_lbp);
-        const vatLbp = baseLbp * rateFrac;
-        const vatUsd = exchangeRate ? vatLbp / exchangeRate : n((l as any).line_total_usd) * rateFrac;
-
-        return {
-          id: String(l.id),
-          itemLabel,
-          qty: n(l.qty_entered ?? l.qty),
-          net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) },
-          vatRatePct,
-          vat: { usd: vatUsd, lbp: vatLbp },
-          shareOfTotalTaxPct: null,
-        };
-      })
-      .filter((r) => r.vatRatePct !== null || n(r.vat.usd) !== 0 || n(r.vat.lbp) !== 0);
-
-    const total = baseRows.reduce<{ usd: number; lbp: number }>(
-      (acc, r) => ({ usd: acc.usd + n(r.vat.usd), lbp: acc.lbp + n(r.vat.lbp) }),
-      { usd: 0, lbp: 0 }
-    );
-
-    const rowsWithShare = baseRows.map((r) => ({
-      ...r,
-      shareOfTotalTaxPct: buildVatSharePct(r.vat, total, taxSettlementCurrency),
-    }));
-
+    const baseRows = detail.lines.map((l) => {
+      const itemLabel = String(l.item_name || "").trim() || String(l.item_sku || "").trim() || String(l.item_id || "").trim() || String(l.id);
+      const tcidRaw = String((l as any).item_tax_code_id || defaultVatTaxCodeId || "").trim();
+      if (!vatApplied || !tcidRaw) return { id: String(l.id), itemLabel, qty: n(l.qty_entered ?? l.qty), net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) }, vatRatePct: null as number | null, vat: { usd: 0, lbp: 0 }, shareOfTotalTaxPct: null as number | null };
+      const tc = taxById.get(tcidRaw);
+      if (!tc || String(tc.tax_type || "").toLowerCase() !== "vat") return { id: String(l.id), itemLabel, qty: n(l.qty_entered ?? l.qty), net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) }, vatRatePct: null as number | null, vat: { usd: 0, lbp: 0 }, shareOfTotalTaxPct: null as number | null };
+      const rateFrac = taxRateToFraction(tc.rate);
+      const vatRatePct = taxRateToPercent(tc.rate);
+      const baseLbp = n((l as any).line_total_lbp);
+      const vatLbp = baseLbp * rateFrac;
+      const vatUsd = exchangeRate ? vatLbp / exchangeRate : n((l as any).line_total_usd) * rateFrac;
+      return { id: String(l.id), itemLabel, qty: n(l.qty_entered ?? l.qty), net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) }, vatRatePct, vat: { usd: vatUsd, lbp: vatLbp }, shareOfTotalTaxPct: null as number | null };
+    }).filter((r) => r.vatRatePct !== null || n(r.vat.usd) !== 0 || n(r.vat.lbp) !== 0);
+    const total = baseRows.reduce<{ usd: number; lbp: number }>((acc, r) => ({ usd: acc.usd + n(r.vat.usd), lbp: acc.lbp + n(r.vat.lbp) }), { usd: 0, lbp: 0 });
+    const rowsWithShare = baseRows.map((r) => ({ ...r, shareOfTotalTaxPct: buildVatSharePct(r.vat, total, taxSettlementCurrency) }));
     rowsWithShare.sort((a, b) => {
-      const aRef =
-        taxSettlementCurrency === "LBP"
-          ? (Math.abs(a.vat.lbp) > 0 ? a.vat.lbp : a.vat.usd)
-          : (Math.abs(a.vat.usd) > 0 ? a.vat.usd : a.vat.lbp);
-      const bRef =
-        taxSettlementCurrency === "LBP"
-          ? (Math.abs(b.vat.lbp) > 0 ? b.vat.lbp : b.vat.usd)
-          : (Math.abs(b.vat.usd) > 0 ? b.vat.usd : b.vat.lbp);
+      const aRef = taxSettlementCurrency === "LBP" ? (Math.abs(a.vat.lbp) > 0 ? a.vat.lbp : a.vat.usd) : (Math.abs(a.vat.usd) > 0 ? a.vat.usd : a.vat.lbp);
+      const bRef = taxSettlementCurrency === "LBP" ? (Math.abs(b.vat.lbp) > 0 ? b.vat.lbp : b.vat.usd) : (Math.abs(b.vat.usd) > 0 ? b.vat.usd : b.vat.lbp);
       return Math.abs(bRef) - Math.abs(aRef);
     });
-
     return rowsWithShare;
   }, [defaultVatTaxCodeId, detail, taxById, taxSettlementCurrency]);
 
@@ -626,58 +415,29 @@ function SalesInvoiceShowInner() {
     if (!detail || detail.invoice.status === "draft") return [];
     return detail.tax_lines.map((t) => {
       const tc = taxById.get(String(t.tax_code_id));
-      return {
-        id: String(t.id),
-        label: tc?.name ? String(tc.name) : String(t.tax_code_id),
-        ratePct: tc ? taxRateToPercent(tc.rate) : null,
-        base: { usd: n((t as any).base_usd), lbp: n((t as any).base_lbp) },
-        tax: { usd: n((t as any).tax_usd), lbp: n((t as any).tax_lbp) },
-      };
+      return { id: String(t.id), label: tc?.name ? String(tc.name) : String(t.tax_code_id), ratePct: tc ? taxRateToPercent(tc.rate) : null, base: { usd: n((t as any).base_usd), lbp: n((t as any).base_lbp) }, tax: { usd: n((t as any).tax_usd), lbp: n((t as any).tax_lbp) } };
     });
   }, [detail, taxById]);
 
   const taxPanelSummary = useMemo((): VatSummaryModel => {
     const nonZeroRates = taxPanelRateRows.filter((r) => Number(r.ratePct || 0) > 0);
-    const singleRateNote =
-      nonZeroRates.length === 1 && nonZeroRates[0]?.ratePct !== null
-        ? `All taxable items use ${nonZeroRates[0].ratePct!.toFixed(2)}% VAT`
-        : null;
-    return {
-      totalTax: { usd: n(activeTaxBreakdownTotals.tax_usd), lbp: n(activeTaxBreakdownTotals.tax_lbp) },
-      taxableBase: { usd: n(activeTaxBreakdownTotals.base_usd), lbp: n(activeTaxBreakdownTotals.base_lbp) },
-      taxCodesCount: taxPanelRateRows.length,
-      singleRateNote,
-    };
-  }, [
-    activeTaxBreakdownTotals.base_lbp,
-    activeTaxBreakdownTotals.base_usd,
-    activeTaxBreakdownTotals.tax_lbp,
-    activeTaxBreakdownTotals.tax_usd,
-    taxPanelRateRows,
-  ]);
+    const singleRateNote = nonZeroRates.length === 1 && nonZeroRates[0]?.ratePct !== null ? `All taxable items use ${nonZeroRates[0].ratePct!.toFixed(2)}% VAT` : null;
+    return { totalTax: { usd: n(activeTaxBreakdownTotals.tax_usd), lbp: n(activeTaxBreakdownTotals.tax_lbp) }, taxableBase: { usd: n(activeTaxBreakdownTotals.base_usd), lbp: n(activeTaxBreakdownTotals.base_lbp) }, taxCodesCount: taxPanelRateRows.length, singleRateNote };
+  }, [activeTaxBreakdownTotals, taxPanelRateRows]);
 
-  const taxPanelPreviewNote =
-    detail?.invoice?.status === "draft"
-      ? "Preview is calculated per item (item tax code or default VAT). Tax entries are recorded when you post."
-      : null;
+  const taxPanelPreviewNote = detail?.invoice?.status === "draft" ? "Preview is calculated per item (item tax code or default VAT). Tax entries are recorded when you post." : null;
+  const taxPanelEmptyText = detail?.invoice?.status === "draft" ? "No tax preview (missing VAT tax code, or items have no tax code and no default VAT)." : "No tax lines.";
 
-  const taxPanelEmptyText =
-    detail?.invoice?.status === "draft"
-      ? "No tax preview (missing VAT tax code, or items have no tax code and no default VAT)."
-      : "No tax lines.";
-
+  /* ---- Invoice line columns ---- */
   const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
     const exchangeRate = n(detail?.invoice?.exchange_rate);
     const vatApplied = detail ? (detail.invoice.status === "draft" ? true : (detail.tax_lines || []).length > 0) : true;
-
     const lineTax = (l: InvoiceLine) => {
       if (!vatApplied) return { tax_code_id: null as string | null, label: "-", ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
       const tcidRaw = String((l as any).item_tax_code_id || defaultVatTaxCodeId || "").trim();
       if (!tcidRaw) return { tax_code_id: null as string | null, label: "-", ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
       const tc = taxById.get(tcidRaw);
-      if (!tc || String(tc.tax_type || "").toLowerCase() !== "vat") {
-        return { tax_code_id: tcidRaw, label: tc?.name ? String(tc.name) : tcidRaw, ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
-      }
+      if (!tc || String(tc.tax_type || "").toLowerCase() !== "vat") return { tax_code_id: tcidRaw, label: tc?.name ? String(tc.name) : tcidRaw, ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
       const rateFrac = taxRateToFraction(tc.rate);
       const ratePct = taxRateToPercent(tc.rate);
       const base_lbp = n((l as any).line_total_lbp);
@@ -685,157 +445,23 @@ function SalesInvoiceShowInner() {
       const tax_usd = exchangeRate ? tax_lbp / exchangeRate : n((l as any).line_total_usd) * rateFrac;
       return { tax_code_id: tcidRaw, label: tc?.name ? String(tc.name) : tcidRaw, ratePct, tax_usd, tax_lbp };
     };
-
     return [
-      {
-        id: "item",
-        header: "Item",
-        sortable: true,
-        accessor: (l) => `${l.item_sku || ""} ${l.item_name || ""}`,
-        cell: (l) =>
-          l.item_sku || l.item_name ? (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="text-sm">
-              <span className="font-mono text-xs">{l.item_sku || "-"}</span>{" "}
-              <span className="text-muted-foreground">·</span>{" "}
-              <span dir="auto">{l.item_name || "-"}</span>
-            </ShortcutLink>
-          ) : (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
-              {l.item_id}
-            </ShortcutLink>
-        ),
-      },
-      {
-        id: "qty",
-        header: "Qty",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (l) => Number(l.qty_entered ?? l.qty ?? 0),
-        cell: (l) => (
-          <div className="text-right data-mono text-sm">
-            <div className="text-foreground">
-              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-              <span className="text-xs text-muted-foreground">{String(l.uom || "").trim().toUpperCase() || "-"}</span>
-            </div>
-            {Number(l.qty_factor || 1) !== 1 ? (
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-              </div>
-            ) : null}
-          </div>
-        ),
-      },
-      {
-        id: "unit_price_usd",
-        header: "Unit USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => Number((l as any).unit_price_usd || 0),
-        cell: (l) => <span className="data-mono text-xs">{fmtUsd((l as any).unit_price_usd)}</span>,
-      },
-      {
-        id: "unit_price_lbp",
-        header: "Unit LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => Number((l as any).unit_price_lbp || 0),
-        cell: (l) => <span className="data-mono text-xs">{fmtLbp((l as any).unit_price_lbp)}</span>,
-      },
-      {
-        id: "discount_pct",
-        header: "Discount %",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => Number((l as any).discount_pct || 0),
-        cell: (l) => {
-          const pct = Number((l as any).discount_pct || 0);
-          return <span className="data-mono text-xs">{Number.isFinite(pct) ? `${(pct * 100).toFixed(2)}%` : "-"}</span>;
-        },
-      },
-      {
-        id: "discount_amount_usd",
-        header: "Discount USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => Number((l as any).discount_amount_usd || 0),
-        cell: (l) => <span className="data-mono text-xs">{fmtUsd((l as any).discount_amount_usd)}</span>,
-      },
-      {
-        id: "discount_amount_lbp",
-        header: "Discount LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => Number((l as any).discount_amount_lbp || 0),
-        cell: (l) => <span className="data-mono text-xs">{fmtLbp((l as any).discount_amount_lbp)}</span>,
-      },
-      {
-        id: "tax_code",
-        header: "Tax Code",
-        sortable: true,
-        defaultHidden: true,
-        accessor: (l) => lineTax(l).label,
-        cell: (l) => {
-          const tx = lineTax(l);
-          return (
-            <span className="data-mono text-xs">
-              {tx.label}
-              {tx.ratePct != null ? <span className="text-muted-foreground"> · {tx.ratePct.toFixed(2)}%</span> : null}
-            </span>
-          );
-        },
-      },
-      {
-        id: "tax_usd_calc",
-        header: "Tax USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => lineTax(l).tax_usd,
-        cell: (l) => <span className="data-mono text-xs">{fmtUsd(lineTax(l).tax_usd)}</span>,
-      },
-      {
-        id: "tax_lbp_calc",
-        header: "Tax LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        defaultHidden: true,
-        accessor: (l) => lineTax(l).tax_lbp,
-        cell: (l) => <span className="data-mono text-xs">{fmtLbp(lineTax(l).tax_lbp)}</span>,
-      },
-      {
-        id: "line_total_usd",
-        header: "Total USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (l) => Number(l.line_total_usd || 0),
-        cell: (l) => <span className="data-mono text-xs">{fmtUsd(l.line_total_usd)}</span>,
-      },
-      {
-        id: "line_total_lbp",
-        header: "Total LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (l) => Number(l.line_total_lbp || 0),
-        cell: (l) => <span className="data-mono text-xs">{fmtLbp(l.line_total_lbp)}</span>,
-      },
+      { id: "item", header: "Item", sortable: true, accessor: (l) => `${l.item_sku || ""} ${l.item_name || ""}`, cell: (l) => l.item_sku || l.item_name ? (<ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="text-sm"><span className="font-mono text-xs">{l.item_sku || "-"}</span> <span className="text-muted-foreground">·</span> <span dir="auto">{l.item_name || "-"}</span></ShortcutLink>) : (<ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">{l.item_id}</ShortcutLink>) },
+      { id: "qty", header: "Qty", sortable: true, align: "right" as const, mono: true, accessor: (l) => Number(l.qty_entered ?? l.qty ?? 0), cell: (l) => (<div className="text-right data-mono text-sm"><div className="text-foreground">{Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })} <span className="text-xs text-muted-foreground">{String(l.uom || "").trim().toUpperCase() || "-"}</span></div>{Number(l.qty_factor || 1) !== 1 ? (<div className="mt-0.5 text-xs text-muted-foreground">base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}</div>) : null}</div>) },
+      { id: "unit_price_usd", header: "Unit USD", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => Number((l as any).unit_price_usd || 0), cell: (l) => <span className="data-mono text-xs">{fmtUsd((l as any).unit_price_usd)}</span> },
+      { id: "unit_price_lbp", header: "Unit LL", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => Number((l as any).unit_price_lbp || 0), cell: (l) => <span className="data-mono text-xs">{fmtLbp((l as any).unit_price_lbp)}</span> },
+      { id: "discount_pct", header: "Discount %", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => Number((l as any).discount_pct || 0), cell: (l) => { const pct = Number((l as any).discount_pct || 0); return <span className="data-mono text-xs">{Number.isFinite(pct) ? `${(pct * 100).toFixed(2)}%` : "-"}</span>; } },
+      { id: "discount_amount_usd", header: "Discount USD", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => Number((l as any).discount_amount_usd || 0), cell: (l) => <span className="data-mono text-xs">{fmtUsd((l as any).discount_amount_usd)}</span> },
+      { id: "discount_amount_lbp", header: "Discount LL", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => Number((l as any).discount_amount_lbp || 0), cell: (l) => <span className="data-mono text-xs">{fmtLbp((l as any).discount_amount_lbp)}</span> },
+      { id: "tax_code", header: "Tax Code", sortable: true, defaultHidden: true, accessor: (l) => lineTax(l).label, cell: (l) => { const tx = lineTax(l); return (<span className="data-mono text-xs">{tx.label}{tx.ratePct != null ? <span className="text-muted-foreground"> · {tx.ratePct.toFixed(2)}%</span> : null}</span>); } },
+      { id: "tax_usd_calc", header: "Tax USD", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => lineTax(l).tax_usd, cell: (l) => <span className="data-mono text-xs">{fmtUsd(lineTax(l).tax_usd)}</span> },
+      { id: "tax_lbp_calc", header: "Tax LL", sortable: true, align: "right" as const, mono: true, defaultHidden: true, accessor: (l) => lineTax(l).tax_lbp, cell: (l) => <span className="data-mono text-xs">{fmtLbp(lineTax(l).tax_lbp)}</span> },
+      { id: "line_total_usd", header: "Total USD", sortable: true, align: "right" as const, mono: true, accessor: (l) => Number(l.line_total_usd || 0), cell: (l) => <span className="data-mono text-xs">{fmtUsd(l.line_total_usd)}</span> },
+      { id: "line_total_lbp", header: "Total LL", sortable: true, align: "right" as const, mono: true, accessor: (l) => Number(l.line_total_lbp || 0), cell: (l) => <span className="data-mono text-xs">{fmtLbp(l.line_total_lbp)}</span> },
     ];
   }, [detail, defaultVatTaxCodeId, taxById]);
 
+  /* ---- Data loading ---- */
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -844,7 +470,7 @@ function SalesInvoiceShowInner() {
       const [det, pm, tc] = await Promise.all([
         apiGet<InvoiceDetail>(`/sales/invoices/${id}`),
         apiGet<{ methods: PaymentMethodMapping[] }>("/config/payment-methods").catch(() => ({ methods: [] as PaymentMethodMapping[] })),
-        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] }))
+        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
       ]);
       setDetail(det);
       setPaymentMethods(pm.methods || []);
@@ -857,121 +483,46 @@ function SalesInvoiceShowInner() {
       }
       if (det?.invoice?.status === "draft") {
         const prev = await apiGet<{
-          base_usd: string | number;
-          base_lbp: string | number;
-          tax_code_id: string | null;
-          tax_usd: string | number;
-          tax_lbp: string | number;
+          base_usd: string | number; base_lbp: string | number; tax_code_id: string | null;
+          tax_usd: string | number; tax_lbp: string | number;
           tax_rows?: Array<{ tax_code_id: string; base_usd: string | number; base_lbp: string | number; tax_usd: string | number; tax_lbp: string | number }>;
-          total_usd: string | number;
-          total_lbp: string | number;
-        }>(
-          `/sales/invoices/${encodeURIComponent(det.invoice.id)}/post-preview?apply_vat=1`
-        ).catch(() => null);
+          total_usd: string | number; total_lbp: string | number;
+        }>(`/sales/invoices/${encodeURIComponent(det.invoice.id)}/post-preview?apply_vat=1`).catch(() => null);
         if (prev) {
           setTaxPreview({
-            base_usd: Number(prev.base_usd || 0),
-            base_lbp: Number(prev.base_lbp || 0),
+            base_usd: Number(prev.base_usd || 0), base_lbp: Number(prev.base_lbp || 0),
             tax_code_id: prev.tax_code_id ? String(prev.tax_code_id) : null,
-            tax_usd: Number(prev.tax_usd || 0),
-            tax_lbp: Number(prev.tax_lbp || 0),
-            tax_rows: (prev.tax_rows || []).map((r) => ({
-              tax_code_id: String(r.tax_code_id),
-              base_usd: Number(r.base_usd || 0),
-              base_lbp: Number(r.base_lbp || 0),
-              tax_usd: Number(r.tax_usd || 0),
-              tax_lbp: Number(r.tax_lbp || 0),
-            })),
-            total_usd: Number(prev.total_usd || 0),
-            total_lbp: Number(prev.total_lbp || 0),
+            tax_usd: Number(prev.tax_usd || 0), tax_lbp: Number(prev.tax_lbp || 0),
+            tax_rows: (prev.tax_rows || []).map((r) => ({ tax_code_id: String(r.tax_code_id), base_usd: Number(r.base_usd || 0), base_lbp: Number(r.base_lbp || 0), tax_usd: Number(r.tax_usd || 0), tax_lbp: Number(r.tax_lbp || 0) })),
+            total_usd: Number(prev.total_usd || 0), total_lbp: Number(prev.total_lbp || 0),
           });
         }
       }
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setDetail(null);
-      setCustomerAccount(null);
-      setStatus(message);
-    } finally {
-      setLoading(false);
-    }
+      setDetail(null); setCustomerAccount(null);
+      setStatus(err instanceof Error ? err.message : String(err));
+    } finally { setLoading(false); }
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
+  /* ---- Actions ---- */
   async function recomputePayment(paymentId: string) {
     if (!detail) return;
     setStatus("Fixing payment...");
-    try {
-      await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/recompute`, {});
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
+    try { await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/recompute`, {}); await load(); setStatus(""); }
+    catch (err) { setStatus(err instanceof Error ? err.message : String(err)); }
   }
 
   async function voidPayment(paymentId: string) {
     if (!detail) return;
     setStatus("Voiding payment...");
-    try {
-      await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/void`, {});
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
+    try { await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/void`, {}); await load(); setStatus(""); }
+    catch (err) { setStatus(err instanceof Error ? err.message : String(err)); }
   }
 
-  const openPostDialog = useCallback(async () => {
-    if (!detail) return;
-    if (detail.invoice.status !== "draft") return;
-    if (!(detail.lines || []).length) {
-      setStatus("Cannot post: add at least one line to this draft first.");
-      return;
-    }
-    setPostApplyingVat(true);
-    setPostVatAdvancedOpen(false);
-    setPostRecordPayment(false);
-    setPostMethod(methodChoices[0] || "");
-    setPostUsd("0");
-    setPostLbp("0");
-    setPostPreview(null);
-    try {
-      const prev = await apiGet<{
-        total_usd: string | number;
-        total_lbp: string | number;
-        tax_usd: string | number;
-        tax_lbp: string | number;
-      }>(`/sales/invoices/${detail.invoice.id}/post-preview?apply_vat=1`);
-      setPostPreview({
-        total_usd: Number(prev.total_usd || 0),
-        total_lbp: Number(prev.total_lbp || 0),
-        tax_usd: Number(prev.tax_usd || 0),
-        tax_lbp: Number(prev.tax_lbp || 0)
-      });
-    } catch {
-      setPostPreview(null);
-    }
-    setPostOpen(true);
-  }, [detail, methodChoices]);
-
-  useEffect(() => {
-    if (!methodChoices.length) {
-      if (postRecordPayment) setPostRecordPayment(false);
-      if (postMethod) setPostMethod("");
-      return;
-    }
-    if (!methodChoices.includes(String(postMethod || "").trim().toLowerCase())) {
-      setPostMethod(methodChoices[0]);
-    }
-  }, [methodChoices, postMethod, postRecordPayment]);
-
+  /* ---- Keyboard shortcuts ---- */
   useEffect(() => {
     function isTypingTarget(t: EventTarget | null) {
       if (!(t instanceof HTMLElement)) return false;
@@ -980,839 +531,179 @@ function SalesInvoiceShowInner() {
       if ((t as any).isContentEditable) return true;
       return false;
     }
-
     function onKeyDown(e: KeyboardEvent) {
       if (!detail) return;
       if (isTypingTarget(e.target)) return;
-
       const key = (e.key || "").toLowerCase();
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
-
-      // Cmd/Ctrl+P: open the printable page (instead of browser print).
-      if (key === "p" && !e.shiftKey) {
-        e.preventDefault();
-        window.open(`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`, "_blank", "noopener,noreferrer");
-        return;
-      }
-
-      // Cmd/Ctrl+Shift+P: jump to "Record Payment" for this invoice.
-      if (key === "p" && e.shiftKey) {
-        e.preventDefault();
-        window.open(
-          `/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`,
-          "_blank",
-          "noopener,noreferrer"
-        );
-        return;
-      }
-
-      // Cmd/Ctrl+Enter: post draft quickly.
-      if (key === "enter") {
-        if (detail.invoice.status === "draft") {
-          e.preventDefault();
-          void openPostDialog();
-        }
-      }
+      if (key === "p" && !e.shiftKey) { e.preventDefault(); window.open(`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`, "_blank", "noopener,noreferrer"); return; }
+      if (key === "p" && e.shiftKey) { e.preventDefault(); window.open(`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`, "_blank", "noopener,noreferrer"); return; }
+      if (key === "enter" && detail.invoice.status === "draft") { e.preventDefault(); setPostOpen(true); }
     }
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [detail, openPostDialog]);
+  }, [detail]);
 
-  const postChecklist = useMemo(() => {
-    const inv = detail?.invoice;
-    const lines = detail?.lines || [];
-    const rate = Number(inv?.exchange_rate || 0);
-    const missingUom = lines.filter((l) => !String(l.uom || "").trim()).length;
-    const zeroPrice = lines.filter((l) => Number(l.unit_price_usd || 0) === 0 && Number(l.unit_price_lbp || 0) === 0).length;
-    const blocking: string[] = [];
-    const warnings: string[] = [];
-
-    if (!lines.length) blocking.push("Add at least one line.");
-    if (rate <= 0) blocking.push("Exchange rate is missing (USD→LL).");
-    if (missingUom) blocking.push(`${missingUom} line(s) are missing UOM.`);
-
-    if (zeroPrice) warnings.push(`${zeroPrice} line(s) have zero unit price.`);
-    if (postRecordPayment) {
-      if (!hasPaymentMethodMappings) {
-        blocking.push("Payment methods are not configured.");
-      }
-      const usd = parseNumberInput(postUsd);
-      const lbp = parseNumberInput(postLbp);
-      if ((!usd.ok && usd.reason === "invalid") || (!lbp.ok && lbp.reason === "invalid")) {
-        blocking.push("Payment amount is invalid.");
-      }
-      const paid = (usd.ok ? usd.value : 0) + (lbp.ok ? lbp.value : 0);
-      if (paid > 0 && !inv?.customer_id) {
-        warnings.push("Walk-in + payment is ok, but credit/partial settlements are safer with a customer.");
-      }
-    }
-
-    return { blocking, warnings };
-  }, [detail, hasPaymentMethodMappings, postRecordPayment, postUsd, postLbp]);
-
-  async function refreshPostPreview(applyVat: boolean) {
-    if (!detail) return;
-    try {
-      const prev = await apiGet<{
-        total_usd: string | number;
-        total_lbp: string | number;
-        tax_usd: string | number;
-        tax_lbp: string | number;
-      }>(`/sales/invoices/${detail.invoice.id}/post-preview?apply_vat=${applyVat ? "1" : "0"}`);
-      setPostPreview({
-        total_usd: Number(prev.total_usd || 0),
-        total_lbp: Number(prev.total_lbp || 0),
-        tax_usd: Number(prev.tax_usd || 0),
-        tax_lbp: Number(prev.tax_lbp || 0)
-      });
-    } catch {
-      setPostPreview(null);
-    }
+  /* ---- Tab change ---- */
+  function onTabChange(tab: string) {
+    router.replace(`?tab=${tab}`);
   }
 
-  async function postDraftInvoice(e: React.FormEvent) {
-    e.preventDefault();
-    if (!detail) return;
-    if (detail.invoice.status !== "draft") return;
-
-    let usd = 0;
-    let lbp = 0;
-    if (postRecordPayment) {
-      const usdRes = parseNumberInput(postUsd);
-      const lbpRes = parseNumberInput(postLbp);
-      if (!usdRes.ok && usdRes.reason === "invalid") return setStatus("Invalid payment USD amount.");
-      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus("Invalid payment LL amount.");
-      usd = usdRes.ok ? usdRes.value : 0;
-      lbp = lbpRes.ok ? lbpRes.value : 0;
-    }
-    const pay = !postRecordPayment || (usd === 0 && lbp === 0) ? [] : [{ method: postMethod, amount_usd: usd, amount_lbp: lbp }];
-    const applyVat = postVatAdvancedOpen ? postApplyingVat : true;
-
-    setPostSubmitting(true);
-    setStatus("Posting invoice...");
-    try {
-      await apiPost(`/sales/invoices/${detail.invoice.id}/post`, { apply_vat: applyVat, payments: pay });
-      setPostOpen(false);
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setPostSubmitting(false);
-    }
-  }
-
-  async function cancelPostedInvoice(e: React.FormEvent) {
-    e.preventDefault();
-    if (!detail) return;
-    if (detail.invoice.status !== "posted") return;
-    setCanceling(true);
-    setStatus("Voiding invoice...");
-    try {
-      await apiPost(`/sales/invoices/${detail.invoice.id}/cancel`, {
-        cancel_date: cancelDate || undefined,
-        reason: cancelReason || undefined
-      });
-      setCancelOpen(false);
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setCanceling(false);
-    }
-  }
-
-  async function cancelDraftInvoice(e: React.FormEvent) {
-    e.preventDefault();
-    if (!detail) return;
-    if (detail.invoice.status !== "draft") return;
-    setCancelDrafting(true);
-    setStatus("Canceling draft...");
-    try {
-      await apiPost(`/sales/invoices/${detail.invoice.id}/cancel-draft`, { reason: cancelDraftReason || undefined });
-      setCancelDraftOpen(false);
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setCancelDrafting(false);
-    }
-  }
-
+  /* ---- Loading ---- */
   if (loading && !detail) {
-    return <div className="min-h-[50vh] px-2 py-10 text-sm text-muted-foreground">Loading...</div>;
+    return <div className="min-h-[50vh] px-6 py-10 text-sm text-muted-foreground">Loading...</div>;
   }
+
+  const inv = detail?.invoice;
+  const isDraft = inv?.status === "draft";
+  const isPosted = inv?.status === "posted";
+
+  /* ---- Sales channel badge ---- */
+  const channelBadge = inv ? (
+    <Badge variant="outline" className="text-xs uppercase">
+      {salesChannelLabel(inv.sales_channel)}
+    </Badge>
+  ) : null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{detail?.invoice?.invoice_no || "Sales Invoice"}</h1>
-            <div className="text-sm text-muted-foreground">
-              <span className="font-mono text-xs">{id}</span>
-              {detail ? <StatusChip value={detail.invoice.status} /> : null}
-              {detail ? (
-                <span className={`ml-1 inline-flex items-center rounded-md border px-2 py-0.5 text-xs uppercase tracking-wide ${salesChannelTone(detail.invoice.sales_channel)}`}>
-                  {salesChannelLabel(detail.invoice.sales_channel)}
-                </span>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => router.push("/sales/invoices")}>
-              Back to List
-            </Button>
-            <Button variant="outline" onClick={load} disabled={loading}>
-              {loading ? "..." : "Refresh"}
-            </Button>
-            <Button onClick={() => router.push("/sales/invoices/new")}>New Draft</Button>
-          </div>
+    <DetailPageLayout
+      backHref="/sales/invoices"
+      title={inv?.invoice_no || "Sales Invoice"}
+      badge={
+        <div className="flex items-center gap-2">
+          {inv ? <StatusBadge status={inv.status} /> : null}
+          {channelBadge}
         </div>
-      </div>
-
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      {detail ? (
+      }
+      meta={
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="font-mono text-xs">{shortId(id)}</span>
+          <CopyButton text={id} label="ID" />
+          {inv?.invoice_date && (
+            <>
+              <span className="text-muted-foreground/50">|</span>
+              <span className="text-xs">{formatDateLike(inv.invoice_date)}</span>
+            </>
+          )}
+        </div>
+      }
+      actions={{
+        primary: isDraft
+          ? { label: "Post Draft", onClick: () => setPostOpen(true) }
+          : isPosted
+            ? { label: "Record Payment", onClick: () => { if (inv) window.open(`/sales/payments?invoice_id=${encodeURIComponent(inv.id)}&record=1`, "_blank", "noopener,noreferrer"); } }
+            : undefined,
+        secondary: [
+          { label: "Preview", onClick: () => setPreviewOpen(true), visible: !!detail },
+          { label: "Print / PDF", onClick: () => { if (inv) window.open(`/sales/invoices/${encodeURIComponent(inv.id)}/print`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
+          { label: "Download PDF", onClick: () => { if (inv) window.open(`/exports/sales-invoices/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
+          { label: "Print Receipt", onClick: () => { if (inv) window.open(`/sales/invoices/${encodeURIComponent(inv.id)}/print?paper=receipt&doc=receipt`, "_blank", "noopener,noreferrer"); }, visible: isPosted },
+          { label: "Receipt PDF", onClick: () => { if (inv) window.open(`/exports/sales-receipts/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: isPosted },
+          { label: "Edit Draft", onClick: () => { if (inv) router.push(`/sales/invoices/${encodeURIComponent(inv.id)}/edit`); }, visible: isDraft },
+        ],
+        destructive: isDraft
+          ? { label: "Cancel Draft", onClick: () => setCancelDraftOpen(true) }
+          : isPosted
+            ? { label: "Void Invoice", onClick: () => setCancelOpen(true) }
+            : undefined,
+        utilities: detail ? (
+          <DocumentUtilitiesDrawer entityType="sales_invoice" entityId={detail.invoice.id} allowUploadAttachments={isDraft} />
+        ) : undefined,
+      }}
+      error={status || undefined}
+    >
+      {detail && salesOverview ? (
         <>
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <CardTitle className="text-lg">Sales Invoice Overview</CardTitle>
-                    <StatusChip value={detail.invoice.status} className="translate-y-[1px]" />
-                    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs uppercase tracking-wide ${salesChannelTone(detail.invoice.sales_channel)}`}>
-                      {salesChannelLabel(detail.invoice.sales_channel)}
-                    </span>
-                  </div>
-                  <CardDescription className="mt-1 text-sm">
-                    <span className="font-mono">{detail.invoice.invoice_no || "(draft)"}</span>
-                    {detail.invoice.invoice_date ? (
-                      <>
-                        {" "}
-                        · <span className="data-mono">Inv {fmtIso(detail.invoice.invoice_date)}</span>
-                      </>
-                    ) : null}
-                  </CardDescription>
-                </div>
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                  <Button variant="outline" onClick={() => setPreviewOpen(true)}>
-                    Preview
-                  </Button>
-                  <Button asChild variant="outline">
-                    <Link
-                      href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Print / PDF
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline">
-                    <a
-                      href={`/exports/sales-invoices/${encodeURIComponent(detail.invoice.id)}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Download PDF
-                    </a>
-                  </Button>
-                  {detail.invoice.status === "posted" ? (
-                    <>
-                      <Button asChild variant="outline">
-                        <a
-                          href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print?paper=receipt&doc=receipt`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Print Receipt
-                        </a>
-                      </Button>
-                      <Button asChild variant="outline">
-                        <a
-                          href={`/exports/sales-receipts/${encodeURIComponent(detail.invoice.id)}/pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Receipt PDF
-                        </a>
-                      </Button>
-                    </>
-                  ) : null}
-                  {detail.invoice.status === "draft" ? (
-                    <>
-                      <Button asChild variant="outline">
-                        <Link href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/edit`}>Edit Draft</Link>
-                      </Button>
-                      <Button variant="outline" onClick={openPostDialog}>
-                        Post Draft
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          setCancelDraftReason("");
-                          setCancelDraftOpen(true);
-                        }}
-                      >
-                        Cancel Draft
-                      </Button>
-                    </>
-                  ) : null}
-                  {detail.invoice.status === "posted" ? (
-                    <Button
-                      variant="destructive"
-                      onClick={() => {
-                        setCancelDate(todayIso());
-                        setCancelReason("");
-                        setCancelOpen(true);
-                      }}
-                    >
-                      Void Invoice
-                    </Button>
-                  ) : null}
-                  <DocumentUtilitiesDrawer
-                    entityType="sales_invoice"
-                    entityId={detail.invoice.id}
-                    allowUploadAttachments={detail.invoice.status === "draft"}
-                  />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <TabBar tabs={salesInvoiceTabs} />
-
-              {activeTab === "overview" && salesOverview ? (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                  <Card className="md:col-span-8"><CardContent className="p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-[220px]">
-                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Customer</p>
-                        <p className="mt-1 text-lg font-semibold text-foreground leading-tight">
-                          {detail.invoice.customer_id ? (
-                            <ShortcutLink href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`} title="Open customer">
-                              {detail.invoice.customer_name || detail.invoice.customer_id}
-                            </ShortcutLink>
-                          ) : (
-                            "Walk-in"
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Created{" "}
-                          <span className="data-mono">
-                            {formatDateLike(detail.invoice.created_at)}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                          <span className="text-muted-foreground">Warehouse</span>
-                          <span className="data-mono text-foreground">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                          <span className="text-muted-foreground">Settle</span>
-                          <span className="data-mono text-foreground">{salesOverview.settle}</span>
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                          <span className="text-muted-foreground">Rate</span>
-                          <span className="data-mono text-foreground">{salesOverview.rate ? salesOverview.rate.toLocaleString("en-US") : "-"}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="rounded-lg border border bg-muted/25 p-3">
-                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Dates</p>
-                        <div className="mt-2 space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm text-muted-foreground">Invoice</span>
-                            <span className="text-sm font-medium">{fmtIso(detail.invoice.invoice_date)}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm text-muted-foreground">Due</span>
-                            <span className="text-sm font-medium">{fmtIso(detail.invoice.due_date)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border bg-muted/25 p-3">
-                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Document</p>
-                        <div className="mt-2 space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm text-muted-foreground">Invoice No</span>
-                            <span className="text-sm font-medium">{detail.invoice.invoice_no || "(draft)"}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm text-muted-foreground">Receipt</span>
-                            <span className="text-sm font-medium">{detail.invoice.receipt_no || "-"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent></Card>
-
-                  <Card className="md:col-span-4"><CardContent className="p-4">
-                    <div className="space-y-3">
-                      <div className="rounded-lg border border bg-muted/25 p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Now</p>
-                            <p className="mt-1 text-xs text-muted-foreground">What needs action on this invoice.</p>
-                          </div>
-                          <span
-                            className={`rounded-full px-2 py-1 text-xs font-medium ${salesOverview.primaryBal > 0 ? "bg-warning/15 text-warning" : "bg-success/20 text-success"}`}
-                          >
-                            {salesOverview.primaryBal > 0 ? "Open balance" : "Settled"}
-                          </span>
-                        </div>
-
-                        <div className={`data-mono mt-3 text-3xl font-semibold leading-none ${salesOverview.primaryTone}`}>
-                          {salesOverview.primaryFmt(salesOverview.primaryBal)}
-                        </div>
-
-                        <div className="mt-3">
-                          {detail.invoice.status === "posted" ? (
-                            <Button asChild className="w-full">
-                              <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>
-                                Record Payment
-                              </Link>
-                            </Button>
-                          ) : (
-                            <Button className="w-full" disabled>
-                              Record Payment
-                            </Button>
-                          )}
-                        </div>
-
-                        {detail.invoice.status !== "posted" ? (
-                          <p className="mt-2 text-xs text-muted-foreground">Post the invoice first to record payments.</p>
-                        ) : null}
-
-                        <details
-                          className="mt-3 rounded-lg border border bg-card/40 p-2.5"
-                          open={invoiceMathOpen}
-                          onToggle={(e) => setInvoiceMathOpen((e.currentTarget as HTMLDetailsElement).open)}
-                        >
-                          <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Invoice math</summary>
-                          <div className="mt-2 space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm text-muted-foreground">Settlement currency</span>
-                              <span className="text-sm font-medium">{salesOverview.settle}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm text-muted-foreground">Amount due</span>
-                              <span className="text-sm font-medium">{salesOverview.primaryFmt(salesOverview.primaryBal)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 text-xs">
-                              <span className="text-sm text-muted-foreground">Amount due (other)</span>
-                              <span className="text-sm font-medium">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm text-muted-foreground">Invoice total</span>
-                              <span className="text-sm font-medium">{salesOverview.primaryFmt(salesOverview.primaryTotal)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm text-muted-foreground">Applied</span>
-                              <span className="text-sm font-medium">{salesOverview.primaryFmt(salesOverview.primaryPaid)}</span>
-                            </div>
-                            {salesOverview.hasAnyTender ? (
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-muted-foreground">Amount received</span>
-                                <span className="text-sm font-medium">
-                                  {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.tenderLbp) : fmtUsd(salesOverview.tenderUsd)}
-                                </span>
-                              </div>
-                            ) : null}
-                            {(detail.tax_lines || []).length ? (
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-muted-foreground">VAT</span>
-                                <span className="text-sm font-medium">
-                                  {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.vatLbp) : fmtUsd(salesOverview.vatUsd)}
-                                </span>
-                              </div>
-                            ) : null}
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm text-muted-foreground">Subtotal</span>
-                              <span className="text-sm font-medium">
-                                {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.subLbp) : fmtUsd(salesOverview.subUsd)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm text-muted-foreground">Discount</span>
-                              <span className="text-sm font-medium">
-                                {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.discLbp) : fmtUsd(salesOverview.discUsd)}
-                              </span>
-                            </div>
-                          </div>
-                        </details>
-                      </div>
-
-                      <div className="rounded-lg border border bg-muted/25 p-3">
-                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Money Movement</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Payments already applied to this invoice.</p>
-
-                        <div className="mt-2 max-h-56 space-y-2 overflow-auto pr-1">
-                          {detail.payments.map((p) => (
-                            <div key={p.id} className="rounded-md border border bg-card/50 px-2.5 py-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="data-mono text-sm text-foreground">{formatMethodLabel(p.method)}</span>
-                                <span className="data-mono text-xs text-right text-foreground">
-                                  {salesOverview.settle === "LBP" ? fmtLbp(n(p.amount_lbp)) : fmtUsd(n(p.amount_usd))}
-                                </span>
-                              </div>
-                              {hasTender(p) ? (
-                                <div className="mt-1 data-mono text-xs text-muted-foreground">
-                                  Received {salesOverview.settle === "LBP" ? fmtLbp(n(p.tender_lbp)) : fmtUsd(n(p.tender_usd))}
-                                </div>
-                              ) : null}
-                              <details className="mt-2">
-                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Actions</summary>
-                                <div className="mt-2 flex justify-end gap-2">
-                                  <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
-                                    Fix
-                                  </Button>
-                                  <ConfirmButton
-                                    variant="destructive"
-                                    size="sm"
-                                    title="Void Payment?"
-                                    description="This will create a reversing GL entry."
-                                    confirmText="Void"
-                                    confirmVariant="destructive"
-                                    onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-                                    onConfirm={() => voidPayment(p.id)}
-                                  >
-                                    Void
-                                  </ConfirmButton>
-                                </div>
-                              </details>
-                            </div>
-                          ))}
-                          {detail.payments.length === 0 ? <p className="text-xs text-muted-foreground">No payments yet.</p> : null}
-                        </div>
-                      </div>
-
-                      <details className="rounded-lg border border bg-muted/25 p-3">
-                        <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                          Customer Account Context
-                        </summary>
-                        <p className="mt-2 text-xs text-muted-foreground">All open invoices/credits, including unapplied payments.</p>
-                        {customerAccountOverview?.hasBalance ? (
-                          <div className="mt-2 space-y-1">
-                            <div className="flex items-center justify-between gap-2 font-medium">
-                              <span className="text-sm text-muted-foreground">Account balance (overall)</span>
-                              <span className="text-sm font-medium">
-                                {fmtUsdLbp(customerAccountOverview.overallUsd, customerAccountOverview.overallLbp)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 text-xs">
-                              <span className="text-sm text-muted-foreground">Excluding this invoice</span>
-                              <span className="text-sm font-medium">
-                                {fmtUsdLbp(customerAccountOverview.excludingInvoiceUsd, customerAccountOverview.excludingInvoiceLbp)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 text-xs">
-                              <span className="text-sm text-muted-foreground">
-                                {customerAccountOverview.invoiceIncludedNow ? "Including this invoice (current)" : "Including this invoice (once posted)"}
-                              </span>
-                              <span className="text-sm font-medium">
-                                {fmtUsdLbp(customerAccountOverview.includingInvoiceUsd, customerAccountOverview.includingInvoiceLbp)}
-                              </span>
-                            </div>
-                          </div>
-                        ) : customerAccountOverview?.hasCustomer ? (
-                          <p className="mt-2 text-xs text-muted-foreground">Customer account balance unavailable.</p>
-                        ) : (
-                          <p className="mt-2 text-xs text-muted-foreground">No customer selected for this invoice.</p>
-                        )}
-                      </details>
-                    </div>
-                  </CardContent></Card>
-                </div>
-              ) : null}
-
-              {activeTab === "items" ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Items</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DataTable<InvoiceLine>
-                      tableId="sales.invoice.lines"
-                      rows={detail.lines}
-                      columns={invoiceLineColumns}
-                      getRowId={(l) => l.id}
-                      emptyText="No lines."
-                      enableGlobalFilter={false}
-                      initialSort={{ columnId: "item", dir: "asc" }}
-                    />
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {activeTab === "tax" ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Tax</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <VatBreakdownPanel
-                      summary={taxPanelSummary}
-                      rateRows={taxPanelRateRows}
-                      itemRows={taxPanelItemRows}
-                      rawTaxLines={taxPanelRawTaxLines}
-                      settlementCurrency={taxSettlementCurrency}
-                      defaultItemAttributionOpen={taxPanelRateRows.filter((r) => Number(r.ratePct || 0) > 0).length > 1}
-                      previewNote={taxPanelPreviewNote}
-                      emptyText={taxPanelEmptyText}
-                    />
-                  </CardContent>
-                </Card>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Dialog open={postOpen} onOpenChange={setPostOpen}>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Post Draft Invoice</DialogTitle>
-                <DialogDescription>Posting writes stock moves + GL. You can optionally record a payment now.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={postDraftInvoice} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="md:col-span-6 rounded-md border border bg-muted/25 p-3 text-xs text-muted-foreground">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="font-medium text-foreground">Posting checklist</div>
-                    <div className="text-xs text-muted-foreground">
-                      Hotkeys: <span className="ui-kbd">⌘</span>+<span className="ui-kbd">Enter</span> post,{" "}
-                      <span className="ui-kbd">⌘</span>+<span className="ui-kbd">P</span> print
-                    </div>
-                  </div>
-                  <div className="mt-2 space-y-1">
-                    {postChecklist.blocking.length ? (
-                      <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive">
-                        <div className="font-medium">Blocking</div>
-                        <ul className="mt-1 list-disc pl-4">
-                          {postChecklist.blocking.map((x) => (
-                            <li key={x}>{x}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : (
-                      <div className="rounded-md border border bg-card/60 p-2 text-muted-foreground">
-                        Ready to post.
-                      </div>
-                    )}
-                    {postChecklist.warnings.length ? (
-                      <div className="rounded-md border border bg-card/60 p-2">
-                        <div className="font-medium text-foreground">Warnings</div>
-                        <ul className="mt-1 list-disc pl-4">
-                          {postChecklist.warnings.map((x) => (
-                            <li key={x}>{x}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="md:col-span-6 rounded-md border border bg-card/60 p-3 text-xs text-muted-foreground">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>VAT mode</span>
-                    <span className="font-medium text-foreground">Automatic</span>
-                  </div>
-                  <p className="mt-1">VAT is applied by default using item tax codes and company VAT settings.</p>
-                  {!postVatAdvancedOpen ? (
-                    <button
-                      type="button"
-                      className="mt-2 text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                      onClick={() => setPostVatAdvancedOpen(true)}
-                    >
-                      Change VAT behavior (advanced)
-                    </button>
-                  ) : (
-                    <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        className="ui-checkbox"
-                        checked={postApplyingVat}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          setPostApplyingVat(next);
-                          refreshPostPreview(next);
-                        }}
-                      />
-                      Apply VAT from company tax codes
-                    </label>
-                  )}
-                </div>
-                <label className="md:col-span-6 flex items-center gap-2 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    className="ui-checkbox"
-                    checked={postRecordPayment}
-                    disabled={!hasPaymentMethodMappings}
-                    onChange={(e) => {
-                      const next = e.target.checked;
-                      setPostRecordPayment(next);
-                      if (!next) {
-                        setPostUsd("0");
-                        setPostLbp("0");
-                        setPostMethod(methodChoices[0] || "");
-                      }
-                    }}
-                  />
-                  Record a payment now (otherwise invoice remains unpaid/credit)
-                </label>
-                {postPreview ? (
-                  <div className="md:col-span-6 rounded-md border border bg-card/60 p-3 text-xs text-muted-foreground">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>VAT</span>
-                      <span className="data-mono">
-                        {fmtUsdLbp(postPreview.tax_usd, postPreview.tax_lbp)}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <span>Total</span>
-                      <span className="data-mono">
-                        {fmtUsdLbp(postPreview.total_usd, postPreview.total_lbp)}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="md:col-span-6 text-xs text-muted-foreground">
-                    Tip: If you post without paying the full amount, the remaining balance becomes credit and requires a customer.
-                  </div>
+          <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-6">
+            <TabsList>
+              <TabsTrigger value="overview" className="gap-2">
+                <FileText className="h-4 w-4" /> Overview
+              </TabsTrigger>
+              <TabsTrigger value="items" className="gap-2">
+                <Package className="h-4 w-4" /> Items
+                {detail.lines.length > 0 && (
+                  <span className="ml-1 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-[10px] font-medium">
+                    {detail.lines.length}
+                  </span>
                 )}
-                {postRecordPayment ? (
-                  <>
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-muted-foreground">Payment Method</label>
-                      <select value={postMethod} onChange={(e) => setPostMethod(e.target.value)} disabled={!hasPaymentMethodMappings}>
-                        {!methodChoices.length ? <option value="">(no methods)</option> : null}
-                        {methodChoices.map((m) => (
-                          <option key={m} value={m}>
-                            {formatMethodLabel(m)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {!hasPaymentMethodMappings ? (
-                      <div className="md:col-span-6 text-xs text-warning">
-                        No payment methods are configured. Add one in System Config to record payment at posting.
-                      </div>
-                    ) : null}
-                    <MoneyInput label="Amount" currency="USD" value={postUsd} onChange={setPostUsd} quick={[0, 1, 10, 100]} className="md:col-span-3" />
-                    <MoneyInput
-                      label="Amount"
-                      currency="LBP"
-                      displayCurrency="LL"
-                      value={postLbp}
-                      onChange={setPostLbp}
-                      quick={[0, 100000, 500000, 1000000]}
-                      className="md:col-span-3"
-                    />
-                  </>
-                ) : null}
-                <div className="md:col-span-6 flex justify-end">
-                  <Button type="submit" disabled={postSubmitting || postChecklist.blocking.length > 0}>
-                    {postSubmitting ? "..." : "Post Invoice"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+              </TabsTrigger>
+              <TabsTrigger value="tax" className="gap-2">
+                <Receipt className="h-4 w-4" /> Tax
+              </TabsTrigger>
+            </TabsList>
 
-          <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-            <DialogContent className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Void Sales Invoice</DialogTitle>
-                <DialogDescription>
-                  This will reverse stock moves, VAT tax lines, and GL entries. It is blocked if payments or posted returns exist.
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={cancelPostedInvoice} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-muted-foreground">Void Date</label>
-                  <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
-                </div>
-                <div className="space-y-1 md:col-span-6">
-                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
-                  <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="customer error / duplicate / correction" />
-                </div>
-                <div className="md:col-span-6 flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setCancelOpen(false)}>
-                    Close
-                  </Button>
-                  <Button type="submit" variant="destructive" disabled={canceling}>
-                    {canceling ? "..." : "Void Invoice"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+            <TabsContent value="overview">
+              <InvoiceOverviewTab
+                invoice={detail.invoice}
+                payments={detail.payments}
+                taxLines={detail.tax_lines}
+                salesOverview={salesOverview}
+                customerAccountOverview={customerAccountOverview}
+                invoiceMathOpen={invoiceMathOpen}
+                onInvoiceMathToggle={setInvoiceMathOpen}
+                onRecomputePayment={recomputePayment}
+                onVoidPayment={voidPayment}
+                onError={setStatus}
+              />
+            </TabsContent>
 
-          <Dialog open={cancelDraftOpen} onOpenChange={setCancelDraftOpen}>
-            <DialogContent className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Cancel Draft Invoice</DialogTitle>
-                <DialogDescription>This will mark the draft as canceled. No stock or GL will be posted.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={cancelDraftInvoice} className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
-                  <Input value={cancelDraftReason} onChange={(e) => setCancelDraftReason(e.target.value)} placeholder="Optional" />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setCancelDraftOpen(false)}>
-                    Close
-                  </Button>
-                  <Button type="submit" variant="destructive" disabled={cancelDrafting}>
-                    {cancelDrafting ? "..." : "Cancel Draft"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+            <TabsContent value="items">
+              <InvoiceItemsTab lines={detail.lines} columns={invoiceLineColumns} />
+            </TabsContent>
+
+            <TabsContent value="tax">
+              <InvoiceTaxTab
+                summary={taxPanelSummary}
+                rateRows={taxPanelRateRows}
+                itemRows={taxPanelItemRows}
+                rawTaxLines={taxPanelRawTaxLines}
+                settlementCurrency={taxSettlementCurrency}
+                previewNote={taxPanelPreviewNote}
+                emptyText={taxPanelEmptyText}
+              />
+            </TabsContent>
+          </Tabs>
+
+          {/* Dialogs */}
+          <PostInvoiceDialog
+            open={postOpen}
+            onOpenChange={setPostOpen}
+            invoiceId={detail.invoice.id}
+            invoiceStatus={detail.invoice.status}
+            lineCount={detail.lines.length}
+            exchangeRate={n(detail.invoice.exchange_rate)}
+            customerId={detail.invoice.customer_id}
+            methodChoices={methodChoices}
+            hasPaymentMethodMappings={hasPaymentMethodMappings}
+            onPosted={load}
+            onError={setStatus}
+          />
+
+          <VoidInvoiceDialog
+            open={cancelOpen}
+            onOpenChange={setCancelOpen}
+            invoiceId={detail.invoice.id}
+            onVoided={load}
+            onError={setStatus}
+          />
+
+          <CancelDraftDialog
+            open={cancelDraftOpen}
+            onOpenChange={setCancelDraftOpen}
+            invoiceId={detail.invoice.id}
+            onCanceled={load}
+            onError={setStatus}
+          />
+
+          <PrintPreviewDialog
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+            invoiceId={detail.invoice.id}
+          />
         </>
       ) : null}
-
-      {detail ? (
-        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-          <DialogContent className="max-w-4xl" style={{ height: "85vh", display: "flex", flexDirection: "column" }}>
-            <DialogHeader>
-              <DialogTitle>Print Preview</DialogTitle>
-              <DialogDescription>Preview how this invoice looks with different templates.</DialogDescription>
-            </DialogHeader>
-            <div className="flex gap-2 pb-2">
-              {([
-                ["official_classic", "Official Classic"],
-                ["official_compact", "Official Compact"],
-                ["standard", "Standard"],
-              ] as const).map(([key, label]) => (
-                <Button
-                  key={key}
-                  variant={previewTemplate === key ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setPreviewTemplate(key)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-            <iframe
-              key={previewTemplate}
-              src={`/exports/sales-invoices/${encodeURIComponent(detail.invoice.id)}/pdf?inline=1&template=${encodeURIComponent(previewTemplate)}`}
-              className="flex-1 w-full rounded border border-border"
-              title="Invoice PDF Preview"
-            />
-          </DialogContent>
-        </Dialog>
-      ) : null}
-    </div>
+    </DetailPageLayout>
   );
 }
 

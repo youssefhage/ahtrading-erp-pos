@@ -456,8 +456,7 @@ export default function ItemEditPage() {
     if (confirmSku.toUpperCase() !== expectedSku.toUpperCase()) {
       return setStatus(`Delete cancelled: SKU mismatch (expected ${expectedSku}).`);
     }
-    const confirmed = window.confirm(`Permanently delete ${expectedSku} (${item.name || "item"})?\nThis cannot be undone.`);
-    if (!confirmed) return;
+    // SKU confirmation above is sufficient safety check
     setSaving(true);
     setStatus("Deleting item permanently...");
     try {

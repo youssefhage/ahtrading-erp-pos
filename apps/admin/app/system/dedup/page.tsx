@@ -7,6 +7,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { PageHeader } from "@/components/business/page-header";
 import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/customer-typeahead";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -86,7 +87,7 @@ export default function DedupPage() {
   async function executeCustomerMerge() {
     if (!srcCustomer?.id || !tgtCustomer?.id) return setStatus("Pick source and target customers.");
     if (srcCustomer.id === tgtCustomer.id) return setStatus("Source and target must differ.");
-    if (!window.confirm(`Merge customer ${srcCustomer.name} into ${tgtCustomer.name}? This cannot be undone.`)) return;
+    // Confirmation is handled by ConfirmDialog wrapper
     setCustomerBusy(true);
     setStatus("");
     try {
@@ -130,7 +131,7 @@ export default function DedupPage() {
   async function executeSupplierMerge() {
     if (!srcSupplier?.id || !tgtSupplier?.id) return setStatus("Pick source and target suppliers.");
     if (srcSupplier.id === tgtSupplier.id) return setStatus("Source and target must differ.");
-    if (!window.confirm(`Merge supplier ${srcSupplier.name} into ${tgtSupplier.name}? This cannot be undone.`)) return;
+    // Confirmation is handled by ConfirmDialog wrapper
     setSupplierBusy(true);
     setStatus("");
     try {
@@ -276,9 +277,18 @@ export default function DedupPage() {
               <Button variant="outline" onClick={previewCustomerMerge} disabled={customerBusy}>
                 Preview
               </Button>
-              <Button onClick={executeCustomerMerge} disabled={customerBusy}>
-                Merge
-              </Button>
+              <ConfirmDialog
+                title="Merge Customers"
+                description={`Merge customer "${srcCustomer?.name || "?"}" into "${tgtCustomer?.name || "?"}"? This cannot be undone.`}
+                confirmLabel={customerBusy ? "Merging..." : "Merge"}
+                variant="destructive"
+                onConfirm={executeCustomerMerge}
+                trigger={
+                  <Button disabled={customerBusy}>
+                    Merge
+                  </Button>
+                }
+              />
             </div>
             {customerPreview ? (
               <pre className="max-h-80 overflow-auto rounded-md border bg-muted/30 p-3 text-[11px] text-muted-foreground">
@@ -350,9 +360,18 @@ export default function DedupPage() {
               <Button variant="outline" onClick={previewSupplierMerge} disabled={supplierBusy}>
                 Preview
               </Button>
-              <Button onClick={executeSupplierMerge} disabled={supplierBusy}>
-                Merge
-              </Button>
+              <ConfirmDialog
+                title="Merge Suppliers"
+                description={`Merge supplier "${srcSupplier?.name || "?"}" into "${tgtSupplier?.name || "?"}"? This cannot be undone.`}
+                confirmLabel={supplierBusy ? "Merging..." : "Merge"}
+                variant="destructive"
+                onConfirm={executeSupplierMerge}
+                trigger={
+                  <Button disabled={supplierBusy}>
+                    Merge
+                  </Button>
+                }
+              />
             </div>
             {supplierPreview ? (
               <pre className="max-h-80 overflow-auto rounded-md border bg-muted/30 p-3 text-[11px] text-muted-foreground">

@@ -9,18 +9,24 @@ import { recommendationView, type RecommendationView } from "@/lib/ai-recommenda
 import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
+import { Check, Copy, FileText, Package, Receipt, Brain } from "lucide-react";
+
+import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { MoneyInput } from "@/components/money-input";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { ViewRaw } from "@/components/view-raw";
-import { TabBar } from "@/components/tab-bar";
+import { DetailPageLayout } from "@/components/business/detail-page-layout";
+import { StatusBadge } from "@/components/business/status-badge";
+import { Badge } from "@/components/ui/badge";
+import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 
@@ -160,6 +166,42 @@ function formatMethodLabel(method: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function shortId(v: string, head = 8, tail = 4) {
+  const s = (v || "").trim();
+  if (!s) return "-";
+  if (s.length <= head + tail + 3) return s;
+  return `${s.slice(0, head)}...${s.slice(-tail)}`;
+}
+
+function CopyButton({ text, label }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            disabled={!text || text === "-"}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              } catch { /* ignore */ }
+            }}
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{copied ? "Copied!" : `Copy ${label || ""}`}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function SupplierInvoiceShowInner() {
@@ -469,13 +511,13 @@ function SupplierInvoiceShowInner() {
     return { blocking, warnings };
   }, [detail]);
 
-  const activeTab = (() => {
+  const activeTab = useMemo(() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
     if (t === "lines" || t === "items") return "items";
     if (t === "tax") return "tax";
     if (t === "ai") return "ai";
     return "overview";
-  })();
+  }, [searchParams]);
 
   const aiInsightRows = useMemo(() => {
     const rec = (aiInsight as any)?.recommendation_json || {};
@@ -483,22 +525,9 @@ function SupplierInvoiceShowInner() {
     return changes.slice(0, 10);
   }, [aiInsight]);
 
-  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
-  useEffect(() => {
-    const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "payments") router.replace("?tab=overview");
-    if (t === "lines") router.replace("?tab=items");
-  }, [router, searchParams]);
-
-  const supplierInvoiceTabs = useMemo(
-    () => [
-      { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-      { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
-      { label: "Tax", href: "?tab=tax", activeQuery: { key: "tab", value: "tax" } },
-      { label: "AI", href: "?tab=ai", activeQuery: { key: "tab", value: "ai" } }
-    ],
-    []
-  );
+  function onTabChange(tab: string) {
+    router.replace(`?tab=${tab}`);
+  }
 
   const supplierOverview = useMemo(() => {
     if (!detail) return null;
@@ -766,124 +795,84 @@ function SupplierInvoiceShowInner() {
     return <div className="min-h-[50vh] px-2 py-10 text-sm text-muted-foreground">Loading...</div>;
   }
 
+  const inv = detail?.invoice;
+  const isDraft = inv?.status === "draft";
+  const isPosted = inv?.status === "posted";
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{detail?.invoice?.invoice_no || "Supplier Invoice"}</h1>
-            <div className="text-sm text-muted-foreground">
-              <span className="font-mono text-xs">{detail?.invoice?.id || "-"}</span>
-              {detail ? <StatusChip value={detail.invoice.status} /> : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => router.push("/purchasing/supplier-invoices")}>
-              Back to List
-            </Button>
-            <Button variant="outline" onClick={load} disabled={loading}>
-              {loading ? "..." : "Refresh"}
-            </Button>
-            <Button onClick={() => router.push("/purchasing/supplier-invoices/new")}>New Draft</Button>
-          </div>
+    <DetailPageLayout
+      backHref="/purchasing/supplier-invoices"
+      title={inv?.invoice_no || "Supplier Invoice"}
+      badge={
+        <div className="flex items-center gap-2">
+          {inv ? <StatusBadge status={inv.status} /> : null}
+          {inv?.is_on_hold ? (
+            <Badge variant="warning" className="text-xs uppercase">Hold</Badge>
+          ) : null}
         </div>
-      </div>
-
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
+      }
+      meta={
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="font-mono text-xs">{shortId(id)}</span>
+          <CopyButton text={id} label="ID" />
+          {inv?.invoice_date && (
+            <>
+              <span className="text-muted-foreground/50">|</span>
+              <span className="text-xs">{formatDateLike(inv.invoice_date)}</span>
+            </>
+          )}
+        </div>
+      }
+      actions={{
+        primary: isDraft
+          ? { label: "Post Draft", onClick: openPostDialog }
+          : undefined,
+        secondary: [
+          { label: "Print / PDF", onClick: () => { if (inv) window.open(`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}/print`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
+          { label: "Download PDF", onClick: () => { if (inv) window.open(`/exports/supplier-invoices/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
+          { label: "Edit Draft", onClick: () => { if (inv) router.push(`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}/edit`); }, visible: isDraft },
+          { label: inv?.is_on_hold ? "Unhold" : "Hold", onClick: inv?.is_on_hold ? unholdInvoice : holdInvoice, disabled: holdBusy, visible: isDraft },
+        ],
+        destructive: isDraft
+          ? { label: "Cancel Draft", onClick: () => { setCancelDraftReason(""); setCancelDraftOpen(true); } }
+          : isPosted
+            ? { label: "Void Invoice", onClick: () => { setCancelDate(todayIso()); setCancelReason(""); setCancelOpen(true); } }
+            : undefined,
+        utilities: detail ? (
+          <DocumentUtilitiesDrawer
+            entityType="supplier_invoice"
+            entityId={detail.invoice.id}
+            allowUploadAttachments={isDraft}
+          />
+        ) : undefined,
+      }}
+      error={status || undefined}
+    >
       {detail ? (
         <>
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <CardTitle className="text-lg">Supplier Invoice Overview</CardTitle>
-                  <CardDescription>
-                    <span className="font-mono">{detail.invoice.invoice_no || "(draft)"}</span> ·{" "}
-                    <StatusChip value={detail.invoice.status} className="align-middle" />
-                    {detail.invoice.is_on_hold ? (
-                      <>
-                        {" "}
-                        ·{" "}
-                        <span className="inline-flex items-center gap-1 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-0.5 text-xs font-medium text-yellow-700 dark:text-yellow-400">
-                          HOLD{detail.invoice.hold_reason ? `: ${detail.invoice.hold_reason}` : ""}
-                        </span>
-                      </>
-                    ) : null}
-                  </CardDescription>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button asChild variant="outline">
-                    <Link
-                      href={`/purchasing/supplier-invoices/${encodeURIComponent(detail.invoice.id)}/print`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Print / PDF
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline">
-                    <a
-                      href={`/exports/supplier-invoices/${encodeURIComponent(detail.invoice.id)}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Download PDF
-                    </a>
-                  </Button>
-                  {detail.invoice.status === "draft" ? (
-                    <>
-                      <Button asChild variant="outline">
-                        <Link href={`/purchasing/supplier-invoices/${encodeURIComponent(detail.invoice.id)}/edit`}>Edit Draft</Link>
-                      </Button>
-                      {detail.invoice.is_on_hold ? (
-                        <Button variant="outline" onClick={unholdInvoice} disabled={holdBusy}>
-                          {holdBusy ? "..." : "Unhold"}
-                        </Button>
-                      ) : (
-                        <Button variant="outline" onClick={holdInvoice} disabled={holdBusy}>
-                          {holdBusy ? "..." : "Hold"}
-                        </Button>
-                      )}
-                      <Button variant="outline" onClick={openPostDialog}>
-                        Post Draft
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          setCancelDraftReason("");
-                          setCancelDraftOpen(true);
-                        }}
-                      >
-                        Cancel Draft
-                      </Button>
-                    </>
-                  ) : null}
-                  {detail.invoice.status === "posted" ? (
-                    <Button
-                      variant="destructive"
-                      onClick={() => {
-                        setCancelDate(todayIso());
-                        setCancelReason("");
-                        setCancelOpen(true);
-                      }}
-                    >
-                      Void Invoice
-                    </Button>
-                  ) : null}
-                  <DocumentUtilitiesDrawer
-                    entityType="supplier_invoice"
-                    entityId={detail.invoice.id}
-                    allowUploadAttachments={detail.invoice.status === "draft"}
-                    className="ml-1"
-                  />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <TabBar tabs={supplierInvoiceTabs} />
+          <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-6">
+            <TabsList>
+              <TabsTrigger value="overview" className="gap-2">
+                <FileText className="h-4 w-4" /> Overview
+              </TabsTrigger>
+              <TabsTrigger value="items" className="gap-2">
+                <Package className="h-4 w-4" /> Items
+                {detail.lines.length > 0 && (
+                  <span className="ml-1 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-[10px] font-medium">
+                    {detail.lines.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="tax" className="gap-2">
+                <Receipt className="h-4 w-4" /> Tax
+              </TabsTrigger>
+              <TabsTrigger value="ai" className="gap-2">
+                <Brain className="h-4 w-4" /> AI
+              </TabsTrigger>
+            </TabsList>
 
-              {activeTab === "overview" ? (
+            <TabsContent value="overview">
+              {(
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
                     <Card className="md:col-span-8"><CardContent className="p-5">
@@ -1236,10 +1225,11 @@ function SupplierInvoiceShowInner() {
                     </Card>
                   ) : null}
                 </div>
-              ) : null}
+              )}
+            </TabsContent>
 
-	              {activeTab === "ai" ? (
-	                <Card>
+            <TabsContent value="ai">
+                <Card>
 	                  <CardHeader>
 	                    <CardTitle className="text-base">AI: Price Impact</CardTitle>
 	                    <CardDescription>{aiInsight ? recommendationView(aiInsight).summary : "Signals detected from this invoice (review recommended)."}</CardDescription>
@@ -1299,9 +1289,9 @@ function SupplierInvoiceShowInner() {
                     )}
                   </CardContent>
                 </Card>
-              ) : null}
+            </TabsContent>
 
-              {activeTab === "items" ? (
+            <TabsContent value="items">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Items</CardTitle>
@@ -1318,9 +1308,9 @@ function SupplierInvoiceShowInner() {
                     />
                   </CardContent>
                 </Card>
-              ) : null}
+            </TabsContent>
 
-              {activeTab === "tax" ? (
+            <TabsContent value="tax">
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Tax Lines</CardTitle>
@@ -1379,9 +1369,8 @@ function SupplierInvoiceShowInner() {
                     </div>
                   </CardContent>
                 </Card>
-              ) : null}
-            </CardContent>
-          </Card>
+            </TabsContent>
+          </Tabs>
 
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-2xl">
@@ -1577,7 +1566,7 @@ function SupplierInvoiceShowInner() {
           </Dialog>
         </>
       ) : null}
-    </div>
+    </DetailPageLayout>
   );
 }
 
