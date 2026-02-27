@@ -3017,7 +3017,7 @@
   <title>${_escapeHtml(title)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { color: #111; font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-size: 10px; overflow-x: hidden; }
+    body { color: #111; font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-size: 10px; overflow-x: hidden; padding: 0 15px; }
     .mono { font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
     .muted { color: #666; }
     h2 { font-size: 11px; font-weight: 700; margin-bottom: 4px; }

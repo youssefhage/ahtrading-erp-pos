@@ -1838,6 +1838,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
         font-family: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", sans-serif;
         font-size: 10px;
         overflow-x: hidden;
+        padding: 0 15px;
       }}
       .mono {{ font-variant-numeric: tabular-nums; }}
       .muted {{ color: #666; }}
