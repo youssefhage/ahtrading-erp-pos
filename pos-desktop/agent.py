@@ -3628,6 +3628,64 @@ class Handler(BaseHTTPRequestHandler):
         _maybe_send_cors_headers(self)
         self.end_headers()
 
+    def _handle_cloud_proxy(self, parsed, method="GET"):
+        """Proxy cloud POS API requests to avoid browser CORS restrictions.
+
+        The browser sends:
+          X-Cloud-Base-Url: target cloud API base (e.g. https://app.melqard.com/api)
+          X-Device-Id / X-Device-Token: device credentials
+        The agent forwards the request server-side and returns the response.
+        """
+        cloud_base = (self.headers.get("X-Cloud-Base-Url") or "").strip().rstrip("/")
+        device_id = (self.headers.get("X-Device-Id") or "").strip()
+        device_token = (self.headers.get("X-Device-Token") or "").strip()
+
+        if not cloud_base:
+            json_response(self, {"error": "X-Cloud-Base-Url header is required"}, status=400)
+            return
+        if not cloud_base.startswith("https://"):
+            # Allow http only for localhost/dev; block arbitrary http targets.
+            if "localhost" not in cloud_base and "127.0.0.1" not in cloud_base:
+                json_response(self, {"error": "Cloud base URL must use HTTPS"}, status=400)
+                return
+
+        # Strip the /api/cloud-pos/ prefix to get the downstream path.
+        sub_path = parsed.path[len("/api/cloud-pos/"):]
+        qs = parsed.query
+        target_url = f"{cloud_base}/{sub_path}"
+        if qs:
+            target_url += f"?{qs}"
+
+        fwd_headers = {"Content-Type": "application/json"}
+        if device_id:
+            fwd_headers["X-Device-Id"] = device_id
+        if device_token:
+            fwd_headers["X-Device-Token"] = device_token
+
+        body_data = None
+        if method == "POST":
+            length = int(self.headers.get("Content-Length", 0))
+            if length > 0:
+                body_data = self.rfile.read(length)
+
+        try:
+            req = Request(target_url, data=body_data, headers=fwd_headers, method=method)
+            with urlopen(req, timeout=20) as resp:
+                resp_body = resp.read()
+                resp_status = resp.status
+        except HTTPError as ex:
+            resp_body = ex.read()
+            resp_status = ex.code
+        except (URLError, OSError) as ex:
+            json_response(self, {"error": "cloud_unreachable", "detail": str(ex)}, status=502)
+            return
+
+        self.send_response(resp_status)
+        self.send_header("Content-Type", "application/json")
+        _maybe_send_cors_headers(self)
+        self.end_headers()
+        self.wfile.write(resp_body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/receipt/last":
@@ -3882,6 +3940,11 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"drafts": rows})
             return
 
+        # Cloud proxy: forward browser requests to cloud API to avoid CORS.
+        if parsed.path.startswith("/api/cloud-pos/"):
+            self._handle_cloud_proxy(parsed, method="GET")
+            return
+
         json_response(self, {'error': 'not found'}, status=404)
 
     def handle_api_post(self, parsed):
@@ -3893,6 +3956,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def _handle_api_post(self, parsed, client_ip: str):
+
+        # Cloud proxy: forward browser requests to cloud API to avoid CORS.
+        if parsed.path.startswith("/api/cloud-pos/"):
+            self._handle_cloud_proxy(parsed, method="POST")
+            return
 
         # Local admin PIN setup (loopback-only).
         if parsed.path == "/api/admin/pin/set":

@@ -1925,14 +1925,20 @@
       throw err;
     }
 
-    const base = _webPosApiBaseFor(companyKey);
+    const cloudBase = _webPosApiBaseFor(companyKey);
     const p = String(path || "").replace(/^\/+/, "");
-    const url = `${base}/${p}`;
+
+    // When served by a local agent, proxy cloud requests through it to avoid CORS.
+    const useAgentProxy = !webHostUnsupported && cloudBase.startsWith("http") && !cloudBase.startsWith(window.location.origin);
+    const url = useAgentProxy ? `${apiBase}/cloud-pos/${p}` : `${cloudBase}/${p}`;
     const headers = {
       "Content-Type": "application/json",
       "X-Device-Id": deviceId,
       "X-Device-Token": deviceToken,
     };
+    if (useAgentProxy) {
+      headers["X-Cloud-Base-Url"] = cloudBase;
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 18000)));
