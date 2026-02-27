@@ -226,7 +226,6 @@ export default function OpsCopilotPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ---------- Derived data ---------- */
