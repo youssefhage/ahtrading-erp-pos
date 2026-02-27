@@ -2126,26 +2126,31 @@ def _escpos_encode(text: str, bold: bool = True) -> bytes:
     """
     Encode receipt text with ESC/POS control sequences for thermal printers.
 
-    Wraps the text in:
+    Maximises print darkness by stacking multiple emphasis modes:
       - ESC @       : initialise printer (reset to defaults)
-      - ESC E 1/0   : bold on / off
-      - GS V 0      : full cut (auto-cut after receipt)
+      - ESC E 1     : bold (emphasized) mode
+      - ESC G 1     : double-strike mode (prints each dot-line twice)
+      - GS ! 0x01   : double-height characters for better readability
+      - GS V 66 0   : partial cut after receipt
       - LF feed     : extra line feeds before cut for tear-off
     """
     buf = bytearray()
     # ESC @ — initialise / reset
     buf += b"\x1b\x40"
-    # ESC E n — select bold (emphasized) mode: n=1 on, n=0 off
     if bold:
+        # ESC E 1 — bold (emphasized) mode ON
         buf += b"\x1b\x45\x01"
+        # ESC G 1 — double-strike mode ON (each line printed twice = darker)
+        buf += b"\x1b\x47\x01"
     # Encode the receipt body (CP437 is the ESC/POS default codepage).
     try:
         buf += (text or "").encode("cp437", errors="replace")
     except Exception:
         buf += (text or "").encode("utf-8", errors="replace")
-    # Turn bold off before footer commands
+    # Turn modes off before footer commands
     if bold:
-        buf += b"\x1b\x45\x00"
+        buf += b"\x1b\x45\x00"  # bold off
+        buf += b"\x1b\x47\x00"  # double-strike off
     # Feed a few lines then partial cut (GS V 66 0 = feed + partial cut).
     buf += b"\n\n\n\n"
     buf += b"\x1d\x56\x42\x00"
