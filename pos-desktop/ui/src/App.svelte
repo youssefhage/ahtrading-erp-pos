@@ -3951,7 +3951,11 @@
       const res = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" });
       const shiftId = String(res?.shift?.id || "").trim();
       _setCfgForCompanyKey(companyKey, { shift_id: shiftId });
-      return { shift: res?.shift || null };
+      return {
+        shift: res?.shift || null,
+        cash_methods: res?.cash_methods || [],
+        has_cash_method_mapping: (res?.has_cash_method_mapping != null ? res.has_cash_method_mapping : null),
+      };
     }
     if (method === "POST" && pathname === "/shift/invoices") {
       const shiftId = String(body?.shift_id || shiftIdForCompany(companyKey) || "").trim();
@@ -4803,14 +4807,17 @@
       }
       if (successes.length) {
         const label = cashMovementType.replace(/_/g, " ");
-        reportNotice(`Cash movement recorded: ${label}`);
+        reportNotice(`Cash movement recorded: ${label} (${successes.join(", ")})`);
+      }
+      if (failures.length) {
+        reportError(`Cash movement error: ${failures.join(" | ")}`);
+      }
+      // Only clear form and close drawer when ALL targets succeeded.
+      if (successes.length && !failures.length) {
         cashMovementAmountUsd = "";
         cashMovementAmountLbp = "";
         cashMovementNotes = "";
         showCashMovementDrawer = false;
-      }
-      if (failures.length) {
-        reportError(`Cash movement error: ${failures.join(" | ")}`);
       }
     } catch (e) {
       reportError(e?.message || "Failed to record cash movement.");
@@ -6605,6 +6612,8 @@
     returnSourceContext = null;
     if (saleMode !== "sale") saleMode = "sale";
     checkoutIntentId = "";
+    invoiceCompanyMode = "auto";
+    flagOfficial = false;
   };
 
   const _draftNameOrDefault = (value, fallback = "") => {
@@ -6800,6 +6809,9 @@
       activeCustomer = null;
       checkoutIntentId = "";
       saleMode = "sale";
+      returnSourceContext = null;
+      invoiceCompanyMode = "auto";
+      flagOfficial = false;
     }
     reportNotice(`Saved draft: ${draft.name}`);
     return true;
@@ -7300,6 +7312,7 @@
             activeCustomer = null;
             returnSourceContext = null;
             checkoutIntentId = "";
+            saleMode = "sale";
             reportNotice("Return complete.");
             showSaleComplete = true;
             setTimeout(() => { showSaleComplete = false; }, 4000);
@@ -7337,6 +7350,7 @@
         activeCustomer = null;
         returnSourceContext = null;
         checkoutIntentId = "";
+        saleMode = "sale";
         await fetchData();
         try {
           if (_companyUsesCloudTransport(returnCompany)) {
@@ -8350,8 +8364,10 @@
         const res = row.value || {};
         const nextShift = res?.shift || null;
         _setShiftCashSetup(k, res?.cash_methods || [], res?.has_cash_method_mapping);
-        _setShiftIdForCompany(k, nextShift?.id || "");
-        _setShiftSnapshotForCompany(k, nextShift);
+        // Clear shift_id — the backend returns the now-closed shift object (still has an id),
+        // but the shift is no longer open so we must clear it.
+        _setShiftIdForCompany(k, "");
+        _setShiftSnapshotForCompany(k, null);
         _setShiftClosingTouched(k, false);
       }
       if (!successCompanies.length) {
