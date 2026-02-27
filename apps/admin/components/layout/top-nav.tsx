@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, Moon, Sun } from "lucide-react";
+import { Search, Moon, Sun, Menu } from "lucide-react";
 import { useTheme } from "next-themes";
 import { motion } from "motion/react";
 
@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSidebar, SIDEBAR_WIDTH, SIDEBAR_WIDTH_ICON } from "@/components/ui/sidebar";
 import { InsightsTrigger } from "@/components/ai/insights-panel";
 import { UserMenu } from "./user-menu";
 
@@ -25,19 +26,56 @@ export function TopNav({ onCommandOpen }: TopNavProps) {
   const pathname = usePathname() || "/";
   const activeModule = moduleForPath(pathname);
   const { theme, setTheme } = useTheme();
+  const { state, isMobile, setOpenMobile } = useSidebar();
+  const isCollapsed = state === "collapsed" && !isMobile;
 
   return (
     <header className="sticky top-0 z-50 flex h-12 items-center border-b bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
-      {/* Logo */}
-      <div className="flex h-full w-[13rem] shrink-0 items-center border-r px-3">
+      {/* Mobile: hamburger + logo */}
+      <div className="flex items-center gap-1.5 pl-2 md:hidden">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => setOpenMobile(true)}
+        >
+          <Menu className="h-4 w-4" />
+          <span className="sr-only">Open sidebar</span>
+        </Button>
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-1.5 font-semibold tracking-tight"
+        >
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground text-[10px] font-bold">
+            C
+          </div>
+          <span className="text-sm">Codex</span>
+        </Link>
+      </div>
+
+      {/* Logo — syncs width with sidebar */}
+      <div
+        className={cn(
+          "flex h-full shrink-0 items-center border-r px-3 transition-[width] duration-200 ease-linear overflow-hidden",
+          "hidden md:flex"
+        )}
+        style={{ width: isCollapsed ? SIDEBAR_WIDTH_ICON : SIDEBAR_WIDTH }}
+      >
         <Link
           href="/dashboard"
           className="flex items-center gap-2 font-semibold tracking-tight"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground text-xs font-bold">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground text-xs font-bold">
             C
           </div>
-          <span className="text-sm">Codex</span>
+          <span
+            className={cn(
+              "text-sm whitespace-nowrap transition-opacity duration-200",
+              isCollapsed ? "opacity-0" : "opacity-100"
+            )}
+          >
+            Codex
+          </span>
         </Link>
       </div>
 

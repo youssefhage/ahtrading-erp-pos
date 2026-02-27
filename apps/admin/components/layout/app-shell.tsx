@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { TopNav } from "./top-nav";
 import { AppSidebar } from "./app-sidebar";
 import { PageBreadcrumbs } from "./page-breadcrumbs";
@@ -15,6 +15,7 @@ import { KaiPanel } from "@/components/kai/kai-panel";
 import { InsightsPanel } from "@/components/ai/insights-panel";
 import { addRecent } from "@/lib/nav-memory";
 import { itemForPath } from "@/lib/nav-modules";
+import { Separator } from "@/components/ui/separator";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -54,8 +55,14 @@ export function AppShell({ children }: AppShellProps) {
                 {/* AI Pulse Bar — nervous system ticker */}
                 <AiPulseBar />
 
-                {/* Breadcrumbs */}
-                <div className="border-b bg-background px-6 py-2">
+                {/* Breadcrumbs + sidebar toggle */}
+                <div className="flex items-center gap-2 border-b bg-background px-3 py-1.5">
+                  {!isDashboard && (
+                    <>
+                      <SidebarTrigger className="-ml-0.5 text-muted-foreground" />
+                      <Separator orientation="vertical" className="mr-1 h-4" />
+                    </>
+                  )}
                   <PageBreadcrumbs />
                 </div>
 
