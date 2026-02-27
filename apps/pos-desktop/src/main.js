@@ -281,7 +281,11 @@ function buildUnifiedUiUrl(port, otherPort = null) {
   q.set("cb", String(Date.now()));
   q.set("desktop", "1");
   if (APP_VERSION && APP_VERSION !== "unknown") q.set("desktopVersion", APP_VERSION);
-  // Unofficial company routes through cloud — no second local agent URL needed.
+  // Tell the frontend about the secondary agent so it routes unofficial
+  // traffic through the local agent instead of cloud-only mode.
+  if (otherPort && otherPort !== port) {
+    q.set("otherAgentUrl", agentBase(otherPort));
+  }
   return `${agentBase(port)}/?${q.toString()}`;
 }
 

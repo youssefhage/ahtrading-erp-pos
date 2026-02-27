@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS pos_sync_state (
   last_event_id TEXT
 );
 
+-- Per-cashier cart drafts (persistent across sessions).
+CREATE TABLE IF NOT EXISTS pos_cart_drafts (
+  id TEXT PRIMARY KEY,
+  cashier_id TEXT NOT NULL,
+  name TEXT,
+  draft_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pos_cart_drafts_cashier ON pos_cart_drafts(cashier_id);
+CREATE INDEX IF NOT EXISTS idx_pos_cart_drafts_updated ON pos_cart_drafts(updated_at DESC);
+
 -- Per-resource sync cursors for delta endpoints.
 CREATE TABLE IF NOT EXISTS pos_sync_cursors (
   resource TEXT PRIMARY KEY,

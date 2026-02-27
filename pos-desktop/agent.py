@@ -2973,6 +2973,99 @@ def list_audit_logs(limit: int = 200):
         return rows
 
 
+CART_DRAFTS_MAX = 50
+
+
+def get_cart_drafts(cashier_id: str = ""):
+    """Return drafts. If cashier_id is given, filter by it; otherwise return all."""
+    cid = (cashier_id or "").strip()
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        if cid:
+            cur.execute(
+                """
+                SELECT id, cashier_id, name, draft_json, created_at, updated_at
+                FROM pos_cart_drafts
+                WHERE cashier_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (cid, CART_DRAFTS_MAX),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, cashier_id, name, draft_json, created_at, updated_at
+                FROM pos_cart_drafts
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (CART_DRAFTS_MAX,),
+            )
+        rows = []
+        for r in cur.fetchall():
+            row = dict(r)
+            raw = row.pop("draft_json", "{}")
+            try:
+                row["draft"] = json.loads(raw)
+            except Exception:
+                row["draft"] = {}
+            rows.append(row)
+        return rows
+
+
+def upsert_cart_draft(draft_id: str, cashier_id: str, name: str, draft_json: str,
+                      created_at: str, updated_at: str):
+    did = (draft_id or "").strip()
+    cid = (cashier_id or "").strip()
+    if not did:
+        return False
+    with db_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO pos_cart_drafts (id, cashier_id, name, draft_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              draft_json = excluded.draft_json,
+              updated_at = excluded.updated_at
+            """,
+            (did, cid, (name or "").strip(), draft_json, created_at, updated_at),
+        )
+        # Enforce global limit: keep newest CART_DRAFTS_MAX, delete the rest.
+        conn.execute(
+            """
+            DELETE FROM pos_cart_drafts
+            WHERE id NOT IN (
+              SELECT id FROM pos_cart_drafts
+              ORDER BY updated_at DESC
+              LIMIT ?
+            )
+            """,
+            (CART_DRAFTS_MAX,),
+        )
+    return True
+
+
+def delete_cart_draft(draft_id: str):
+    did = (draft_id or "").strip()
+    if not did:
+        return False
+    with db_connect() as conn:
+        conn.execute("DELETE FROM pos_cart_drafts WHERE id = ?", (did,))
+    return True
+
+
+def delete_all_cart_drafts_for_cashier(cashier_id: str):
+    cid = (cashier_id or "").strip()
+    if not cid:
+        return 0
+    with db_connect() as conn:
+        cur = conn.execute("DELETE FROM pos_cart_drafts WHERE cashier_id = ?", (cid,))
+        return cur.rowcount
+
+
 def _sale_payload_totals(payload: dict) -> dict:
     data = payload if isinstance(payload, dict) else {}
     lines = data.get("lines") if isinstance(data.get("lines"), list) else []
@@ -3782,6 +3875,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             json_response(self, {"event": ev})
             return
+        if parsed.path == "/api/drafts":
+            qs = parse_qs(parsed.query)
+            cashier_id = (qs.get("cashier_id") or [""])[0].strip()
+            rows = get_cart_drafts(cashier_id)
+            json_response(self, {"drafts": rows})
+            return
+
         json_response(self, {'error': 'not found'}, status=404)
 
     def handle_api_post(self, parsed):
@@ -5473,6 +5573,47 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {'ok': True, 'sent': len(accepted), 'rejected': res.get('rejected', [])})
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
+            return
+
+        # ── Cart drafts (shared persistent storage) ──────────────────
+        if parsed.path == "/api/drafts":
+            data = self.read_json()
+            cashier_id = (data.get("cashier_id") or "").strip()
+            draft_id = (data.get("id") or "").strip()
+            name = (data.get("name") or "").strip()
+            draft_data = data.get("draft")
+            if not draft_id or not isinstance(draft_data, dict):
+                json_response(self, {"error": "id and draft (object) are required"}, status=400)
+                return
+            now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            created_at = (data.get("created_at") or "").strip() or now_iso
+            updated_at = (data.get("updated_at") or "").strip() or now_iso
+            ok = upsert_cart_draft(draft_id, cashier_id, name, json.dumps(draft_data),
+                                   created_at, updated_at)
+            if ok:
+                json_response(self, {"ok": True, "id": draft_id})
+            else:
+                json_response(self, {"error": "save failed"}, status=500)
+            return
+
+        if parsed.path == "/api/drafts/delete":
+            data = self.read_json()
+            draft_id = (data.get("id") or "").strip()
+            if not draft_id:
+                json_response(self, {"error": "id is required"}, status=400)
+                return
+            delete_cart_draft(draft_id)
+            json_response(self, {"ok": True, "id": draft_id})
+            return
+
+        if parsed.path == "/api/drafts/delete-all":
+            data = self.read_json()
+            cashier_id = (data.get("cashier_id") or "").strip()
+            if not cashier_id:
+                json_response(self, {"error": "cashier_id is required"}, status=400)
+                return
+            count = delete_all_cart_drafts_for_cashier(cashier_id)
+            json_response(self, {"ok": True, "deleted": count})
             return
 
         json_response(self, {'error': 'not found'}, status=404)

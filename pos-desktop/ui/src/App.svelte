@@ -236,7 +236,11 @@
   };
 
   const _defaultOtherAgentUrlForCurrentHost = () => {
-    // Default to empty — unofficial company routes through cloud, not a second local agent.
+    // When running on a loopback agent (desktop app), default to the other agent's port
+    // so unofficial traffic goes through the local agent instead of cloud-only mode.
+    const ctx = _currentLoopbackAgentContext();
+    if (ctx?.currentPort === "7070") return ctx.unofficialOrigin;
+    if (ctx?.currentPort === "7072") return ctx.officialOrigin;
     return "";
   };
 
@@ -6734,10 +6738,68 @@
   const _persistCartDrafts = (rows = cartDrafts) => {
     try {
       const drafts = _trimArray(_sortCartDrafts(rows || []), CART_DRAFTS_MAX);
+      // Write-through to localStorage as fallback cache.
       localStorage.setItem(CART_DRAFTS_STORAGE_KEY, JSON.stringify({ version: 1, drafts }));
     } catch (_) {}
   };
 
+  // Save a single draft to the backend (fire-and-forget for responsiveness).
+  const _persistDraftToBackend = (draft) => {
+    if (!draft?.id) return;
+    const cashierId = String(config?.cashier_id || unofficialConfig?.cashier_id || "").trim();
+    apiCall("/drafts", {
+      method: "POST",
+      body: {
+        id: draft.id,
+        cashier_id: cashierId,
+        name: draft.name || "",
+        draft: {
+          cart: draft.cart || [],
+          customer: draft.customer || null,
+          sale_mode: draft.sale_mode || "sale",
+          invoice_company_mode: draft.invoice_company_mode || "auto",
+          flag_official: !!draft.flag_official,
+        },
+        created_at: draft.created_at || new Date().toISOString(),
+        updated_at: draft.updated_at || new Date().toISOString(),
+      },
+    }).catch(() => {});
+  };
+
+  // Delete a single draft from the backend (fire-and-forget).
+  const _deleteDraftFromBackend = (draftId) => {
+    if (!draftId) return;
+    apiCall("/drafts/delete", { method: "POST", body: { id: draftId } }).catch(() => {});
+  };
+
+  // Load all drafts from backend API.
+  const _loadCartDraftsFromBackend = async () => {
+    try {
+      const res = await apiCall("/drafts");
+      const rows = Array.isArray(res?.drafts) ? res.drafts : [];
+      return _trimArray(
+        _sortCartDrafts(rows.map((row) => {
+          const draft = row?.draft || {};
+          return _normalizeCartDraftRecord({
+            id: row?.id,
+            name: row?.name,
+            created_at: row?.created_at,
+            updated_at: row?.updated_at,
+            cart: draft?.cart,
+            customer: draft?.customer,
+            sale_mode: draft?.sale_mode,
+            invoice_company_mode: draft?.invoice_company_mode,
+            flag_official: draft?.flag_official,
+          });
+        }).filter(Boolean)),
+        CART_DRAFTS_MAX,
+      );
+    } catch (_) {
+      return [];
+    }
+  };
+
+  // Load drafts from localStorage (fast, synchronous fallback for first paint).
   const _loadCartDrafts = () => {
     const raw = _readJsonStorage(CART_DRAFTS_STORAGE_KEY, { version: 1, drafts: [] });
     const rows = Array.isArray(raw) ? raw : (Array.isArray(raw?.drafts) ? raw.drafts : []);
@@ -6745,6 +6807,15 @@
       _sortCartDrafts(rows.map((row) => _normalizeCartDraftRecord(row)).filter(Boolean)),
       CART_DRAFTS_MAX,
     );
+  };
+
+  // Async reload: fetch from backend, update reactive state & localStorage cache.
+  const reloadCartDrafts = async () => {
+    try {
+      const backendDrafts = await _loadCartDraftsFromBackend();
+      cartDrafts = backendDrafts;
+      _persistCartDrafts(backendDrafts);
+    } catch (_) {}
   };
 
   const _draftTotalUsd = (draft) => {
@@ -6761,6 +6832,8 @@
   const openCartDrafts = () => {
     showTopMoreActions = false;
     showCartDraftsDrawer = true;
+    // Refresh drafts from backend each time the drawer opens.
+    reloadCartDrafts();
   };
   const saveCurrentCartToDraft = () => {
     if (saveCurrentCartAsDraft({ name: "", clearCurrent: true })) cartDraftName = "";
@@ -6795,6 +6868,7 @@
     };
     cartDrafts = _trimArray(_sortCartDrafts([draft, ...(cartDrafts || [])]), CART_DRAFTS_MAX);
     _persistCartDrafts();
+    _persistDraftToBackend(draft);
     if (clearCurrent) {
       cart = [];
       activeCustomer = null;
@@ -6838,12 +6912,15 @@
     if (keepDraftCopyOnResume) {
       // Keep a reusable copy and bump recency.
       const nowIso = new Date().toISOString();
+      const updated = { ...(target || {}), updated_at: nowIso };
       cartDrafts = _sortCartDrafts((cartDrafts || []).map((row) => (
-        String(row?.id || "") === String(target.id) ? { ...(row || {}), updated_at: nowIso } : row
+        String(row?.id || "") === String(target.id) ? updated : row
       )));
+      _persistDraftToBackend(updated);
     } else {
       // Move draft out of the list once resumed to prevent duplicate checkouts by accident.
       cartDrafts = _sortCartDrafts((cartDrafts || []).filter((row) => String(row?.id || "") !== String(target.id)));
+      _deleteDraftFromBackend(target.id);
     }
     _persistCartDrafts();
 
@@ -6860,6 +6937,7 @@
     if (!ok) return;
     cartDrafts = _sortCartDrafts((cartDrafts || []).filter((row) => String(row?.id || "") !== String(target.id)));
     _persistCartDrafts();
+    _deleteDraftFromBackend(target.id);
     reportNotice(`Deleted draft: ${target.name}`);
   };
 
@@ -8001,6 +8079,8 @@
       showCashierModal = false;
       cashierPin = "";
       await fetchData();
+      // Reload per-cashier drafts for the newly signed-in cashier.
+      reloadCartDrafts();
       const displayName = signedCashierName || selectedCashierLoginName || "Cashier";
       reportNotice(linkedOpsMode
         ? `Signed in ${displayName}: ${_companyListText(successCompanies)}`
@@ -8042,6 +8122,8 @@
       }
       if (successCompanies.length) {
         await fetchData();
+        // Reload drafts: if another cashier is still signed in show theirs, otherwise clear.
+        reloadCartDrafts();
         reportNotice(target
           ? `Signed out (${_companyLabel(target)})`
           : `Signed out: ${_companyListText(successCompanies)}`);
@@ -8497,6 +8579,9 @@
       }
 
       await fetchData();
+
+      // Load per-cashier drafts from backend now that config (cashier_id) is available.
+      reloadCartDrafts();
 
       // Auto-redirect to Settings when the agent is unconfigured (first run).
       const unconfigured = !String(config.company_id || "").trim() && !String(config.device_id || "").trim();
