@@ -1864,25 +1864,27 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     <style>
       * {{ margin: 0; padding: 0; box-sizing: border-box; }}
       body {{
-        color: #111;
+        color: #000;
         font-family: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", sans-serif;
         font-size: 10px;
+        font-weight: 700;
         overflow-x: hidden;
         padding: 0 15px;
+        -webkit-print-color-adjust: exact;
       }}
       .mono {{ font-variant-numeric: tabular-nums; }}
-      .muted {{ color: #666; }}
-      h1 {{ font-size: 13px; margin-bottom: 1px; }}
-      h2 {{ font-size: 11px; font-weight: 700; margin-bottom: 4px; }}
+      .muted {{ color: #000; }}
+      h1 {{ font-size: 13px; margin-bottom: 1px; font-weight: 900; }}
+      h2 {{ font-size: 11px; font-weight: 900; margin-bottom: 4px; }}
       .meta {{ font-size: 9px; line-height: 1.3; margin-bottom: 6px; }}
-      .hdr {{ display: flex; justify-content: space-between; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-bottom: 2px; font-size: 9px; font-weight: 700; }}
-      .line {{ border-bottom: 1px dashed #ddd; padding: 2px 0 3px; }}
-      .lname {{ font-weight: 500; word-break: break-word; }}
-      .ldetail {{ font-size: 8px; color: #888; }}
-      .lmeta {{ display: flex; justify-content: space-between; font-size: 9px; color: #444; }}
+      .hdr {{ display: flex; justify-content: space-between; border-bottom: 1px solid #000; padding-bottom: 2px; margin-bottom: 2px; font-size: 9px; font-weight: 900; }}
+      .line {{ border-bottom: 1px dashed #666; padding: 2px 0 3px; }}
+      .lname {{ font-weight: 700; word-break: break-word; }}
+      .ldetail {{ font-size: 8px; color: #000; }}
+      .lmeta {{ display: flex; justify-content: space-between; font-size: 9px; color: #000; }}
       .totals {{ margin-top: 6px; font-size: 10px; }}
       .row {{ display: flex; justify-content: space-between; padding: 1px 0; }}
-      .footer {{ margin-top: 6px; font-size: 8px; color: #666; text-align: center; }}
+      .footer {{ margin-top: 6px; font-size: 8px; color: #000; text-align: center; }}
       .actions {{ margin-top: 8px; display: flex; gap: 6px; }}
       button {{
         border: 1px solid #ddd;
