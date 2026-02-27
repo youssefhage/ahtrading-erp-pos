@@ -1,4 +1,4 @@
-name: Desktop build & publish (main)
+name: Desktop release
 
 on:
   workflow_dispatch:
@@ -12,10 +12,12 @@ on:
       - "backend/app/routers/updates.py"
       - "backend/app/static/downloads_site/**"
       - "scripts/publish_desktop_release.py"
-      - ".github/workflows/desktop-build-and-publish-*.yml"
+      - ".github/workflows/desktop-*.yml"
+    tags:
+      - "desktop-v*"
 
 concurrency:
-  group: desktop-publish-main-${{ github.ref }}
+  group: desktop-release
   cancel-in-progress: true
 
 jobs:
