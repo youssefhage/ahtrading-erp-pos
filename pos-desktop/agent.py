@@ -80,7 +80,7 @@ _CONFIG_PATCHABLE_KEYS = {
 _CONFIG_API_WRITABLE_KEYS = {
     "company_name", "branch_name", "receipt_template", "receipt_header",
     "receipt_footer", "receipt_show_logo", "receipt_logo_url",
-    "printer_type", "printer_address", "printer_width_mm",
+    "printer_type", "printer_address", "printer_width_mm", "printer_width_chars",
     "default_customer_id", "default_customer_name",
     "default_warehouse_id", "default_warehouse_name",
     "allow_negative_stock", "allow_credit_sale",
@@ -277,6 +277,36 @@ def _receipt_render_profile(cfg: Optional[dict] = None) -> dict:
 
 def _receipt_templates_payload() -> list[dict]:
     return [RECEIPT_TEMPLATES[k] for k in ("classic", "compact", "detailed")]
+
+
+def _effective_printer_width_chars(cfg: Optional[dict] = None, template_id: str = "classic") -> Optional[int]:
+    """
+    Derive the effective receipt character width from config.
+
+    Priority:
+      1. printer_width_chars  (explicit override)
+      2. printer_width_mm     (converted: ~0.55 chars per mm for standard thermal font)
+      3. None                 (let _receipt_text() use its template default)
+    """
+    c = cfg or {}
+    # Explicit chars override
+    try:
+        wc = int(c.get("printer_width_chars") or 0)
+        if wc > 0:
+            return max(16, min(64, wc))
+    except (ValueError, TypeError):
+        pass
+    # Derive from mm
+    try:
+        mm = float(c.get("printer_width_mm") or 0)
+        if mm > 0:
+            # ~0.55 chars/mm for Font A (12x24) on standard thermal printers.
+            # 58mm paper → ~32 chars, 80mm → ~44 chars.
+            chars = int(mm * 0.55)
+            return max(16, min(64, chars))
+    except (ValueError, TypeError):
+        pass
+    return None
 
 
 def _normalize_invoice_template_id(value) -> str:
@@ -1922,7 +1952,7 @@ def _receipt_text(
         width_chars = int(width) if width is not None else default_width
     except Exception:
         width_chars = default_width
-    width_chars = max(30, min(64, width_chars))
+    width_chars = max(16, min(64, width_chars))
 
     company_label = _clean_receipt_text(company_name, fallback="AH Trading", limit=64) or "AH Trading"
     footer_label = _clean_receipt_text(footer_text, fallback="", limit=160)
@@ -2033,9 +2063,11 @@ def _receipt_text(
         push_aligned("No", clip(receipt_no))
     push_aligned("Time", fmt_time(r.get("created_at")))
     if template != "compact":
-        out.append(f"Event: {short_id(r.get('event_id') or '-')}")
+        # Adapt truncation length to available width so IDs don't overflow.
+        id_keep = max(3, min(6, (width_chars - 10) // 2))
+        push_wrapped(f"Event: {short_id(r.get('event_id') or '-', keep=id_keep)}")
         if r.get("shift_id"):
-            out.append(f"Shift: {short_id(r.get('shift_id'))}")
+            push_wrapped(f"Shift: {short_id(r.get('shift_id'), keep=id_keep)}")
     if r.get("cashier", {}).get("name") or r.get("cashier", {}).get("id"):
         push_aligned("Cashier", r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id'))
     if customer_label and customer_label != "-":
@@ -2090,6 +2122,99 @@ def _receipt_text(
     return "\n".join(out) + "\n"
 
 
+def _print_raw_win(text: str, printer_name: str, copies: int = 1) -> bool:
+    """
+    Send raw text to a Windows printer using the winspool.drv RAW datatype.
+    This bypasses GDI font rendering and lets the printer use its built-in
+    monospaced font — the correct approach for thermal/receipt printers.
+    Returns True on success, False if the API calls fail.
+    """
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return False
+
+    def ps_sq(s: str) -> str:
+        return "'" + str(s or "").replace("'", "''") + "'"
+
+    # Encode text as CP437 (standard receipt codepage) with UTF-8 fallback.
+    try:
+        raw_bytes = (text or "").encode("cp437", errors="replace")
+    except Exception:
+        raw_bytes = (text or "").encode("utf-8", errors="replace")
+
+    tmp = None
+    try:
+        tmp = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".bin")
+        for _ in range(max(1, copies)):
+            tmp.write(raw_bytes)
+            tmp.write(b"\n\n\n")  # feed a few lines between copies
+        tmp.flush()
+        tmp.close()
+
+        # PowerShell: use Add-Type to P/Invoke winspool.drv for RAW printing.
+        script = f"""
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public class RawPrint {{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct DOCINFOW {{
+        [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pDataType;
+    }}
+
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool StartDocPrinter(IntPtr hPrinter, int Level, ref DOCINFOW pDocInfo);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool StartPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool WritePrinter(IntPtr hPrinter, byte[] pBuf, int cbBuf, out int pcWritten);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool EndPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool EndDocPrinter(IntPtr hPrinter);
+    [DllImport("winspool.drv", SetLastError = true)]
+    static extern bool ClosePrinter(IntPtr hPrinter);
+
+    public static bool Send(string printerName, byte[] data) {{
+        IntPtr hPrinter;
+        if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero)) return false;
+        var di = new DOCINFOW {{ pDocName = "POS Receipt", pOutputFile = null, pDataType = "RAW" }};
+        if (!StartDocPrinter(hPrinter, 1, ref di)) {{ ClosePrinter(hPrinter); return false; }}
+        StartPagePrinter(hPrinter);
+        int written;
+        WritePrinter(hPrinter, data, data.Length, out written);
+        EndPagePrinter(hPrinter);
+        EndDocPrinter(hPrinter);
+        ClosePrinter(hPrinter);
+        return true;
+    }}
+}}
+'@
+$data = [System.IO.File]::ReadAllBytes({ps_sq(tmp.name)})
+$ok = [RawPrint]::Send({ps_sq(printer_name)}, $data)
+if (-not $ok) {{ exit 1 }}
+"""
+        result = subprocess.run(
+            [ps, "-NoProfile", "-Command", script],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+    finally:
+        try:
+            if tmp and tmp.name and os.path.exists(tmp.name):
+                os.unlink(tmp.name)
+        except Exception:
+            pass
+
+
 def _print_text_to_printer(text: str, printer: Optional[str] = None, copies: int = 1):
     try:
         copies_i = int(copies or 1)
@@ -2097,12 +2222,16 @@ def _print_text_to_printer(text: str, printer: Optional[str] = None, copies: int
         copies_i = 1
     copies_i = max(1, min(10, copies_i))
 
-    # Windows: use PowerShell pipeline to the print spooler.
-    # Note: this prints as plain text via the installed printer driver.
+    # Windows: try RAW printing first (best for thermal/receipt printers),
+    # then fall back to Out-Printer (GDI rendering).
     if sys.platform.startswith("win"):
         ps = shutil.which("powershell") or shutil.which("pwsh")
         if not ps:
             raise RuntimeError("Printing is not available: PowerShell not found")
+
+        # Try raw printing first — thermal printers render their own font.
+        if printer and _print_raw_win(text, printer, copies=copies_i):
+            return
 
         def ps_sq(s: str) -> str:
             # Single-quote for PowerShell string literals: ' becomes ''.
@@ -4332,9 +4461,11 @@ class Handler(BaseHTTPRequestHandler):
             if not row:
                 json_response(self, {"error": "no_receipt"}, status=404)
                 return
+            width_override = _effective_printer_width_chars(cfg, profile["template_id"])
             try:
                 txt = _receipt_text(
                     row,
+                    width=width_override,
                     template_id=profile["template_id"],
                     company_name=profile["company_name"],
                     footer_text=profile["footer_text"],
