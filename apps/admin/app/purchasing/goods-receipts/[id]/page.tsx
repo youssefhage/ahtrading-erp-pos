@@ -489,7 +489,7 @@ export default function GoodsReceiptViewPage() {
 
                 <div className="mt-3">
                   <div className="text-sm text-muted-foreground">Total</div>
-                  <div className="data-mono mt-1 text-3xl font-semibold leading-none text-emerald-600">{fmtUsd(detail.receipt.total_usd)}</div>
+                  <div className="data-mono mt-1 text-3xl font-semibold leading-none text-success">{fmtUsd(detail.receipt.total_usd)}</div>
                   <div className="data-mono mt-1 text-sm text-muted-foreground">{fmtLbp(detail.receipt.total_lbp)}</div>
                 </div>
 

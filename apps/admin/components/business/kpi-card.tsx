@@ -12,8 +12,8 @@ interface KpiCardProps {
 }
 
 const trendConfig = {
-  up: { icon: TrendingUp, className: "text-green-600 dark:text-green-400" },
-  down: { icon: TrendingDown, className: "text-red-600 dark:text-red-400" },
+  up: { icon: TrendingUp, className: "text-success" },
+  down: { icon: TrendingDown, className: "text-destructive" },
   neutral: { icon: Minus, className: "text-muted-foreground" },
 } as const;
 

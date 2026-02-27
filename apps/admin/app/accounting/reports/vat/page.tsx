@@ -322,7 +322,7 @@ export default function VatReportPage() {
       </div>
 
       {Math.abs(otherTax) > 0 && (
-        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-700 dark:text-yellow-400">
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
           Other VAT sources detected: {fmtLbp(summary?.other_tax_lbp || 0)}. Review source types in CSV export.
         </div>
       )}

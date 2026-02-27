@@ -488,7 +488,7 @@ export default function GoLivePage() {
       )}
 
       {notice && (
-        <Card className="border-green-500/50 bg-green-500/5">
+        <Card className="border-success/50 bg-success/5">
           <CardContent className="py-3">
             <p className="text-sm text-muted-foreground">{notice}</p>
           </CardContent>

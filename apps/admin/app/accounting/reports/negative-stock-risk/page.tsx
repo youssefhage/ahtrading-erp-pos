@@ -96,7 +96,7 @@ export default function NegativeStockRiskPage() {
       id: "on_hand_qty",
       accessorFn: (r) => toNum(r.on_hand_qty),
       header: ({ column }) => <DataTableColumnHeader column={column} title="On Hand" />,
-      cell: ({ row }) => <div className="text-right font-mono text-sm tabular-nums text-red-600 dark:text-red-400">{toNum(row.original.on_hand_qty).toLocaleString("en-US")}</div>,
+      cell: ({ row }) => <div className="text-right font-mono text-sm tabular-nums text-destructive">{toNum(row.original.on_hand_qty).toLocaleString("en-US")}</div>,
     },
     {
       id: "avg_cost_usd",

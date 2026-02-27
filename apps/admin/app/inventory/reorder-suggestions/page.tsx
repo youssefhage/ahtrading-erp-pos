@@ -118,9 +118,9 @@ export default function ReorderSuggestionsPage() {
     {
       id: "available", accessorFn: (r) => toNum(r.available_qty),
       header: ({ column }) => <DataTableColumnHeader column={column} title="Available" />,
-      cell: ({ row }) => { const a = toNum(row.original.available_qty); const ro = toNum(row.original.reorder_qty); return <span className={cn("font-mono text-sm", a <= 0 ? "text-destructive" : a < ro ? "text-yellow-600" : "text-muted-foreground")}>{fmt(row.original.available_qty)}</span>; },
+      cell: ({ row }) => { const a = toNum(row.original.available_qty); const ro = toNum(row.original.reorder_qty); return <span className={cn("font-mono text-sm", a <= 0 ? "text-destructive" : a < ro ? "text-warning" : "text-muted-foreground")}>{fmt(row.original.available_qty)}</span>; },
     },
-    { id: "incoming", accessorFn: (r) => toNum(r.incoming_qty), header: ({ column }) => <DataTableColumnHeader column={column} title="Incoming" />, cell: ({ row }) => <span className={cn("font-mono text-sm", toNum(row.original.incoming_qty) > 0 ? "text-green-600" : "text-muted-foreground")}>{fmt(row.original.incoming_qty)}</span> },
+    { id: "incoming", accessorFn: (r) => toNum(r.incoming_qty), header: ({ column }) => <DataTableColumnHeader column={column} title="Incoming" />, cell: ({ row }) => <span className={cn("font-mono text-sm", toNum(row.original.incoming_qty) > 0 ? "text-success" : "text-muted-foreground")}>{fmt(row.original.incoming_qty)}</span> },
     { id: "reorder", accessorFn: (r) => toNum(r.reorder_qty), header: ({ column }) => <DataTableColumnHeader column={column} title="Reorder" />, cell: ({ row }) => <span className={cn("font-mono text-sm", toNum(row.original.reorder_qty) > 0 ? "text-primary" : "text-muted-foreground")}>{fmt(row.original.reorder_qty)}</span> },
     { id: "est_usd", accessorFn: (r) => toNum(r.est_amount_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Est USD" />, cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.est_amount_usd)} currency="USD" /> },
   ], [selected, selectedRows.length, rows, whById]);

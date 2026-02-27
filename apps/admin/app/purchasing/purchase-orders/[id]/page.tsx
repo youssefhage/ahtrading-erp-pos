@@ -467,7 +467,7 @@ export default function PurchaseOrderViewPage() {
 
               <div className="mt-3">
                 <div className="text-sm text-muted-foreground">Total</div>
-                <div className="data-mono mt-1 text-3xl font-semibold leading-none text-emerald-600">{totals.usd}</div>
+                <div className="data-mono mt-1 text-3xl font-semibold leading-none text-success">{totals.usd}</div>
                 <div className="data-mono mt-1 text-sm text-muted-foreground">{totals.lbp}</div>
               </div>
 

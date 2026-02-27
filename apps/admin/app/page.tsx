@@ -74,7 +74,7 @@ export default function HomePage() {
           </span>
           <span className="hidden h-3 w-px bg-border sm:block" />
           <span className="flex items-center gap-2">
-            <Wifi className="h-3.5 w-3.5 text-green-600" />
+            <Wifi className="h-3.5 w-3.5 text-success" />
             Real-time sync
           </span>
           <span className="hidden h-3 w-px bg-border sm:block" />

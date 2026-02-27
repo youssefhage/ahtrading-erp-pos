@@ -579,9 +579,9 @@ export default function UsersPage() {
       )}
 
       {statusIsNotice && (
-        <Card className="border-yellow-500/30 bg-yellow-500/5">
+        <Card className="border-warning/30 bg-warning/5">
           <CardContent className="py-3">
-            <p className="text-sm text-yellow-700 dark:text-yellow-400">{status}</p>
+            <p className="text-sm text-warning">{status}</p>
           </CardContent>
         </Card>
       )}

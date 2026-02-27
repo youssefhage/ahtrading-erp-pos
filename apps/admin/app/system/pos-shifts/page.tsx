@@ -201,7 +201,7 @@ export default function PosShiftsPage() {
           const raw = row.original.variance_usd;
           if (raw === null || raw === undefined || raw === "") return <span className="font-mono text-sm text-muted-foreground">-</span>;
           const v = toNumber(raw);
-          const cls = v === 0 ? "text-muted-foreground" : v < 0 ? "text-destructive" : "text-emerald-600";
+          const cls = v === 0 ? "text-muted-foreground" : v < 0 ? "text-destructive" : "text-success";
           return <span className={`font-mono text-sm ${cls}`}>{formatUsdSigned(v)}</span>;
         },
       },

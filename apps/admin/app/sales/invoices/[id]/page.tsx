@@ -277,7 +277,7 @@ function SalesInvoiceShowInner() {
     const secondaryBal = settle === "LBP" ? balUsd : balLbp;
     const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
     const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
-    const primaryTone = settle === "LBP" ? "text-sky-600" : "text-emerald-600";
+    const primaryTone = settle === "LBP" ? "text-info" : "text-success";
 
     return {
       paidUsd, paidLbp, tenderUsd, tenderLbp, hasAnyTender, vatUsd, vatLbp,

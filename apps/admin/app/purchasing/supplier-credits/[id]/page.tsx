@@ -343,7 +343,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (l) => toNum(l.amount_usd),
-      cell: (l) => <span className="data-mono text-sm text-emerald-600">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span>,
+      cell: (l) => <span className="data-mono text-sm text-success">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span>,
     },
     {
       id: "amount_lbp",
@@ -352,7 +352,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (l) => toNum(l.amount_lbp),
-      cell: (l) => <span className="data-mono text-sm text-sky-600">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span>,
+      cell: (l) => <span className="data-mono text-sm text-info">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span>,
     },
   ];
   const allocColumns: Array<DataTableColumn<AllocRow>> = [
@@ -379,7 +379,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (a) => toNum(a.amount_usd),
-      cell: (a) => <span className="data-mono text-sm text-emerald-600">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</span>,
+      cell: (a) => <span className="data-mono text-sm text-success">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</span>,
     },
     {
       id: "amount_lbp",
@@ -388,7 +388,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (a) => toNum(a.amount_lbp),
-      cell: (a) => <span className="data-mono text-sm text-sky-600">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</span>,
+      cell: (a) => <span className="data-mono text-sm text-info">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</span>,
     },
   ];
 

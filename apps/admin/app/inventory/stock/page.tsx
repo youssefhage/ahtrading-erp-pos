@@ -122,7 +122,7 @@ export default function StockPage() {
           header: ({ column }) => <DataTableColumnHeader column={column} title="Reserved" />,
           cell: ({ row }) => {
             const n = toNum(row.original.reserved_qty);
-            return <span className={`font-mono text-sm ${n > 0 ? "text-yellow-600" : "text-muted-foreground"}`}>{fmt(row.original.reserved_qty)}</span>;
+            return <span className={`font-mono text-sm ${n > 0 ? "text-warning" : "text-muted-foreground"}`}>{fmt(row.original.reserved_qty)}</span>;
           },
         },
         {
@@ -140,7 +140,7 @@ export default function StockPage() {
           header: ({ column }) => <DataTableColumnHeader column={column} title="Incoming" />,
           cell: ({ row }) => {
             const n = toNum(row.original.incoming_qty);
-            return <span className={`font-mono text-sm ${n > 0 ? "text-green-600" : "text-muted-foreground"}`}>{fmt(row.original.incoming_qty)}</span>;
+            return <span className={`font-mono text-sm ${n > 0 ? "text-success" : "text-muted-foreground"}`}>{fmt(row.original.incoming_qty)}</span>;
           },
         },
       );

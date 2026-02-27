@@ -428,8 +428,8 @@ function NavItem({
           className={cn(
             "absolute right-1 flex h-6 w-6 items-center justify-center rounded-md transition-all",
             isFav
-              ? "text-amber-500 opacity-100"
-              : "text-sidebar-foreground/30 opacity-0 group-hover/item:opacity-100 hover:text-amber-500"
+              ? "text-warning opacity-100"
+              : "text-sidebar-foreground/30 opacity-0 group-hover/item:opacity-100 hover:text-warning"
           )}
         >
           <Star className={cn("h-3 w-3", isFav && "fill-current")} />

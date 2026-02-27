@@ -237,7 +237,7 @@ export default function CycleCountsPage() {
                           <td className="px-3 py-2 text-right font-mono">{expected.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
                           <td className="px-3 py-2 text-right"><Input value={l.counted_qty == null ? "" : String(l.counted_qty)} onChange={(e) => updateLine(l.id, { counted_qty: e.target.value })} placeholder="0" className="h-9 w-32 text-right font-mono" /></td>
                           <td className="px-3 py-2"><Input value={l.notes || ""} onChange={(e) => updateLine(l.id, { notes: e.target.value })} placeholder="Optional" className="h-9" /></td>
-                          <td className={`px-3 py-2 text-right font-mono ${diff != null && diff !== 0 ? (diff > 0 ? "text-green-600" : "text-destructive") : ""}`}>{diff == null ? "-" : diff.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+                          <td className={`px-3 py-2 text-right font-mono ${diff != null && diff !== 0 ? (diff > 0 ? "text-success" : "text-destructive") : ""}`}>{diff == null ? "-" : diff.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
                         </tr>
                       );
                     })}

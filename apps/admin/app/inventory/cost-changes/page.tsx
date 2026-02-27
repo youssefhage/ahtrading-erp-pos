@@ -99,7 +99,7 @@ function Inner() {
       cell: ({ row }) => {
         const v = toNum(row.original.pct_change_usd);
         return (
-          <span className={`font-mono text-sm ${v > 0 ? "text-destructive" : v < 0 ? "text-green-600" : ""}`}>
+          <span className={`font-mono text-sm ${v > 0 ? "text-destructive" : v < 0 ? "text-success" : ""}`}>
             {pct(row.original.pct_change_usd)}
           </span>
         );

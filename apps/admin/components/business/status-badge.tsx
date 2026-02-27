@@ -23,12 +23,12 @@ const statusVariantMap: Record<string, BadgeVariant> = {
 
 /** Statuses that show a pulsing dot indicator */
 const pulsingStatuses: Record<string, string> = {
-  active: "bg-emerald-500",
-  pending: "bg-amber-500",
-  partial: "bg-amber-500",
-  partially_paid: "bg-amber-500",
-  on_hold: "bg-amber-500",
-  overdue: "bg-red-500",
+  active: "bg-success",
+  pending: "bg-warning",
+  partial: "bg-warning",
+  partially_paid: "bg-warning",
+  on_hold: "bg-warning",
+  overdue: "bg-destructive",
 };
 
 function titleCase(s: string): string {

@@ -401,7 +401,7 @@ function RecommendationCard({
     <Card
       className={cn(
         "transition-shadow hover:shadow-md",
-        isPending && "border-yellow-500/30 dark:border-yellow-400/20"
+        isPending && "border-warning/30"
       )}
     >
       <CardHeader className="pb-3">
@@ -530,7 +530,7 @@ function RecommendationCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="border-green-500/30 bg-green-500/5 hover:bg-green-500/10 text-green-700 dark:text-green-400"
+                className="border-success/30 bg-success/5 hover:bg-success/10 text-success"
                 onClick={onApprove}
                 disabled={!canWrite || isLoading}
               >
@@ -540,7 +540,7 @@ function RecommendationCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-red-700 dark:text-red-400"
+                className="border-destructive/30 bg-destructive/5 hover:bg-destructive/10 text-destructive"
                 onClick={onReject}
                 disabled={!canWrite || isLoading}
               >
@@ -629,7 +629,7 @@ function ActionCard({
                 ` \u2022 Queued ${formatDateLike(action.queued_at)}`}
             </p>
             {action.error_message && (
-              <p className="text-xs text-red-600 dark:text-red-400">
+              <p className="text-xs text-destructive">
                 {action.error_message}
               </p>
             )}
@@ -1492,7 +1492,7 @@ export default function AiHubPage() {
                           )}
                         </div>
                         {r.error_message && (
-                          <p className="max-w-sm truncate text-xs text-red-600 dark:text-red-400">
+                          <p className="max-w-sm truncate text-xs text-destructive">
                             {r.error_message}
                           </p>
                         )}

@@ -569,7 +569,7 @@ export default function CopilotChatPage() {
 
       {/* Permission warning */}
       {permissionsLoaded && !canReadAi && (
-        <Card className="border-yellow-500/30 bg-yellow-500/5">
+        <Card className="border-warning/30 bg-warning/5">
           <CardContent className="py-6">
             <EmptyState
               icon={ShieldAlert}

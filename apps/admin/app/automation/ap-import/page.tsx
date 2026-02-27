@@ -261,9 +261,9 @@ export default function ApImportQueuePage() {
 
       {/* Error banner */}
       {err && (
-        <Card className="border-red-500/30 bg-red-500/5">
+        <Card className="border-destructive/30 bg-destructive/5">
           <CardContent className="py-4">
-            <p className="text-sm text-red-700 dark:text-red-400">
+            <p className="text-sm text-destructive">
               {err || "Failed to load invoices."}
             </p>
           </CardContent>
@@ -448,13 +448,13 @@ export default function ApImportQueuePage() {
                             className={cn(
                               "shrink-0 rounded-lg p-2",
                               status === "pending_review" &&
-                                "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+                                "bg-warning/10 text-warning",
                               status === "filled" &&
-                                "bg-green-500/10 text-green-700 dark:text-green-400",
+                                "bg-success/10 text-success",
                               status === "failed" &&
-                                "bg-red-500/10 text-red-700 dark:text-red-400",
+                                "bg-destructive/10 text-destructive",
                               status === "processing" &&
-                                "bg-blue-500/10 text-blue-700 dark:text-blue-400",
+                                "bg-info/10 text-info",
                               !["pending_review", "filled", "failed", "processing"].includes(status) &&
                                 "bg-muted text-muted-foreground"
                             )}

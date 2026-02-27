@@ -199,7 +199,7 @@ export function ShiftDetailPanel({
         header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
         cell: ({ row }) => {
           const amount = toNumber(row.original.amount_usd);
-          const cls = amount === 0 ? "text-muted-foreground" : amount < 0 ? "text-destructive" : "text-emerald-600";
+          const cls = amount === 0 ? "text-muted-foreground" : amount < 0 ? "text-destructive" : "text-success";
           return <span className={`font-mono text-xs ${cls}`}>{formatUsdSigned(amount)}</span>;
         },
       },
@@ -259,10 +259,10 @@ export function ShiftDetailPanel({
 
         {/* Variance highlight */}
         {shift.variance_usd !== null && shift.variance_usd !== undefined && shift.variance_usd !== "" && (
-          <Card className={toNumber(shift.variance_usd) === 0 ? "border-muted" : toNumber(shift.variance_usd) < 0 ? "border-destructive/40 bg-destructive/5" : "border-emerald-500/40 bg-emerald-500/5"}>
+          <Card className={toNumber(shift.variance_usd) === 0 ? "border-muted" : toNumber(shift.variance_usd) < 0 ? "border-destructive/40 bg-destructive/5" : "border-success/40 bg-success/5"}>
             <CardContent className="flex items-center justify-between py-3">
               <span className="text-sm font-medium">Variance (USD)</span>
-              <span className={`font-mono text-lg font-semibold ${toNumber(shift.variance_usd) === 0 ? "text-muted-foreground" : toNumber(shift.variance_usd) < 0 ? "text-destructive" : "text-emerald-600"}`}>
+              <span className={`font-mono text-lg font-semibold ${toNumber(shift.variance_usd) === 0 ? "text-muted-foreground" : toNumber(shift.variance_usd) < 0 ? "text-destructive" : "text-success"}`}>
                 {formatUsdSigned(shift.variance_usd)}
               </span>
             </CardContent>

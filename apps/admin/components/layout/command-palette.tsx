@@ -246,7 +246,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                       >
                         <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="flex-1 truncate">{f.label}</span>
-                        <Star className="h-3 w-3 shrink-0 text-amber-500 fill-amber-500" />
+                        <Star className="h-3 w-3 shrink-0 text-warning fill-warning" />
                       </CommandItem>
                     );
                   })}

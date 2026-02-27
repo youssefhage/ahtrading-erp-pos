@@ -162,8 +162,8 @@ function MetricPill({
     <div
       className={cn(
         "rounded-lg border px-3 py-2",
-        variant === "warning" && "border-yellow-500/30 bg-yellow-500/5",
-        variant === "danger" && "border-red-500/30 bg-red-500/5",
+        variant === "warning" && "border-warning/30 bg-warning/5",
+        variant === "danger" && "border-destructive/30 bg-destructive/5",
         !variant || variant === "default"
           ? "border-border bg-muted/50"
           : ""
@@ -653,8 +653,8 @@ export default function OpsCopilotPage() {
                               className={cn(
                                 "h-2 w-2 rounded-full",
                                 isStale
-                                  ? "bg-red-500"
-                                  : "bg-green-500"
+                                  ? "bg-destructive"
+                                  : "bg-success"
                               )}
                             />
                             <span className="text-sm">
@@ -763,11 +763,11 @@ export default function OpsCopilotPage() {
                       {recentJobFailures.map((f) => (
                         <div
                           key={f.id}
-                          className="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2"
+                          className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2"
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <XCircle className="h-3 w-3 text-red-500" />
+                              <XCircle className="h-3 w-3 text-destructive" />
                               <span className="font-mono text-xs font-medium">
                                 {f.job_code}
                               </span>
@@ -777,7 +777,7 @@ export default function OpsCopilotPage() {
                             </span>
                           </div>
                           {f.error_message && (
-                            <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                            <p className="mt-1 text-xs text-destructive">
                               {f.error_message}
                             </p>
                           )}

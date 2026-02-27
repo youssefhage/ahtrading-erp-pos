@@ -557,7 +557,7 @@ function SupplierInvoiceShowInner() {
     const secondaryBal = settle === "LBP" ? balUsd : balLbp;
     const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
     const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
-    const primaryTone = settle === "LBP" ? "text-sky-600" : "text-emerald-600";
+    const primaryTone = settle === "LBP" ? "text-info" : "text-success";
 
     return {
       paidUsd,
@@ -968,7 +968,7 @@ function SupplierInvoiceShowInner() {
                           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">This Invoice</p>
                           <p className="mt-1 text-xs text-muted-foreground">Only this invoice.</p>
                           <div className="mt-2 text-sm text-muted-foreground">Amount due now</div>
-                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "text-emerald-600"}`}>
+                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "text-success"}`}>
                             {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryBal) : fmtUsd(0)}
                           </div>
                           <div className="data-mono mt-1 text-sm text-muted-foreground">
