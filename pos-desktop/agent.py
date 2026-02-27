@@ -69,8 +69,8 @@ _CONFIG_PATCHABLE_KEYS = {
     "default_customer_id", "default_customer_name",
     "default_warehouse_id", "default_warehouse_name",
     "allow_negative_stock", "allow_credit_sale",
-    "require_manager_approval_credit", "require_manager_approval_return",
-    "require_manager_approval_discount",
+    "require_manager_approval_credit", "require_manager_approval_returns",
+    "require_manager_approval_discount", "require_manager_approval_cross_company",
     "max_discount_pct", "loyalty_enabled",
     "printer_type", "printer_address",
     "currency_label_usd", "currency_label_lbp",
@@ -84,8 +84,9 @@ _CONFIG_API_WRITABLE_KEYS = {
     "default_customer_id", "default_customer_name",
     "default_warehouse_id", "default_warehouse_name",
     "allow_negative_stock", "allow_credit_sale",
-    "require_manager_approval_credit", "require_manager_approval_return",
-    "require_manager_approval_discount", "max_discount_pct",
+    "require_manager_approval_credit", "require_manager_approval_returns",
+    "require_manager_approval_discount", "require_manager_approval_cross_company",
+    "max_discount_pct",
     "loyalty_enabled", "currency_label_usd", "currency_label_lbp",
     "admin_session_hours", "receipt_hide_vat",
     "invoice_template",
@@ -94,6 +95,13 @@ _CONFIG_API_WRITABLE_KEYS = {
     "receipt_company_name", "receipt_footer_text",
     "invoice_printer", "invoice_print_copies", "auto_print_invoice",
     "print_base_url",
+    # Queue / outbox settings
+    "outbox_stale_warn_minutes",
+    # Device setup keys (written by SettingsScreen after registration & manual edits)
+    "api_base_url", "cloud_api_base_url",
+    "company_id", "device_id", "device_token", "device_code",
+    "warehouse_id", "branch_id",
+    "pricing_currency", "exchange_rate",
 }
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
