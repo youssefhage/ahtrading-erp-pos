@@ -8,8 +8,8 @@ VALUES ('FX_GAIN_LOSS', 'Foreign Exchange Gains/Losses')
 ON CONFLICT (code) DO NOTHING;
 
 -- Best-effort autofill: look for common FX gain/loss account codes in existing COA.
-INSERT INTO company_account_defaults (id, company_id, role_code, account_id)
-SELECT gen_random_uuid(), c.id, 'FX_GAIN_LOSS', a.id
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'FX_GAIN_LOSS', a.id
 FROM companies c
 JOIN company_coa_accounts a
   ON a.company_id = c.id
