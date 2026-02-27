@@ -1,6 +1,6 @@
 [package]
 name = "melqard-pos-desktop"
-version = "0.0.52"
+version = "0.0.53"
 description = "Melqard POS Desktop (Tauri)"
 authors = ["Melqard"]
 edition = "2021"
@@ -13,6 +13,7 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
 
 [features]
 default = ["custom-protocol"]
