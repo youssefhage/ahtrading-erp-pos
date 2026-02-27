@@ -51,7 +51,9 @@ function LoginForm() {
       }
       setStatus("Success");
       const redirectTo = searchParams.get("redirect") || "/dashboard";
-      router.push(redirectTo);
+      // Hard navigation ensures the middleware sees the freshly-set session
+      // cookie and avoids a silent soft-navigation loop.
+      window.location.href = redirectTo;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
