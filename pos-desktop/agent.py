@@ -89,6 +89,11 @@ _CONFIG_API_WRITABLE_KEYS = {
     "loyalty_enabled", "currency_label_usd", "currency_label_lbp",
     "admin_session_hours", "receipt_hide_vat",
     "invoice_template",
+    # Printing settings (used by the Printing modal in the UI)
+    "receipt_printer", "receipt_print_copies", "auto_print_receipt",
+    "receipt_company_name", "receipt_footer_text",
+    "invoice_printer", "invoice_print_copies", "auto_print_invoice",
+    "print_base_url",
 }
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
