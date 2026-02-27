@@ -421,8 +421,13 @@ window.addEventListener("unhandledrejection", (ev) => {
 // Boot sequence
 // ---------------------------------------------------------------------------
 
+async function showWindow() {
+  try { await tauriInvoke("show_main_window"); } catch {}
+}
+
 async function boot() {
-  setBootState("Starting POS", "Please wait while desktop starts local services and opens POS.");
+  // Window starts hidden — only shown on success or on error (for diagnostics).
+  setBootState("Starting POS", "Please wait...");
   setStatus("Starting agents...");
   showErrorPanel(false);
 
@@ -444,21 +449,23 @@ async function boot() {
     setBootState("POS Launch Failed", "Use Retry to try again, or check diagnostics.", false);
     setStatus(`Failed: ${msg}`, true);
     showErrorPanel(true);
+    await showWindow();
     return;
   }
 
-  setStatus("Waiting for POS to become ready...");
   const ok = await waitForAgent(activeOff, 12000);
   if (!ok) {
     persistLog("error", `Primary agent not reachable on port ${activeOff}`);
     setBootState("POS Not Ready", "The agent did not respond in time. Retry or check diagnostics.", false);
     setStatus(`Primary agent not reachable on port ${activeOff}.`, true);
     showErrorPanel(true);
+    await showWindow();
     return;
   }
 
-  setStatus("Opening POS...");
+  // Navigate to the POS app and reveal the window.
   window.location.href = buildUnifiedUiUrl(activeOff, activeUn);
+  await showWindow();
 }
 
 // ---------------------------------------------------------------------------

@@ -572,6 +572,15 @@ fn app_version() -> String {
 }
 
 #[tauri::command]
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+  if let Some(w) = app.get_webview_window("main") {
+    w.show().map_err(|e| e.to_string())?;
+    w.set_focus().map_err(|e| e.to_string())?;
+  }
+  Ok(())
+}
+
+#[tauri::command]
 fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
   app.request_restart();
   Ok(())
@@ -596,6 +605,7 @@ fn main() {
       tail_desktop_log,
       suggest_port_pair,
       app_version,
+      show_main_window,
       restart_app
     ])
     .run(tauri::generate_context!())
