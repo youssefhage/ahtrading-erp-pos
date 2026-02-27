@@ -159,6 +159,18 @@ async function parseErrorBody(res: Response): Promise<unknown> {
 async function handle(res: Response) {
   if (res.ok) return res;
 
+  /* ── 401 → redirect to login ──────────────────────────────────── */
+  if (
+    res.status === 401 &&
+    typeof window !== "undefined" &&
+    !window.location.pathname.startsWith("/login")
+  ) {
+    clearSession();
+    window.location.href = "/login";
+    // Throw so callers don't continue processing
+    throw new ApiError(401, "Session expired — redirecting to login", null);
+  }
+
   const body = await parseErrorBody(res);
   let message = extractJsonMessage(body);
   if (!message) {

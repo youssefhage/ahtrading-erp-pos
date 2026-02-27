@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { InsightsTrigger } from "@/components/ai/insights-panel";
 import { UserMenu } from "./user-menu";
 
 interface TopNavProps {
@@ -92,6 +93,9 @@ export function TopNav({ onCommandOpen }: TopNavProps) {
             </kbd>
           </TooltipContent>
         </Tooltip>
+
+        {/* AI Insights (conditionally rendered by InsightsTrigger) */}
+        <InsightsTrigger />
 
         {/* Theme toggle */}
         <Tooltip>

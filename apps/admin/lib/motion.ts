@@ -86,6 +86,57 @@ export const staggerItem: Variants = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  AI / Kai specific variants                                         */
+/* ------------------------------------------------------------------ */
+
+/** Pulse bar item — slide + fade for carousel rotation */
+export const pulseBarItem: Variants = {
+  hidden: { opacity: 0, y: -6 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] },
+  },
+  exit: {
+    opacity: 0,
+    y: 6,
+    transition: { duration: 0.15, ease: [0.25, 0.46, 0.45, 0.94] },
+  },
+};
+
+/** Kai panel — slide up from bottom with spring */
+export const kaiPanelEnter: Variants = {
+  hidden: { opacity: 0, y: 24, scale: 0.97 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { type: "spring", stiffness: 400, damping: 28 },
+  },
+  exit: {
+    opacity: 0,
+    y: 16,
+    scale: 0.98,
+    transition: { duration: 0.15, ease: [0.4, 0, 1, 1] },
+  },
+};
+
+/** Insight card — staggered fade + slide from right */
+export const insightCardEnter: Variants = {
+  hidden: { opacity: 0, x: 12 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] },
+  },
+  exit: {
+    opacity: 0,
+    x: -8,
+    transition: { duration: 0.1 },
+  },
+};
+
+/* ------------------------------------------------------------------ */
 /*  Collapsible height animation                                       */
 /* ------------------------------------------------------------------ */
 

@@ -240,9 +240,10 @@ def attention(company_id: str = Depends(get_company_id)):
             cur.execute(
                 """
                 SELECT COUNT(*)::int AS c
-                FROM pos_events_outbox
-                WHERE company_id=%s
-                  AND status='failed'
+                FROM pos_events_outbox o
+                JOIN pos_devices d ON d.id = o.device_id
+                WHERE d.company_id=%s
+                  AND o.status='failed'
                 """,
                 (company_id,),
             )
@@ -1113,6 +1114,58 @@ def metrics(company_id: str = Depends(get_company_id)):
             )
             row = cur.fetchone()
             return {"metrics": row}
+
+
+@router.get("/daily-summary", dependencies=[Depends(require_permission("reports:read"))])
+def daily_summary(days: int = 7, company_id: str = Depends(get_company_id)):
+    if days < 1:
+        days = 1
+    elif days > 90:
+        days = 90
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH date_series AS (
+                    SELECT generate_series(
+                        current_date - (%s - 1) * interval '1 day',
+                        current_date,
+                        interval '1 day'
+                    )::date AS d
+                )
+                SELECT
+                    ds.d AS date,
+                    COALESCE((
+                        SELECT SUM(si.total_usd)::float
+                        FROM sales_invoices si
+                        WHERE si.company_id = %s
+                          AND si.status = 'posted'
+                          AND si.created_at::date = ds.d
+                    ), 0) AS sales,
+                    COALESCE((
+                        SELECT SUM(pi.total_usd)::float
+                        FROM supplier_invoices pi
+                        WHERE pi.company_id = %s
+                          AND pi.status = 'posted'
+                          AND pi.created_at::date = ds.d
+                    ), 0) AS purchases
+                FROM date_series ds
+                ORDER BY ds.d
+                """,
+                (days, company_id, company_id),
+            )
+            rows = cur.fetchall()
+            return {
+                "data": [
+                    {
+                        "date": str(r["date"]),
+                        "sales": round(r["sales"], 2),
+                        "purchases": round(r["purchases"], 2),
+                    }
+                    for r in rows
+                ]
+            }
 
 
 @router.get("/ar-aging", dependencies=[Depends(require_permission("reports:read"))])

@@ -5,6 +5,7 @@ import "./globals.css";
 import { ClientShellLayout } from "./client-shell-layout";
 import { Toaster } from "sonner";
 import { PdfDownloadInterceptor } from "@/components/pdf-download-interceptor";
+import { KaiProvider } from "@/components/kai/kai-provider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -41,7 +42,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           disableTransitionOnChange
         >
           <PdfDownloadInterceptor />
-          <ClientShellLayout>{children}</ClientShellLayout>
+          <KaiProvider>
+            <ClientShellLayout>{children}</ClientShellLayout>
+          </KaiProvider>
           <Toaster richColors position="bottom-right" />
         </ThemeProvider>
       </body>

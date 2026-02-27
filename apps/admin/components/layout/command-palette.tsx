@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useMemo } from "react";
-import { Clock, Star, Zap, Moon, Sun, PanelLeft } from "lucide-react";
+import { Clock, Star, Zap, Moon, Sun, PanelLeft, Sparkles } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { NAV_MODULES, type NavModuleItem } from "@/lib/nav-modules";
+import { useKaiStore, kaiAsk } from "@/lib/hooks/use-kai";
 import { getRecentsForCompany, getFavoritesForCompany } from "@/lib/nav-memory";
 import { scoreFuzzyQuery, normalizeSearchText } from "@/lib/fuzzy";
 import { useSidebar } from "@/components/ui/sidebar";
@@ -37,6 +38,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const { toggleSidebar } = useSidebar();
+  const { open: openKai, dispatch: kaiDispatch } = useKaiStore();
   const [search, setSearch] = useState("");
 
   // Reset search when closing
@@ -110,39 +112,97 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     }
   };
 
+  // Detect if query looks like natural language (question / multi-word phrase)
+  const isNaturalLanguage = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return false;
+    if (/^(what|how|why|when|who|which|show|list|find|get|give|tell|check)\b/.test(q)) return true;
+    if (q.includes("?")) return true;
+    if (q.split(/\s+/).length >= 4) return true;
+    return false;
+  }, [search]);
+
+  const askKai = useCallback(
+    (query: string) => {
+      onOpenChange(false);
+      openKai();
+      kaiAsk(kaiDispatch, query, { page: window.location.pathname });
+    },
+    [onOpenChange, openKai, kaiDispatch]
+  );
+
   const isSearching = search.trim().length > 0;
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput
-        placeholder="Search pages, actions..."
+        placeholder="Search or ask Kai anything..."
         value={search}
         onValueChange={setSearch}
       />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>
+          {/* When no nav results, suggest asking Kai */}
+          {isNaturalLanguage || search.trim().length > 2 ? (
+            <button
+              onClick={() => askKai(search.trim())}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-3 text-sm text-left transition-colors hover:bg-accent"
+            >
+              <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+              <span className="flex-1">
+                Ask Kai: <span className="font-medium">&ldquo;{search.trim()}&rdquo;</span>
+              </span>
+              <kbd className="hidden sm:inline-flex h-5 items-center rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+                ⌘J
+              </kbd>
+            </button>
+          ) : (
+            "No results found."
+          )}
+        </CommandEmpty>
 
         {isSearching ? (
-          /* ---- Filtered search results ---- */
-          filteredItems && filteredItems.length > 0 && (
-            <CommandGroup heading="Results">
-              {filteredItems.map((item) => (
+          <>
+            {/* ---- Ask Kai (top of search when NL query detected) ---- */}
+            {isNaturalLanguage && (
+              <CommandGroup heading="AI Assistant">
                 <CommandItem
-                  key={`search-${item.href}`}
-                  value={item.value}
-                  onSelect={() => navigate(item.href)}
+                  value={`ask kai ${search}`}
+                  onSelect={() => askKai(search.trim())}
                   className="flex items-center gap-2"
                 >
-                  <item.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">{item.label}</span>
-                  <span className="text-[11px] text-muted-foreground/60">
-                    {item.module}
-                    {item.section ? ` / ${item.section}` : ""}
+                  <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="flex-1 truncate">
+                    Ask Kai: &ldquo;{search.trim()}&rdquo;
+                  </span>
+                  <span className="text-[11px] text-primary/60 font-medium">
+                    AI
                   </span>
                 </CommandItem>
-              ))}
-            </CommandGroup>
-          )
+              </CommandGroup>
+            )}
+
+            {/* ---- Filtered search results ---- */}
+            {filteredItems && filteredItems.length > 0 && (
+              <CommandGroup heading={isNaturalLanguage ? "Pages" : "Results"}>
+                {filteredItems.map((item) => (
+                  <CommandItem
+                    key={`search-${item.href}`}
+                    value={item.value}
+                    onSelect={() => navigate(item.href)}
+                    className="flex items-center gap-2"
+                  >
+                    <item.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">{item.label}</span>
+                    <span className="text-[11px] text-muted-foreground/60">
+                      {item.module}
+                      {item.section ? ` / ${item.section}` : ""}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </>
         ) : (
           <>
             {/* ---- Recents ---- */}

@@ -9,6 +9,10 @@ import { TopNav } from "./top-nav";
 import { AppSidebar } from "./app-sidebar";
 import { PageBreadcrumbs } from "./page-breadcrumbs";
 import { CommandPalette, useCommandPalette } from "./command-palette";
+import { AiPulseBar } from "@/components/ai/pulse-bar";
+import { KaiFab } from "@/components/kai/kai-fab";
+import { KaiPanel } from "@/components/kai/kai-panel";
+import { InsightsPanel } from "@/components/ai/insights-panel";
 import { addRecent } from "@/lib/nav-memory";
 import { itemForPath } from "@/lib/nav-modules";
 
@@ -20,6 +24,9 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const { open: commandOpen, setOpen: setCommandOpen } = useCommandPalette();
   const pathname = usePathname();
+
+  // Hide sidebar on dashboard — it duplicates the top nav module tabs
+  const isDashboard = pathname === "/dashboard" || pathname === "/";
 
   // Track recent pages
   useEffect(() => {
@@ -38,12 +45,15 @@ export function AppShell({ children }: AppShellProps) {
           <TopNav onCommandOpen={() => setCommandOpen(true)} />
 
           <div className="flex flex-1">
-            {/* Contextual sidebar */}
-            <AppSidebar />
+            {/* Contextual sidebar — hidden on dashboard */}
+            {!isDashboard && <AppSidebar />}
 
             {/* Main content area */}
             <SidebarInset>
               <div className="flex flex-1 flex-col">
+                {/* AI Pulse Bar — nervous system ticker */}
+                <AiPulseBar />
+
                 {/* Breadcrumbs */}
                 <div className="border-b bg-background px-6 py-2">
                   <PageBreadcrumbs />
@@ -62,6 +72,13 @@ export function AppShell({ children }: AppShellProps) {
 
         {/* Command palette (global) */}
         <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
+
+        {/* Kai — global AI copilot */}
+        <KaiFab />
+        <KaiPanel />
+
+        {/* Contextual AI insights panel */}
+        <InsightsPanel />
       </SidebarProvider>
     </TooltipProvider>
   );

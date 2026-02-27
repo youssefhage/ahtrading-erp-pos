@@ -39,9 +39,14 @@ def get_ai_provider_config(cur, company_id: str) -> dict:
         or os.environ.get("OPENAI_INVOICE_TEXT_MODEL")
         or default_model
     )
+    copilot_model = (
+        os.environ.get("AI_COPILOT_MODEL")
+        or default_model
+    )
     item_model = (item_model or "").strip()
     vision_model = (vision_model or "").strip()
     text_model = (text_model or "").strip()
+    copilot_model = (copilot_model or "").strip()
 
     try:
         cur.execute(
@@ -62,6 +67,7 @@ def get_ai_provider_config(cur, company_id: str) -> dict:
             item_model = (v.get("item_naming_model") or item_model).strip()
             vision_model = (v.get("invoice_vision_model") or vision_model).strip()
             text_model = (v.get("invoice_text_model") or text_model).strip()
+            copilot_model = (v.get("copilot_model") or copilot_model).strip()
     except Exception:
         # Never break runtime if settings are malformed or DB read fails.
         pass
@@ -76,4 +82,5 @@ def get_ai_provider_config(cur, company_id: str) -> dict:
         "item_naming_model": item_model,
         "invoice_vision_model": vision_model,
         "invoice_text_model": text_model,
+        "copilot_model": copilot_model,
     }

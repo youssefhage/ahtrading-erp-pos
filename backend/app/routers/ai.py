@@ -1,5 +1,7 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Optional
 from datetime import datetime
@@ -7,6 +9,16 @@ from urllib.parse import quote
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..validation import AiActionStatus, AiRecommendationStatus, AiRecommendationDecisionStatus
+from ..ai.policy import is_external_ai_allowed
+from ..ai.providers import get_ai_provider_config
+from ..ai.copilot_llm import (
+    sync_copilot_response,
+    stream_copilot_response,
+    fetch_company_name,
+    fetch_attention_items,
+)
+
+_copilot_logger = logging.getLogger(__name__ + ".copilot")
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -369,6 +381,8 @@ class AgentSetting(BaseModel):
 
 class CopilotQueryIn(BaseModel):
     query: str
+    context: Optional[dict] = None
+    stream: bool = False
 
 
 class JobScheduleIn(BaseModel):
@@ -383,7 +397,7 @@ def _normalize_text(value: Optional[str]) -> Optional[str]:
     return s or None
 
 
-def _upsert_ai_action_from_recommendation(cur, company_id: str, rec: dict[str, Any], user_id: str) -> str | None:
+def _upsert_ai_action_from_recommendation(cur, company_id: str, rec: dict[str, Any], user_id: str) -> Optional[str]:
     if not _is_executable_agent(rec.get("agent_code") or ""):
         return None
 
@@ -470,8 +484,15 @@ def list_recommendations(
                 sql += " AND status = %s"
                 params.append(status)
             if agent_code:
-                sql += " AND agent_code = %s"
-                params.append(agent_code)
+                # Support comma-separated agent codes for multi-agent filtering
+                codes = [c.strip().upper() for c in agent_code.split(",") if c.strip()]
+                if len(codes) == 1:
+                    sql += " AND agent_code = %s"
+                    params.append(codes[0])
+                elif codes:
+                    placeholders = ",".join(["%s"] * len(codes))
+                    sql += f" AND agent_code IN ({placeholders})"
+                    params.extend(codes)
             sql += " ORDER BY created_at DESC LIMIT %s"
             params.append(limit)
             cur.execute(sql, params)
@@ -930,18 +951,111 @@ def copilot_overview(company_id: str = Depends(get_company_id)):
 @router.post("/copilot/query", dependencies=[Depends(require_permission("ai:read"))])
 def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id)):
     """
-    Natural-language-ish copilot endpoint (v1): deterministic, safe, read-only.
+    Copilot query endpoint.
 
-    We intentionally do NOT execute arbitrary SQL nor external LLM calls.
+    When an AI provider is configured and the company policy allows external AI,
+    the query is routed to the LLM (with optional streaming).  Otherwise, the
+    original deterministic keyword-matching behaviour is used as a fallback so
+    the copilot always works even without an AI provider.
     """
     q = (data.query or "").strip()
     if not q:
         raise HTTPException(status_code=400, detail="query is required")
-    ql = q.lower()
 
-    # Default: always provide an overview so the UI has something useful.
+    # Always provide an overview so the UI has something useful.
     overview = copilot_overview(company_id=company_id)
 
+    # ------------------------------------------------------------------
+    # Check if we can use the LLM path
+    # ------------------------------------------------------------------
+    use_llm = False
+    ai_config: dict[str, Any] = {}
+    try:
+        with get_conn() as conn:
+            set_company_context(conn, company_id)
+            with conn.cursor() as cur:
+                if is_external_ai_allowed(cur, company_id):
+                    ai_config = get_ai_provider_config(cur, company_id)
+                    model = ai_config.get("copilot_model") or ai_config.get("item_naming_model") or ""
+                    if ai_config.get("api_key") and model:
+                        use_llm = True
+    except Exception:
+        # If anything goes wrong checking config, fall back gracefully.
+        _copilot_logger.debug("Failed to check AI config, falling back to keyword matching", exc_info=True)
+
+    if use_llm:
+        return _copilot_llm_response(q, data, company_id, ai_config, overview)
+
+    # ------------------------------------------------------------------
+    # Fallback: deterministic keyword matching (original v1 behaviour)
+    # ------------------------------------------------------------------
+    return _copilot_keyword_response(q, company_id, overview)
+
+
+def _copilot_llm_response(
+    query: str,
+    data: CopilotQueryIn,
+    company_id: str,
+    ai_config: dict[str, Any],
+    overview: dict[str, Any],
+):
+    """Route the copilot query through the configured LLM provider."""
+    # Gather context for the system prompt.
+    company_name = ""
+    attention_items: list[dict[str, Any]] = []
+    try:
+        with get_conn() as conn:
+            set_company_context(conn, company_id)
+            with conn.cursor() as cur:
+                company_name = fetch_company_name(cur, company_id)
+                attention_items = fetch_attention_items(cur, company_id)
+    except Exception:
+        _copilot_logger.debug("Failed to fetch copilot context", exc_info=True)
+
+    kwargs = dict(
+        user_query=query,
+        company_id=company_id,
+        company_name=company_name,
+        ai_config=ai_config,
+        context=data.context,
+        overview=overview,
+        attention=attention_items,
+    )
+
+    if data.stream:
+        return StreamingResponse(
+            stream_copilot_response(**kwargs),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # Non-streaming: call the LLM synchronously and return JSON.
+    try:
+        result = sync_copilot_response(**kwargs)
+        return {
+            "query": query,
+            "answer": result.get("answer", ""),
+            "overview": overview,
+            "cards": [],
+            "actions": result.get("actions", []),
+            "source": "llm",
+        }
+    except Exception as exc:
+        _copilot_logger.exception("LLM copilot failed, falling back to keyword matching: %s", exc)
+        # Fall back to keyword matching so the user always gets a response.
+        return _copilot_keyword_response(query, company_id, overview)
+
+
+def _copilot_keyword_response(
+    query: str,
+    company_id: str,
+    overview: dict[str, Any],
+) -> dict[str, Any]:
+    """Original deterministic keyword-matching copilot (v1)."""
+    ql = query.lower()
     answer = ""
     cards: list[dict[str, Any]] = []
 
@@ -1022,7 +1136,7 @@ def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id
             else:
                 answer = "Ask me about reorders, anomalies/shrinkage, POS sync/outbox, or period locks. I will keep answers read-only and operational."
 
-    return {"query": q, "answer": answer, "overview": overview, "cards": cards}
+    return {"query": query, "answer": answer, "overview": overview, "cards": cards, "source": "keyword"}
 
 @router.post("/actions/{action_id}/queue", dependencies=[Depends(require_permission("ai:write"))])
 def queue_action(

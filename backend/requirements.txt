@@ -3,6 +3,8 @@ uvicorn==0.27.1
 psycopg[binary]==3.1.18
 psycopg-pool==3.2.8
 pydantic==2.6.1
+# Allow Pydantic to resolve X | None type syntax on Python 3.9.
+eval_type_backport>=0.2.0
 passlib[bcrypt]==1.7.4
 # passlib 1.7.4 tries to read `bcrypt.__about__.__version__`, which was removed in bcrypt 4+.
 # Pin to a compatible bcrypt to avoid noisy tracebacks in logs.
