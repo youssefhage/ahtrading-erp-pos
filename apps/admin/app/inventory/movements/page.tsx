@@ -78,7 +78,8 @@ export default function InventoryMovementsPage() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
 
   const columns = useMemo<ColumnDef<MoveRow>[]>(() => [
     {

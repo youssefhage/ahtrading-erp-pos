@@ -224,6 +224,7 @@ export default function PosCashiersPage() {
     }
   }
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const columns = useMemo<ColumnDef<CashierRow>[]>(
     () => [
       {
@@ -264,6 +265,7 @@ export default function PosCashiersPage() {
     ],
     [statusIsBusy],
   );
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

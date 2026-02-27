@@ -18,12 +18,12 @@ import {
 
 export function PageBreadcrumbs() {
   const pathname = usePathname() || "/";
-  const module = moduleForPath(pathname);
+  const navModule = moduleForPath(pathname);
 
-  if (!module) return null;
+  if (!navModule) return null;
 
   // Build breadcrumb chain: Module > [Section] > Page
-  const crumbs = buildCrumbs(pathname, module);
+  const crumbs = buildCrumbs(pathname, navModule);
 
   if (crumbs.length <= 1) return null;
 

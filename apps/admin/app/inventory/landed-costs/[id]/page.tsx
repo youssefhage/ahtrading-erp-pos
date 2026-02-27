@@ -114,6 +114,15 @@ function Inner({ id }: { id: string }) {
     }
   }, [id]);
 
+  const activeTab = useMemo(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    return "overview";
+  }, [searchParams]);
+  const onTabChange = useCallback((val: string) => {
+    router.replace(`?tab=${val}`, { scroll: false });
+  }, [router]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -164,15 +173,6 @@ function Inner({ id }: { id: string }) {
       </div>
     );
   }
-
-  const activeTab = useMemo(() => {
-    const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") return "lines";
-    return "overview";
-  }, [searchParams]);
-  const onTabChange = useCallback((val: string) => {
-    router.replace(`?tab=${val}`, { scroll: false });
-  }, [router]);
 
   return (
     <DetailPageLayout

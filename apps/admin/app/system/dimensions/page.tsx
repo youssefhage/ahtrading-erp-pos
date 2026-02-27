@@ -157,8 +157,10 @@ export default function DimensionsPage() {
     },
   ];
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const ccColumns = useMemo(() => makeCols("cc"), [loading, creating, saving]);
   const prColumns = useMemo(() => makeCols("pr"), [loading, creating, saving]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

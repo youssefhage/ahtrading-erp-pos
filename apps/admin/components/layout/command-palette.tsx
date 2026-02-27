@@ -96,10 +96,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     return getFavoritesForCompany().slice(0, 5);
   }, [open]);
 
-  // Relative time helper
+  // Relative time helper (Date.now is impure but intentional for display)
   const relativeTime = (iso: string): string => {
     try {
-      const diff = Date.now() - new Date(iso).getTime();
+      const diff = Date.now() - new Date(iso).getTime(); // eslint-disable-line react-hooks/purity
       const mins = Math.floor(diff / 60000);
       if (mins < 1) return "just now";
       if (mins < 60) return `${mins}m ago`;

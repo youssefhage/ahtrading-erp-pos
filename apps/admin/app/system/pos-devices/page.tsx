@@ -518,6 +518,7 @@ export default function PosDevicesPage() {
     }
   }
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const columns = useMemo<ColumnDef<DeviceRow>[]>(
     () => [
       {
@@ -624,6 +625,7 @@ export default function PosDevicesPage() {
     ],
     [busy],
   );
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

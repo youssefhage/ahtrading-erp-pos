@@ -250,6 +250,7 @@ function ConfigPage() {
     [],
   );
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const taxCodeColumns = useMemo<ColumnDef<TaxCode>[]>(
     () => [
       {
@@ -331,6 +332,7 @@ function ConfigPage() {
     ],
     [deletingTaxId],
   );
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const exchangeRateColumns = useMemo<ColumnDef<ExchangeRateRow>[]>(
     () => [

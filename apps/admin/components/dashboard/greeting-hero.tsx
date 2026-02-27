@@ -25,7 +25,7 @@ interface GreetingHeroProps {
 }
 
 export function GreetingHero({ version }: GreetingHeroProps) {
-  const { greeting, brief } = useMemo(getGreeting, []);
+  const { greeting, brief } = useMemo(() => getGreeting(), []);
 
   return (
     <div className="relative overflow-hidden rounded-xl border bg-gradient-to-br from-primary/5 via-background to-accent/10 px-6 py-5">

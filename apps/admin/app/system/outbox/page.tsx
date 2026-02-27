@@ -80,6 +80,7 @@ export default function OutboxPage() {
     }
   }
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const columns = useMemo<ColumnDef<OutboxRow>[]>(
     () => [
       {
@@ -148,6 +149,7 @@ export default function OutboxPage() {
     ],
     [canRequeue, loading, requeueingId],
   );
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

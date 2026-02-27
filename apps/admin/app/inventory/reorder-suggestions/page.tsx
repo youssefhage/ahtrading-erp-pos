@@ -63,7 +63,8 @@ export default function ReorderSuggestionsPage() {
 
   useEffect(() => { Promise.all([loadBase(), primeExchangeRate()]).catch(() => {}); }, [loadBase, primeExchangeRate]);
   useEffect(() => { if (!warehouses.length || warehouseId) return; setWarehouseId(warehouses[0].id); }, [warehouses, warehouseId]);
-  useEffect(() => { if (warehouseId) loadSuggestions().catch(() => {}); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [warehouseId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (warehouseId) loadSuggestions().catch(() => {}); }, [warehouseId]);
 
   const createDraftPOs = useCallback(async () => {
     if (!warehouseId || !selectedRows.length) { setStatus("Select at least one row."); return; }

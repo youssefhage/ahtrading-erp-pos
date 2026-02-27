@@ -128,6 +128,7 @@ export default function CycleCountsPage() {
     finally { setPosting(false); }
   }
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const planColumns = useMemo<ColumnDef<PlanRow>[]>(() => [
     { id: "plan", accessorFn: (p) => p.name, header: ({ column }) => <DataTableColumnHeader column={column} title="Plan" />, cell: ({ row }) => (<div><div className="font-medium">{row.original.name}</div><div className="text-xs text-muted-foreground font-mono">{row.original.id.slice(0, 8)}</div></div>) },
     { id: "scope", accessorFn: (p) => `${p.warehouse_name} ${p.location_code || "ALL"}`, header: ({ column }) => <DataTableColumnHeader column={column} title="Scope" />, cell: ({ row }) => (<div className="text-xs text-muted-foreground"><div>{row.original.warehouse_name}</div><div>Loc: <span className="font-mono">{row.original.location_code || "ALL"}</span></div></div>) },
@@ -135,6 +136,7 @@ export default function CycleCountsPage() {
     { id: "next", accessorFn: (p) => p.next_run_date, header: ({ column }) => <DataTableColumnHeader column={column} title="Next" />, cell: ({ row }) => <span className="font-mono text-xs">{String(row.original.next_run_date).slice(0, 10)}</span> },
     { id: "actions", header: "", enableSorting: false, cell: ({ row }) => <Button size="sm" onClick={() => runPlanNow(row.original.id)} disabled={!row.original.is_active}>Run</Button> },
   ], []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const taskColumns = useMemo<ColumnDef<TaskRow>[]>(() => [
     { id: "date", accessorFn: (t) => t.scheduled_date, header: ({ column }) => <DataTableColumnHeader column={column} title="When" />, cell: ({ row }) => <span className="font-mono text-xs">{String(row.original.scheduled_date).slice(0, 10)}</span> },

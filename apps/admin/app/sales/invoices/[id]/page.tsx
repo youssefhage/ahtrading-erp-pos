@@ -355,13 +355,13 @@ function SalesInvoiceShowInner() {
     return Array.from(acc.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [taxPreview?.tax_rows, taxById]);
 
-  function sumBreakdown(rows: typeof taxBreakdown) {
+  const sumBreakdown = useCallback((rows: typeof taxBreakdown) => {
     let base_usd = 0, base_lbp = 0, tax_usd = 0, tax_lbp = 0;
     for (const r of rows) { base_usd += n(r.base_usd); base_lbp += n(r.base_lbp); tax_usd += n(r.tax_usd); tax_lbp += n(r.tax_lbp); }
     return { base_usd, base_lbp, tax_usd, tax_lbp };
-  }
-  const taxBreakdownTotals = useMemo(() => sumBreakdown(taxBreakdown), [taxBreakdown]);
-  const draftTaxBreakdownTotals = useMemo(() => sumBreakdown(draftTaxBreakdown), [draftTaxBreakdown]);
+  }, []);
+  const taxBreakdownTotals = useMemo(() => sumBreakdown(taxBreakdown), [taxBreakdown, sumBreakdown]);
+  const draftTaxBreakdownTotals = useMemo(() => sumBreakdown(draftTaxBreakdown), [draftTaxBreakdown, sumBreakdown]);
 
   const activeTaxBreakdown = detail?.invoice?.status === "draft" ? draftTaxBreakdown : taxBreakdown;
   const activeTaxBreakdownTotals = detail?.invoice?.status === "draft" ? draftTaxBreakdownTotals : taxBreakdownTotals;

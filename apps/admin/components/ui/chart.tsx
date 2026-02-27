@@ -120,7 +120,6 @@ const ChartTooltip = RechartsPrimitive.Tooltip
 // ChartTooltipContent
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TooltipPayloadItem = Record<string, any>
 
 const ChartTooltipContent = React.forwardRef<
@@ -299,7 +298,6 @@ const ChartLegend = RechartsPrimitive.Legend
 // ChartLegendContent
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LegendPayloadItem = Record<string, any>
 
 const ChartLegendContent = React.forwardRef<
