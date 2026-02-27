@@ -1,15 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, FileText } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { ShortcutLink } from "@/components/shortcut-link";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { formatDate } from "@/lib/datetime";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ErrorBanner } from "@/components/error-banner";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type TemplateRow = {
   id: string;
@@ -23,37 +31,70 @@ type TemplateRow = {
   line_count: number | string;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
+
 export default function JournalTemplatesListPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
 
-  const columns: Array<DataTableColumn<TemplateRow>> = [
-    {
-      id: "name",
-      header: "Name",
-      sortable: true,
-      accessor: (t) => t.name,
-      cell: (t) => (
-        <div className="flex flex-col">
-          <ShortcutLink href={`/accounting/journal-templates/${encodeURIComponent(t.id)}`} title="Open template">
-            {t.name}
-          </ShortcutLink>
-          {t.memo ? <div className="mt-1 text-xs text-fg-muted">{t.memo}</div> : null}
-        </div>
-      ),
-    },
-    {
-      id: "status",
-      header: "Status",
-      sortable: true,
-      accessor: (t) => (t.is_active ? "Active" : "Inactive"),
-      cell: (t) => <StatusChip value={t.is_active ? "active" : "inactive"} />,
-    },
-    { id: "rate_type", header: "Rate Type", sortable: true, mono: true, accessor: (t) => t.default_rate_type, cell: (t) => <span className="font-mono text-xs">{t.default_rate_type}</span> },
-    { id: "lines", header: "Lines", sortable: true, align: "right", mono: true, accessor: (t) => Number(t.line_count || 0), cell: (t) => String(Number(t.line_count || 0)) },
-    { id: "updated", header: "Updated", sortable: true, mono: true, accessor: (t) => (t.updated_at || "").slice(0, 10), cell: (t) => <span className="font-mono text-xs text-fg-muted">{(t.updated_at || "").slice(0, 10)}</span> },
-  ];
+  const columns = useMemo<ColumnDef<TemplateRow>[]>(
+    () => [
+      {
+        id: "name",
+        accessorFn: (t) => t.name,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+        cell: ({ row }) => (
+          <div className="flex flex-col">
+            <Link
+              href={`/accounting/journal-templates/${encodeURIComponent(row.original.id)}`}
+              className="font-medium text-primary hover:underline"
+            >
+              {row.original.name}
+            </Link>
+            {row.original.memo && (
+              <span className="mt-0.5 text-xs text-muted-foreground">{row.original.memo}</span>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        accessorFn: (t) => (t.is_active ? "active" : "inactive"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.is_active ? "active" : "inactive"} />
+        ),
+      },
+      {
+        id: "rate_type",
+        accessorFn: (t) => t.default_rate_type,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Rate Type" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{row.original.default_rate_type}</span>
+        ),
+      },
+      {
+        id: "lines",
+        accessorFn: (t) => Number(t.line_count || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Lines" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm">{Number(row.original.line_count || 0)}</div>
+        ),
+      },
+      {
+        id: "updated",
+        accessorFn: (t) => t.updated_at || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Updated" />,
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">{formatDate(row.original.updated_at)}</span>
+        ),
+      },
+    ],
+    [],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,8 +103,7 @@ export default function JournalTemplatesListPage() {
       const res = await apiGet<{ templates: TemplateRow[] }>("/accounting/journal-templates");
       setTemplates(res.templates || []);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -74,43 +114,56 @@ export default function JournalTemplatesListPage() {
   }, [load]);
 
   return (
-    <div className="ui-module-shell">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Accounting</p>
-            <h1 className="ui-module-title">Journal Templates</h1>
-            <p className="ui-module-subtitle">Create reusable templates for recurring balanced journal entries.</p>
-          </div>
-          <div className="ui-module-actions">
-            <Button variant="outline" onClick={load} disabled={loading}>
-              {loading ? "Loading..." : "Refresh"}
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader
+        title="Journal Templates"
+        description="Create reusable templates for recurring balanced journal entries."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
-            <Button asChild>
-              <Link href="/accounting/journal-templates/new">New Template</Link>
+            <Button size="sm" asChild>
+              <Link href="/accounting/journal-templates/new">
+                <Plus className="mr-2 h-4 w-4" />
+                New Template
+              </Link>
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>Templates</CardTitle>
-          <CardDescription>{templates.length} templates</CardDescription>
+          <p className="text-sm text-muted-foreground">{templates.length} templates</p>
         </CardHeader>
         <CardContent>
-          <DataTable<TemplateRow>
-            tableId="accounting.journal_templates.list"
-            rows={templates}
-            columns={columns}
-            isLoading={loading}
-            getRowId={(r) => r.id}
-            initialSort={{ columnId: "name", dir: "asc" }}
-            globalFilterPlaceholder="Search name / memo / rate type"
-            emptyText={loading ? "Loading..." : "No templates."}
-          />
+          {!loading && templates.length === 0 ? (
+            <EmptyState
+              icon={FileText}
+              title="No templates yet"
+              description="Create a reusable template for recurring journal entries."
+              action={{ label: "New Template", onClick: () => window.location.assign("/accounting/journal-templates/new") }}
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={templates}
+              isLoading={loading}
+              searchPlaceholder="Search name / memo / rate type..."
+            />
+          )}
         </CardContent>
       </Card>
     </div>

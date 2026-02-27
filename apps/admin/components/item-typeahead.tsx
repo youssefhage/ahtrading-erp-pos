@@ -112,7 +112,7 @@ export function ItemTypeahead(props: {
       renderItem(it) {
         return (
           <>
-            <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
+            <span className="font-mono text-xs text-muted-foreground">{it.sku}</span>{" "}
             <span className="text-foreground">· {it.name}</span>
           </>
         );
@@ -124,7 +124,7 @@ export function ItemTypeahead(props: {
       renderBadge(it) {
         if (!it.unit_of_measure) return null;
         return (
-          <div className="shrink-0 font-mono text-xs text-fg-muted">
+          <div className="shrink-0 font-mono text-xs text-muted-foreground">
             {String(it.unit_of_measure)}
           </div>
         );

@@ -4,21 +4,45 @@ import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Check, Copy } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Package,
+  DollarSign,
+  Warehouse,
+  Truck,
+  Pencil,
+  Plus,
+  ExternalLink,
+  Barcode,
+  Tags,
+  Info,
+} from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet, apiUrl } from "@/lib/api";
 import { formatDate, formatDateLike } from "@/lib/datetime";
 import { fmtLbpMaybe, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { KpiCard } from "@/components/business/kpi-card";
+import { EmptyState } from "@/components/business/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ViewRaw } from "@/components/view-raw";
-import { TabBar } from "@/components/tab-bar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Chip } from "@/components/ui/chip";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 type TaxCode = { id: string; name: string; rate: string | number };
 
@@ -74,7 +98,7 @@ type ItemBarcode = {
 };
 
 type ItemSupplierLinkRow = {
-  id: string; // link id
+  id: string;
   supplier_id: string;
   name: string;
   is_primary: boolean;
@@ -182,13 +206,23 @@ type ItemWarehousePolicyRow = {
   updated_at: string;
 };
 
-type ItemPriceRow = { id: string; price_usd: string | number; price_lbp: string | number; effective_from: string; effective_to: string | null };
+type ItemPriceRow = {
+  id: string;
+  price_usd: string | number;
+  price_lbp: string | number;
+  effective_from: string;
+  effective_to: string | null;
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
 
 function shortId(v: string, head = 8, tail = 4) {
   const s = (v || "").trim();
   if (!s) return "-";
   if (s.length <= head + tail + 3) return s;
-  return `${s.slice(0, head)}…${s.slice(-tail)}`;
+  return `${s.slice(0, head)}...${s.slice(-tail)}`;
 }
 
 function itemTypeLabel(t?: Item["item_type"]) {
@@ -200,7 +234,6 @@ function itemTypeLabel(t?: Item["item_type"]) {
 function fmtRate(v: string | number) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return "";
-  // Most rates are stored as "11" for 11%, so keep it simple and readable.
   const s = String(n);
   return `${s.replace(/\.0+$/, "")}%`;
 }
@@ -212,95 +245,87 @@ function fmtPctFrac(v: string | number | null | undefined) {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-function fmtIso(iso?: string | null) {
-  return formatDateLike(iso);
-}
-
 function fmtQty(v: string | number | null | undefined) {
   const n = Number(v || 0);
   if (!Number.isFinite(n)) return String(v ?? "");
   return n.toLocaleString("en-US", { maximumFractionDigits: 3 });
 }
 
-function CopyIconButton(props: { text: string; label?: string; className?: string }) {
+/* -------------------------------------------------------------------------- */
+/*  Small UI components                                                       */
+/* -------------------------------------------------------------------------- */
+
+function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
-  const text = (props.text || "").trim();
   const disabled = !text || text === "-";
-
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn("h-8 w-8 text-fg-muted hover:text-foreground", props.className)}
-      disabled={disabled}
-      onClick={async () => {
-        if (disabled) return;
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1200);
-        } catch {
-          // ignore
-        }
-      }}
-      title={disabled ? undefined : `Copy${props.label ? ` ${props.label}` : ""}`}
-    >
-      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-      <span className="sr-only">{copied ? "Copied" : "Copy"}</span>
-    </Button>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            disabled={disabled}
+            onClick={async () => {
+              if (disabled) return;
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              } catch { /* ignore */ }
+            }}
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{copied ? "Copied!" : `Copy ${label || ""}`}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
-function KeyField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string; className?: string }) {
+function DetailField({
+  label,
+  value,
+  mono,
+  copyText,
+  hint,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  copyText?: string;
+  hint?: string;
+}) {
   return (
-    <div className={cn("min-w-0", props.className)}>
-      <div className="flex items-start justify-between gap-1">
-        <p className="text-[11px] font-normal uppercase tracking-wider text-fg-subtle">{props.label}</p>
-        {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        {copyText ? <CopyButton text={copyText} label={label} /> : null}
       </div>
-      <p
-        className={cn(
-          "mt-1 text-sm font-semibold leading-snug text-foreground",
-          props.mono && "font-mono font-medium text-[13px]"
-        )}
-        title={props.value}
-      >
-        {props.value}
+      <p className={cn("text-sm font-medium", mono && "font-mono text-sm")} title={value}>
+        {value || "-"}
       </p>
-      {props.hint ? <p className="mt-1 text-xs text-fg-subtle">{props.hint}</p> : null}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
 
-function SummaryField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string; className?: string }) {
-  return (
-    <div className={cn("min-w-0 border-l-2 border-border-subtle pl-3", props.className)}>
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
-        {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
-      </div>
-      <p
-        className={cn(
-          "mt-1 text-[15px] font-semibold leading-snug text-foreground",
-          props.mono && "font-mono text-[14px] font-medium"
-        )}
-        title={props.value}
-      >
-        {props.value}
-      </p>
-      {props.hint ? <p className="mt-1 text-xs text-fg-subtle">{props.hint}</p> : null}
-    </div>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/*  Main Component                                                            */
+/* -------------------------------------------------------------------------- */
 
 export default function ItemViewPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
+  const searchParams = useSearchParams();
 
+  /* ---- State ---- */
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [item, setItem] = useState<Item | null>(null);
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [suppliers, setSuppliers] = useState<ItemSupplierLinkRow[]>([]);
@@ -319,12 +344,19 @@ export default function ItemViewPage() {
   const [warehousePolicies, setWarehousePolicies] = useState<ItemWarehousePolicyRow[]>([]);
   const [legacyPrices, setLegacyPrices] = useState<ItemPriceRow[]>([]);
   const [priceChanges, setPriceChanges] = useState<PriceChangeRow[]>([]);
-  const searchParams = useSearchParams();
 
+  /* ---- Tab routing ---- */
+  const tabId = useMemo(() => {
+    const next = String(searchParams.get("tab") || "").toLowerCase();
+    if (next === "pricing" || next === "stock" || next === "batches" || next === "history") return next;
+    return "overview";
+  }, [searchParams]);
+
+  /* ---- Data loading ---- */
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const [it, bc, sup, tc, ps, pls, settings, cats, whs, st, uom, pol, pr, pc] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
@@ -342,6 +374,7 @@ export default function ItemViewPage() {
         apiGet<{ prices: ItemPriceRow[] }>(`/items/${encodeURIComponent(id)}/prices`).catch(() => ({ prices: [] as any[] })),
         apiGet<{ changes: PriceChangeRow[] }>(`/pricing/price-changes?item_id=${encodeURIComponent(id)}&q=&limit=200`).catch(() => ({ changes: [] as PriceChangeRow[] })),
       ]);
+
       setItem(it.item || null);
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
@@ -354,9 +387,11 @@ export default function ItemViewPage() {
       setUomConversions((uom as any)?.conversions || []);
       setWarehousePolicies((pol as any)?.policies || []);
       setLegacyPrices((pr as any)?.prices || []);
+
       const initialPc = ((pc as any)?.changes || []) as PriceChangeRow[];
       const initialFiltered = initialPc.filter((r) => String((r as any)?.item_id || "") === id);
       setPriceChanges(initialFiltered);
+
       const lists = pls?.lists || [];
       setPriceLists(lists);
       const settingDefault = (settings?.settings || []).find((s) => String(s?.key || "") === "default_price_list_id");
@@ -365,7 +400,7 @@ export default function ItemViewPage() {
       const defId = defIdFromSetting || defIdFromFlag || "";
       setDefaultPriceListId(defId);
 
-      // Optional: show effective WHOLESALE/RETAIL overrides for this item.
+      // Fetch WHOLESALE / RETAIL effective overrides
       const w = lists.find((l) => String(l.code || "").toUpperCase() === "WHOLESALE");
       const r = lists.find((l) => String(l.code || "").toUpperCase() === "RETAIL");
       const [wEff, rEff] = await Promise.all([
@@ -383,6 +418,7 @@ export default function ItemViewPage() {
       setWholesaleEffective((wEff as any)?.effective || null);
       setRetailEffective((rEff as any)?.effective || null);
 
+      // Batch stock
       const tracked = Boolean(it.item?.track_batches || it.item?.track_expiry);
       if (tracked) {
         const sb = await apiGet<{ stock: StockBatchRow[] }>(`/inventory/stock?item_id=${encodeURIComponent(id)}&by_batch=1`).catch(() => ({ stock: [] as any[] }));
@@ -391,7 +427,7 @@ export default function ItemViewPage() {
         setStockBatches([]);
       }
 
-      // Fallback if the API doesn't support filtering by item_id: query by SKU then filter locally.
+      // Fallback price changes fetch
       if (initialFiltered.length === 0 && it.item?.sku) {
         const res = await apiGet<{ changes: PriceChangeRow[] }>(`/pricing/price-changes?q=${encodeURIComponent(it.item.sku)}&limit=500`).catch(() => ({ changes: [] as PriceChangeRow[] }));
         const maybe = (res?.changes || []).filter((r) => String((r as any)?.item_id || "") === id);
@@ -416,33 +452,24 @@ export default function ItemViewPage() {
       setWarehousePolicies([]);
       setLegacyPrices([]);
       setPriceChanges([]);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const title = useMemo(() => {
-    if (loading) return "Loading...";
-    if (item) return `${item.sku} · ${item.name}`;
-    return "Item";
-  }, [loading, item]);
-
+  /* ---- Derived ---- */
   const taxById = useMemo(() => new Map(taxCodes.map((t) => [t.id, t])), [taxCodes]);
   const taxMeta = useMemo(() => (item?.tax_code_id ? taxById.get(item.tax_code_id) : undefined), [item?.tax_code_id, taxById]);
-  const defaultListLabel = useMemo(() => {
-    const pl = priceLists.find((l) => l.id === defaultPriceListId) || priceLists.find((l) => l.is_default) || null;
-    return pl ? `${pl.code} · ${pl.name}` : "-";
-  }, [priceLists, defaultPriceListId]);
-
   const categoryById = useMemo(() => new Map(categories.map((c) => [String(c.id), c])), [categories]);
   const categoryMeta = useMemo(() => (item?.category_id ? categoryById.get(String(item.category_id)) : undefined), [item?.category_id, categoryById]);
-
   const warehouseById = useMemo(() => new Map(warehouses.map((w) => [String(w.id), w])), [warehouses]);
+  const defaultListLabel = useMemo(() => {
+    const pl = priceLists.find((l) => l.id === defaultPriceListId) || priceLists.find((l) => l.is_default) || null;
+    return pl ? `${pl.code} - ${pl.name}` : "-";
+  }, [priceLists, defaultPriceListId]);
 
   const preferredSupplierName = useMemo(() => {
     const pid = String(item?.preferred_supplier_id || "").trim();
@@ -451,23 +478,8 @@ export default function ItemViewPage() {
     return s?.name || pid;
   }, [item?.preferred_supplier_id, suppliers]);
 
-  const negativeStockPolicy = useMemo(() => {
-    const v = item?.allow_negative_stock;
-    if (v === null || v === undefined) return { label: "inherit", variant: "default" as const };
-    return v ? { label: "allowed", variant: "danger" as const } : { label: "blocked", variant: "success" as const };
-  }, [item?.allow_negative_stock]);
-
-  const pricingSecondaryMissing = useMemo(() => {
-    const usd = Number((priceSuggest as any)?.current?.price_usd || 0) || 0;
-    const lbp = Number((priceSuggest as any)?.current?.price_lbp || 0) || 0;
-    return usd > 0 && lbp === 0;
-  }, [priceSuggest]);
-
   const stockTotals = useMemo(() => {
-    let on_hand = 0;
-    let reserved = 0;
-    let available = 0;
-    let incoming = 0;
+    let on_hand = 0, reserved = 0, available = 0, incoming = 0;
     for (const r of stock || []) {
       on_hand += Number((r as any)?.qty_on_hand || 0) || 0;
       reserved += Number((r as any)?.reserved_qty || 0) || 0;
@@ -477,814 +489,891 @@ export default function ItemViewPage() {
     return { on_hand, reserved, available, incoming };
   }, [stock]);
 
-  const tabId = useMemo<"overview" | "pricing" | "inventory" | "logistics">(() => {
-    const next = String(searchParams.get("tab") || "").toLowerCase();
-    if (next === "pricing" || next === "inventory" || next === "logistics") return next;
-    return "overview";
-  }, [searchParams]);
+  const pricingSecondaryMissing = useMemo(() => {
+    const usd = Number((priceSuggest as any)?.current?.price_usd || 0) || 0;
+    const lbp = Number((priceSuggest as any)?.current?.price_lbp || 0) || 0;
+    return usd > 0 && lbp === 0;
+  }, [priceSuggest]);
 
+  /* ---- Tab URL push ---- */
   const tabBaseHref = `/catalog/items/${encodeURIComponent(id)}`;
-  const itemTabs = useMemo(
-    () => [
-      { label: "Overview", href: `${tabBaseHref}?tab=overview`, activeQuery: { key: "tab", value: "overview" } },
-      { label: "Pricing", href: `${tabBaseHref}?tab=pricing`, activeQuery: { key: "tab", value: "pricing" } },
-      { label: "Inventory", href: `${tabBaseHref}?tab=inventory`, activeQuery: { key: "tab", value: "inventory" } },
-      { label: "Logistics", href: `${tabBaseHref}?tab=logistics`, activeQuery: { key: "tab", value: "logistics" } },
-    ],
-    [tabBaseHref]
-  );
+  function onTabChange(tab: string) {
+    router.replace(`${tabBaseHref}?tab=${tab}`);
+  }
 
   useEffect(() => {
     if (!item) return;
     const currentTab = String(searchParams.get("tab") || "").toLowerCase();
-    if (currentTab !== "overview" && currentTab !== "pricing" && currentTab !== "inventory" && currentTab !== "logistics") {
+    if (!["overview", "pricing", "stock", "batches", "history"].includes(currentTab)) {
       router.replace(`${tabBaseHref}?tab=overview`);
     }
   }, [router, item, searchParams, tabBaseHref]);
 
-  const stockColumns = useMemo((): Array<DataTableColumn<StockRow>> => {
-    return [
-      {
-        id: "warehouse",
-        header: "Warehouse",
-        sortable: true,
-        accessor: (r) => warehouseById.get(String(r.warehouse_id))?.name || r.warehouse_id,
-        cell: (r) => <span className="text-sm">{warehouseById.get(String(r.warehouse_id))?.name || shortId(String(r.warehouse_id))}</span>,
-      },
-      {
-        id: "qty_on_hand",
-        header: "On Hand",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number((r as any)?.qty_on_hand || 0),
-        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.qty_on_hand)}</span>,
-      },
-      {
-        id: "reserved_qty",
-        header: "Reserved",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number((r as any)?.reserved_qty || 0),
-        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.reserved_qty)}</span>,
-      },
-      {
-        id: "qty_available",
-        header: "Available",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number((r as any)?.qty_available || 0),
-        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.qty_available)}</span>,
-      },
-      {
-        id: "incoming_qty",
-        header: "Incoming",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number((r as any)?.incoming_qty || 0),
-        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.incoming_qty)}</span>,
-      },
-    ];
-  }, [warehouseById]);
+  /* ---- Column defs ---- */
 
-  const priceChangeColumns = useMemo((): Array<DataTableColumn<PriceChangeRow>> => {
-    const fmtWhen = (iso: string) => formatDateLike(iso);
+  const stockColumns = useMemo<ColumnDef<StockRow>[]>(() => [
+    {
+      accessorFn: (r) => warehouseById.get(String(r.warehouse_id))?.name || r.warehouse_id,
+      id: "warehouse",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Warehouse" />,
+      cell: ({ row }) => warehouseById.get(String(row.original.warehouse_id))?.name || shortId(String(row.original.warehouse_id)),
+    },
+    {
+      accessorFn: (r) => Number(r.qty_on_hand || 0),
+      id: "qty_on_hand",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="On Hand" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.qty_on_hand)}</span>,
+    },
+    {
+      accessorFn: (r) => Number(r.reserved_qty || 0),
+      id: "reserved_qty",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Reserved" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.reserved_qty)}</span>,
+    },
+    {
+      accessorFn: (r) => Number(r.qty_available || 0),
+      id: "qty_available",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Available" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.qty_available)}</span>,
+    },
+    {
+      accessorFn: (r) => Number(r.incoming_qty || 0),
+      id: "incoming_qty",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Incoming" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.incoming_qty)}</span>,
+    },
+  ], [warehouseById]);
+
+  const stockBatchColumns = useMemo<ColumnDef<StockBatchRow>[]>(() => [
+    {
+      accessorFn: (r) => warehouseById.get(String(r.warehouse_id))?.name || r.warehouse_id,
+      id: "warehouse",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Warehouse" />,
+      cell: ({ row }) => warehouseById.get(String(row.original.warehouse_id))?.name || shortId(String(row.original.warehouse_id)),
+    },
+    {
+      accessorFn: (r) => r.batch_no || "",
+      id: "batch",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Batch" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.batch_no || "-"}</span>,
+    },
+    {
+      accessorFn: (r) => r.expiry_date || "",
+      id: "expiry",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Expiry" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.expiry_date || "-").slice(0, 10)}</span>,
+    },
+    {
+      accessorFn: (r) => Number(r.qty_on_hand || 0),
+      id: "qty_on_hand",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="On Hand" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.qty_on_hand)}</span>,
+    },
+  ], [warehouseById]);
+
+  const priceChangeColumns = useMemo<ColumnDef<PriceChangeRow>[]>(() => {
     const fmtPct = (v: string | number | null | undefined) => {
       if (v == null) return "-";
       const n = typeof v === "number" ? v : Number(v);
       if (!Number.isFinite(n)) return "-";
       const pct = n * 100;
-      const s = pct.toFixed(Math.abs(pct) < 10 ? 1 : 0);
-      return `${s}%`;
+      return `${pct.toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`;
     };
     return [
       {
-        id: "when",
-        header: "When",
-        sortable: true,
-        mono: true,
-        accessor: (r) => r.changed_at,
-        cell: (r) => <span className="text-xs">{fmtWhen(r.changed_at)}</span>,
+        accessorKey: "changed_at",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="When" />,
+        cell: ({ row }) => <span className="font-mono text-xs">{formatDateLike(row.original.changed_at)}</span>,
       },
       {
+        accessorFn: (r) => r.effective_from || "",
         id: "effective",
-        header: "Effective",
-        sortable: true,
-        mono: true,
-        accessor: (r) => String(r.effective_from || ""),
-        cell: (r) => <span className="text-xs text-fg-subtle">{formatDate(r.effective_from)}</span>,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Effective" />,
+        cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{formatDate(row.original.effective_from)}</span>,
       },
       {
+        accessorFn: (r) => Number(r.new_price_usd || 0),
         id: "usd",
-        header: "USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.new_price_usd || 0),
-        cell: (r) => (
-          <span className="data-mono text-xs">
-            {fmtUsdMaybe(r.old_price_usd)} <span className="text-fg-subtle">→</span> {fmtUsdMaybe(r.new_price_usd)}
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {fmtUsdMaybe(row.original.old_price_usd)}{" "}
+            <span className="text-muted-foreground">-&gt;</span>{" "}
+            {fmtUsdMaybe(row.original.new_price_usd)}
           </span>
         ),
       },
       {
+        accessorFn: (r) => Number(r.pct_change_usd || 0),
         id: "usd_pct",
-        header: "USD %",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.pct_change_usd || 0),
-        cell: (r) => <span className="text-xs">{fmtPct(r.pct_change_usd)}</span>,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD %" />,
+        cell: ({ row }) => <span className="font-mono text-xs">{fmtPct(row.original.pct_change_usd)}</span>,
       },
       {
+        accessorFn: (r) => Number(r.new_price_lbp || 0),
         id: "lbp",
-        header: "LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.new_price_lbp || 0),
-        cell: (r) => (
-          <span className="data-mono text-xs">
-            {fmtLbpMaybe(r.old_price_lbp, { dashIfZero: Number(r.old_price_usd || 0) !== 0 })} <span className="text-fg-subtle">→</span>{" "}
-            {fmtLbpMaybe(r.new_price_lbp, { dashIfZero: Number(r.new_price_usd || 0) !== 0 })}
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {fmtLbpMaybe(row.original.old_price_lbp, { dashIfZero: Number(row.original.old_price_usd || 0) !== 0 })}{" "}
+            <span className="text-muted-foreground">-&gt;</span>{" "}
+            {fmtLbpMaybe(row.original.new_price_lbp, { dashIfZero: Number(row.original.new_price_usd || 0) !== 0 })}
           </span>
         ),
       },
       {
+        accessorFn: (r) => Number(r.pct_change_lbp || 0),
         id: "lbp_pct",
-        header: "LL %",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.pct_change_lbp || 0),
-        cell: (r) => <span className="text-xs">{fmtPct(r.pct_change_lbp)}</span>,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP %" />,
+        cell: ({ row }) => <span className="font-mono text-xs">{fmtPct(row.original.pct_change_lbp)}</span>,
       },
       {
+        accessorFn: (r) => r.source_type || "",
         id: "source",
-        header: "Source",
-        sortable: true,
-        accessor: (r) => String(r.source_type || ""),
-        cell: (r) => <span className="text-xs text-fg-muted">{String(r.source_type || "-")}</span>,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.source_type || "-"}</span>,
       },
     ];
   }, []);
 
-  const stockBatchColumns = useMemo((): Array<DataTableColumn<StockBatchRow>> => {
-    return [
-      {
-        id: "warehouse",
-        header: "Warehouse",
-        sortable: true,
-        accessor: (r) => warehouseById.get(String(r.warehouse_id))?.name || r.warehouse_id,
-        cell: (r) => <span className="text-sm">{warehouseById.get(String(r.warehouse_id))?.name || shortId(String(r.warehouse_id))}</span>,
-      },
-      {
-        id: "batch",
-        header: "Batch",
-        sortable: true,
-        mono: true,
-        accessor: (r) => String(r.batch_no || ""),
-        cell: (r) => <span className="font-mono text-xs">{String(r.batch_no || "-")}</span>,
-      },
-      {
-        id: "expiry",
-        header: "Expiry",
-        sortable: true,
-        mono: true,
-        accessor: (r) => String(r.expiry_date || ""),
-        cell: (r) => <span className="font-mono text-xs">{String(r.expiry_date || "-").slice(0, 10) || "-"}</span>,
-      },
-      {
-        id: "qty_on_hand",
-        header: "On Hand",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number((r as any)?.qty_on_hand || 0),
-        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.qty_on_hand)}</span>,
-      },
-    ];
-  }, [warehouseById]);
+  const barcodeColumns = useMemo<ColumnDef<ItemBarcode>[]>(() => [
+    {
+      accessorKey: "barcode",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Barcode" />,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm">{row.original.barcode}</span>
+          <CopyButton text={row.original.barcode} label="barcode" />
+        </div>
+      ),
+    },
+    {
+      accessorFn: (b) => Number(b.qty_factor || 1),
+      id: "qty_factor",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Factor" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.qty_factor || 1)}</span>,
+    },
+    {
+      accessorFn: (b) => b.uom_code || item?.unit_of_measure || "",
+      id: "uom_code",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.uom_code || item?.unit_of_measure || "-"}</span>,
+    },
+    {
+      accessorFn: (b) => b.label || "",
+      id: "label",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Label" />,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.label || ""}</span>,
+    },
+    {
+      accessorFn: (b) => (b.is_primary ? 1 : 0),
+      id: "is_primary",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Primary" />,
+      cell: ({ row }) => row.original.is_primary ? <Badge variant="default">Primary</Badge> : <Badge variant="secondary">No</Badge>,
+    },
+  ], [item?.unit_of_measure]);
 
-  const conversionColumns = useMemo((): Array<DataTableColumn<UomConversionRow>> => {
-    return [
-      {
-        id: "uom",
-        header: "UOM",
-        sortable: true,
-        mono: true,
-        accessor: (r) => r.uom_code,
-        cell: (r) => <span className="font-mono text-sm">{r.uom_code}</span>,
-      },
-      {
-        id: "name",
-        header: "Name",
-        sortable: true,
-        accessor: (r) => r.uom_name || "",
-        cell: (r) => <span className="text-sm text-fg-muted">{r.uom_name || ""}</span>,
-      },
-      {
-        id: "to_base_factor",
-        header: `To ${uomBase || "BASE"}`,
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.to_base_factor || 0),
-        cell: (r) => <span className="font-mono text-sm">{String(r.to_base_factor || "")}</span>,
-      },
-      {
-        id: "active",
-        header: "Active",
-        sortable: true,
-        accessor: (r) => (r.is_active ? "yes" : "no"),
-        cell: (r) => (r.is_active ? <Chip variant="success">yes</Chip> : <Chip variant="default">no</Chip>),
-      },
-    ];
-  }, [uomBase]);
+  const supplierColumns = useMemo<ColumnDef<ItemSupplierLinkRow>[]>(() => [
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Supplier" />,
+      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+    },
+    {
+      accessorFn: (s) => (s.is_primary ? 1 : 0),
+      id: "is_primary",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Primary" />,
+      cell: ({ row }) => row.original.is_primary ? <Badge variant="default">Primary</Badge> : <Badge variant="secondary">No</Badge>,
+    },
+    {
+      accessorFn: (s) => Number(s.lead_time_days || 0),
+      id: "lead_time",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Lead (days)" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.lead_time_days || 0)}</span>,
+    },
+    {
+      accessorFn: (s) => Number(s.min_order_qty || 0),
+      id: "min_order",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Min Qty" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.min_order_qty || 0)}</span>,
+    },
+    {
+      accessorFn: (s) => Number(s.last_cost_usd || 0),
+      id: "last_cost_usd",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Last Cost USD" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.last_cost_usd || 0)}</span>,
+    },
+    {
+      accessorFn: (s) => Number(s.last_cost_lbp || 0),
+      id: "last_cost_lbp",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Last Cost LBP" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.last_cost_lbp || 0)}</span>,
+    },
+  ], []);
 
-  const policyColumns = useMemo((): Array<DataTableColumn<ItemWarehousePolicyRow>> => {
-    return [
-      { id: "warehouse", header: "Warehouse", sortable: true, accessor: (p) => p.warehouse_name, cell: (p) => <span className="text-sm">{p.warehouse_name}</span> },
-      { id: "min", header: "Min", sortable: true, align: "right", mono: true, accessor: (p) => Number(p.min_stock || 0), cell: (p) => <span className="font-mono text-sm">{fmtQty(p.min_stock)}</span> },
-      { id: "max", header: "Max", sortable: true, align: "right", mono: true, accessor: (p) => Number(p.max_stock || 0), cell: (p) => <span className="font-mono text-sm">{fmtQty(p.max_stock)}</span> },
-      { id: "lead", header: "Lead (days)", sortable: true, align: "right", mono: true, accessor: (p) => Number(p.replenishment_lead_time_days || 0), cell: (p) => <span className="font-mono text-sm">{String(p.replenishment_lead_time_days ?? "-")}</span> },
-      { id: "supplier", header: "Preferred Supplier", sortable: true, accessor: (p) => p.preferred_supplier_name || "", cell: (p) => <span className="text-sm text-fg-muted">{p.preferred_supplier_name || "-"}</span> },
-      { id: "notes", header: "Notes", sortable: false, accessor: (p) => p.notes || "", cell: (p) => <span className="text-sm text-fg-muted">{p.notes || ""}</span> },
-    ];
-  }, []);
-  const barcodeColumns = useMemo((): Array<DataTableColumn<ItemBarcode>> => {
-    return [
-      {
-        id: "barcode",
-        header: "Barcode",
-        sortable: true,
-        mono: true,
-        accessor: (b) => b.barcode,
-        cell: (b) => (
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-sm">{b.barcode}</span>
-            <CopyIconButton text={b.barcode} label="barcode" className="h-7 w-7" />
-          </div>
-        ),
-      },
-      {
-        id: "qty_factor",
-        header: "Factor",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (b) => Number(b.qty_factor || 1),
-        cell: (b) => <span className="font-mono text-sm">{String(b.qty_factor || 1)}</span>,
-      },
-      {
-        id: "uom_code",
-        header: "UOM",
-        sortable: true,
-        mono: true,
-        accessor: (b) => String(b.uom_code || item?.unit_of_measure || ""),
-        cell: (b) => <span className="font-mono text-sm">{String(b.uom_code || item?.unit_of_measure || "-")}</span>,
-      },
-      {
-        id: "label",
-        header: "Label",
-        sortable: true,
-        accessor: (b) => b.label || "",
-        cell: (b) => <span className="text-sm text-fg-muted">{b.label || ""}</span>,
-      },
-      {
-        id: "is_primary",
-        header: "Primary",
-        sortable: true,
-        accessor: (b) => (b.is_primary ? "yes" : "no"),
-        cell: (b) => (b.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>),
-      },
-    ];
-  }, [item?.unit_of_measure]);
-  const supplierColumns = useMemo((): Array<DataTableColumn<ItemSupplierLinkRow>> => {
-    return [
-      {
-        id: "name",
-        header: "Supplier",
-        sortable: true,
-        accessor: (s) => s.name,
-        cell: (s) => <span className="text-sm">{s.name}</span>,
-      },
-      {
-        id: "is_primary",
-        header: "Primary",
-        sortable: true,
-        accessor: (s) => (s.is_primary ? "yes" : "no"),
-        cell: (s) => (s.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>),
-      },
-      {
-        id: "lead_time_days",
-        header: "Lead (days)",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => Number(s.lead_time_days || 0),
-        cell: (s) => <span className="font-mono text-sm">{String(s.lead_time_days || 0)}</span>,
-      },
-      {
-        id: "min_order_qty",
-        header: "Min Qty",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => Number(s.min_order_qty || 0),
-        cell: (s) => <span className="font-mono text-sm">{String(s.min_order_qty || 0)}</span>,
-      },
-      {
-        id: "last_cost_usd",
-        header: "Last Cost USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => Number(s.last_cost_usd || 0),
-        cell: (s) => <span className="font-mono text-sm">{String(s.last_cost_usd || 0)}</span>,
-      },
-      {
-        id: "last_cost_lbp",
-        header: "Last Cost LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (s) => Number(s.last_cost_lbp || 0),
-        cell: (s) => <span className="font-mono text-sm">{String(s.last_cost_lbp || 0)}</span>,
-      },
-    ];
-  }, []);
+  const conversionColumns = useMemo<ColumnDef<UomConversionRow>[]>(() => [
+    {
+      accessorKey: "uom_code",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.uom_code}</span>,
+    },
+    {
+      accessorFn: (r) => r.uom_name || "",
+      id: "uom_name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.uom_name || ""}</span>,
+    },
+    {
+      accessorFn: (r) => Number(r.to_base_factor || 0),
+      id: "to_base_factor",
+      header: ({ column }) => <DataTableColumnHeader column={column} title={`To ${uomBase || "BASE"}`} />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.to_base_factor || "")}</span>,
+    },
+    {
+      accessorFn: (r) => (r.is_active ? 1 : 0),
+      id: "active",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Active" />,
+      cell: ({ row }) => <StatusBadge status={row.original.is_active ? "active" : "inactive"} />,
+    },
+  ], [uomBase]);
 
+  const policyColumns = useMemo<ColumnDef<ItemWarehousePolicyRow>[]>(() => [
+    {
+      accessorKey: "warehouse_name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Warehouse" />,
+      cell: ({ row }) => row.original.warehouse_name,
+    },
+    {
+      accessorFn: (p) => Number(p.min_stock || 0),
+      id: "min_stock",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Min" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.min_stock)}</span>,
+    },
+    {
+      accessorFn: (p) => Number(p.max_stock || 0),
+      id: "max_stock",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Max" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{fmtQty(row.original.max_stock)}</span>,
+    },
+    {
+      accessorFn: (p) => Number(p.replenishment_lead_time_days || 0),
+      id: "lead",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Lead (days)" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.replenishment_lead_time_days ?? "-")}</span>,
+    },
+    {
+      accessorFn: (p) => p.preferred_supplier_name || "",
+      id: "supplier",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Preferred Supplier" />,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.preferred_supplier_name || "-"}</span>,
+    },
+    {
+      accessorFn: (p) => p.notes || "",
+      id: "notes",
+      header: "Notes",
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.notes || ""}</span>,
+    },
+  ], []);
+
+  /* ---- Error state ---- */
   if (err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Item</h1>
-            <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-              <span className="font-mono text-xs">{shortId(id)}</span>
-              <CopyIconButton text={id} label="ID" className="h-7 w-7" />
-            </p>
-          </div>
-          <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")}>
-            Back
-          </Button>
-        </div>
-        <ErrorBanner error={err} onRetry={load} />
+      <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <PageHeader
+          title="Item"
+          description={shortId(id)}
+          backHref="/catalog/items/list"
+        />
+        <Card>
+          <CardContent className="py-8">
+            <EmptyState
+              title="Failed to load item"
+              description={err}
+              action={{ label: "Retry", onClick: load }}
+            />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  /* ---- Not found ---- */
   if (!loading && !item) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <EmptyState
-          title="Item not found"
-          description="This item may have been deleted or you may not have access."
-          actionLabel="Back"
-          onAction={() => router.push("/catalog/items/list")}
-        />
+      <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <PageHeader title="Item not found" backHref="/catalog/items/list" />
+        <Card>
+          <CardContent className="py-8">
+            <EmptyState
+              icon={Package}
+              title="Item not found"
+              description="This item may have been deleted or you may not have access."
+              action={{ label: "Back to list", onClick: () => router.push("/catalog/items/list") }}
+            />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-            <span className="font-mono text-xs">{shortId(id)}</span>
-            <CopyIconButton text={id} label="ID" className="h-7 w-7" />
-            {item ? (
-              <>
-                <span className="text-fg-subtle">·</span>
-                <Chip variant={item.is_active === false ? "default" : "success"}>{item.is_active === false ? "inactive" : "active"}</Chip>
-              </>
-            ) : null}
-          </p>
+  /* ---- Loading skeleton ---- */
+  if (loading && !item) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-4 w-40" />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")} disabled={loading}>
-            Back
-          </Button>
-          {item ? (
-            <Button asChild variant="outline" disabled={loading}>
-              <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit</Link>
-            </Button>
-          ) : null}
-          <Button asChild disabled={loading}>
-            <Link href="/catalog/items/new">New Item</Link>
-          </Button>
-          {item ? <DocumentUtilitiesDrawer entityType="item" entityId={item.id} allowUploadAttachments={true} className="ml-1" /> : null}
+        <div className="grid gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-lg" />
+          ))}
         </div>
+        <Skeleton className="h-96 rounded-lg" />
       </div>
+    );
+  }
 
-      <TabBar tabs={itemTabs} />
+  if (!item) return null;
 
-      {item ? (
-        <>
-      {tabId === "overview" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <CardTitle>Item Profile</CardTitle>
-                  <CardDescription>Core identity and configuration.</CardDescription>
-                </div>
-                <Button asChild variant="outline" size="sm" disabled={loading}>
-                  <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit</Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="space-y-5">
-                <section className="space-y-4">
-                  <p className="ui-panel-title border-b border-border-subtle pb-2">Core identity</p>
-                  <div className="space-y-5">
-                    <div className="space-y-3">
-                      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">Primary identifiers</p>
-                      <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
-                        <KeyField className="md:col-span-2" label="Name" value={item.name || "-"} />
-                        <KeyField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} mono />
-                        <KeyField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} mono />
-                      </div>
-                    </div>
+  /* ---- Render ---- */
+  const negativeStockLabel = item.allow_negative_stock === null || item.allow_negative_stock === undefined
+    ? "inherit" : item.allow_negative_stock ? "allowed" : "blocked";
 
-                    <div className="grid grid-cols-1 gap-5 border-t border-border-subtle pt-5 md:grid-cols-2">
-                      <div className="space-y-3">
-                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">Classification</p>
-                        <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-                          <KeyField label="Type" value={itemTypeLabel(item.item_type)} />
-                          <KeyField label="UOM" value={item.unit_of_measure || "-"} mono />
-                          <KeyField
-                            className="sm:col-span-2"
-                            label="Category"
-                            value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"}
-                            hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined}
-                            copyText={item.category_id || ""}
-                          />
-                          <KeyField
-                            className="sm:col-span-2"
-                            label="Tax"
-                            value={
-                              item.tax_code_id
-                                ? `${taxMeta ? `${taxMeta.name}${taxMeta.rate !== undefined && taxMeta.rate !== null ? ` (${fmtRate(taxMeta.rate)})` : ""}` : item.tax_code_id}`
-                                : "-"
-                            }
-                            copyText={item.tax_code_id || ""}
-                            hint={item.tax_code_id && taxMeta ? `ID: ${shortId(item.tax_code_id)}` : undefined}
-                          />
-                        </div>
-                      </div>
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 p-6">
+      {/* Header */}
+      <PageHeader
+        title={item.name}
+        backHref="/catalog/items/list"
+        badge={<StatusBadge status={item.is_active === false ? "inactive" : "active"} />}
+        actions={
+          <>
+            <Button variant="outline" asChild>
+              <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/catalog/items/new">
+                <Plus className="mr-2 h-4 w-4" />
+                New Item
+              </Link>
+            </Button>
+            <DocumentUtilitiesDrawer entityType="item" entityId={item.id} allowUploadAttachments={true} />
+          </>
+        }
+      >
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="font-mono text-xs">{item.sku}</span>
+          <CopyButton text={item.sku} label="SKU" />
+          <span className="text-muted-foreground/50">|</span>
+          <span className="font-mono text-xs">{shortId(id)}</span>
+          <CopyButton text={id} label="ID" />
+        </div>
+      </PageHeader>
 
-                      <div className="space-y-3 border-t border-border-subtle pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
-                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">Lifecycle</p>
-                        <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-                          <KeyField label="Status" value={item.is_active === false ? "Inactive" : "Active"} />
-                          <KeyField label="Track Batches" value={item.track_batches ? "On" : "Off"} />
-                          <KeyField label="Track Expiry" value={item.track_expiry ? "On" : "Off"} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
+      {/* Tabs */}
+      <Tabs value={tabId} onValueChange={onTabChange} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview" className="gap-2">
+            <Package className="h-4 w-4" /> Overview
+          </TabsTrigger>
+          <TabsTrigger value="pricing" className="gap-2">
+            <DollarSign className="h-4 w-4" /> Pricing
+          </TabsTrigger>
+          <TabsTrigger value="stock" className="gap-2">
+            <Warehouse className="h-4 w-4" /> Stock
+          </TabsTrigger>
+          <TabsTrigger value="batches" className="gap-2">
+            <Barcode className="h-4 w-4" /> Batches &amp; Logistics
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-2">
+            <Tags className="h-4 w-4" /> History
+          </TabsTrigger>
+        </TabsList>
 
-                <details className="rounded-lg border border-border-subtle bg-bg-sunken/10 p-4">
-                  <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">Item notes and metadata</summary>
-                  <div className="mt-3 space-y-3">
-                    <div className="flex flex-wrap gap-2">
-                      {item.tags?.length ? (
-                        item.tags.map((tag) => <Chip key={tag} variant="default">{tag}</Chip>)
-                      ) : (
-                        <span className="text-xs text-fg-subtle">No tags assigned.</span>
-                      )}
-                    </div>
-                    <SummaryField
-                      label="Short Name"
-                      value={item.short_name || "-"}
-                      hint={item.short_name ? "Friendly label used on reports/receipts." : undefined}
-                    />
-                    <div className="border-l-2 border-border-subtle pl-3">
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Description</p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{item.description || "—"}</p>
-                    </div>
-                    {item.external_ids ? (
-                      <div className="border-l-2 border-border-subtle pl-3">
-                        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">External IDs</p>
-                        <div className="mt-2">
-                          <ViewRaw value={item.external_ids} label="View external IDs" defaultOpen={false} />
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </details>
-              </div>
-
-              <div className="space-y-5">
-                <section className="space-y-3 border-t border-border-subtle pt-4 xl:border-t-0 xl:pt-0">
-                  <p className="ui-panel-title border-b border-border-subtle pb-2">Operations</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Chip variant={item.track_batches ? "primary" : "default"}>{item.track_batches ? "batches: on" : "batches: off"}</Chip>
-                    <Chip variant={item.track_expiry ? "primary" : "default"}>{item.track_expiry ? "expiry: on" : "expiry: off"}</Chip>
-                    <Chip variant={negativeStockPolicy.variant}>{`negative stock: ${negativeStockPolicy.label}`}</Chip>
-                    <Chip variant={item.is_excise ? "primary" : "default"}>{item.is_excise ? "excise: yes" : "excise: no"}</Chip>
-                    <Chip variant={item.is_active === false ? "default" : "success"}>{item.is_active === false ? "inactive" : "active"}</Chip>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <SummaryField label="Reorder Point" value={String(item.reorder_point ?? "-")} mono />
-                    <SummaryField label="Reorder Qty" value={String(item.reorder_qty ?? "-")} mono />
-                    <SummaryField label="Shelf Life" value={`${item.default_shelf_life_days ?? "-"}d`} />
-                    <SummaryField label="Min for Sale" value={`${item.min_shelf_life_days_for_sale ?? "-"}d`} />
-                    <SummaryField label="Expiry Warning" value={`${item.expiry_warning_days ?? "-"}d`} />
-                    <SummaryField label="Excise Flag" value={item.is_excise ? "enabled" : "disabled"} />
-                  </div>
-                </section>
-
-                <section className="space-y-3 border-t border-border-subtle pt-4">
-                  <p className="ui-panel-title border-b border-border-subtle pb-2">Primary image</p>
+        {/* ================================================================ */}
+        {/* OVERVIEW TAB                                                      */}
+        {/* ================================================================ */}
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+            {/* Left: core profile */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between">
                   <div>
-                    {item.image_attachment_id ? (
-                      <div className="space-y-3">
-                        <div className="rounded-md bg-bg-sunken/20 p-2">
-                          <Image
-                            src={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)}
-                            alt={item.image_alt || item.name}
-                            width={220}
-                            height={220}
-                            className="mx-auto h-[220px] w-[220px] object-contain"
-                            unoptimized
-                          />
-                        </div>
-                        <div className="text-xs text-fg-muted">
-                          <span className="text-fg-subtle">Alt:</span> {item.image_alt || "-"}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button asChild size="sm" variant="outline">
-                            <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)} target="_blank" rel="noreferrer">
-                              View
-                            </a>
-                          </Button>
-                          <Button asChild size="sm" variant="outline">
-                            <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/download`)} target="_blank" rel="noreferrer">
-                              Download
-                            </a>
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
+                    <CardTitle>Item Profile</CardTitle>
+                    <CardDescription>Core identity and classification</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit</Link>
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Primary identifiers */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <DetailField label="Name" value={item.name || "-"} />
+                    <DetailField label="SKU" value={item.sku || "-"} copyText={item.sku} mono />
+                    <DetailField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} mono />
+                    <DetailField label="Item Type" value={itemTypeLabel(item.item_type)} />
+                  </div>
+
+                  <Separator />
+
+                  {/* Classification */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <DetailField label="UOM" value={item.unit_of_measure || "-"} mono />
+                    <DetailField
+                      label="Category"
+                      value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"}
+                      hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined}
+                    />
+                    <DetailField
+                      label="Tax Code"
+                      value={
+                        item.tax_code_id
+                          ? (taxMeta ? `${taxMeta.name}${taxMeta.rate != null ? ` (${fmtRate(taxMeta.rate)})` : ""}` : item.tax_code_id)
+                          : "-"
+                      }
+                    />
+                    <DetailField label="Brand" value={item.brand || "-"} />
+                  </div>
+
+                  <Separator />
+
+                  {/* Lifecycle */}
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <DetailField label="Track Batches" value={item.track_batches ? "On" : "Off"} />
+                    <DetailField label="Track Expiry" value={item.track_expiry ? "On" : "Off"} />
+                    <DetailField label="Negative Stock" value={negativeStockLabel} />
+                  </div>
+
+                  {/* Tags */}
+                  {item.tags?.length ? (
+                    <>
+                      <Separator />
                       <div className="space-y-2">
-                        <p className="text-sm text-fg-subtle">No image currently on file.</p>
-                        <Button asChild size="sm" variant="outline">
-                          <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Attach image</Link>
-                        </Button>
+                        <p className="text-xs font-medium text-muted-foreground">Tags</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </section>
-              </div>
-            </CardContent>
-          </Card>
-          </div>
-          )}
+                    </>
+                  ) : null}
 
-          {tabId === "pricing" && (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <CardTitle>Pricing</CardTitle>
-                      <CardDescription>Read-only pricing details. Edit prices from the Edit screen.</CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button asChild variant="outline" size="sm" disabled={loading}>
-                        <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit Prices</Link>
-                      </Button>
-                      <Button asChild variant="outline" size="sm" disabled={loading}>
-                        <Link href="/catalog/price-lists">Price Lists</Link>
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  <SummaryField
-                    label="Effective Sell Price"
-                    value={`${fmtUsdMaybe(priceSuggest?.current?.price_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.price_lbp, { dashIfZero: true })}`}
-                    hint={`Default list: ${defaultListLabel}${pricingSecondaryMissing ? " (LL derived from exchange rate)" : ""}`}
-                  />
-                  <SummaryField
-                    label="Average Cost"
-                    value={`${fmtUsdMaybe(priceSuggest?.current?.avg_cost_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.avg_cost_lbp, { dashIfZero: true })}`}
-                  />
-                  <SummaryField
-                    label="Margin"
-                    value={`${fmtPctFrac(priceSuggest?.current?.margin_usd)} (USD) · ${fmtPctFrac(priceSuggest?.current?.margin_lbp)} (LL)`}
-                    hint={priceSuggest ? `Target: ${fmtPctFrac(priceSuggest.target_margin_pct)}` : undefined}
-                  />
-                  <SummaryField
-                    label="WHOLESALE (Effective)"
-                    value={
-                      wholesaleEffective
-                        ? `${fmtUsdMaybe(wholesaleEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(wholesaleEffective?.price_lbp, { dashIfZero: true })}`
-                        : "-"
-                    }
-                    hint={wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
-                  />
-                  <SummaryField
-                    label="RETAIL (Effective)"
-                    value={
-                      retailEffective
-                        ? `${fmtUsdMaybe(retailEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(retailEffective?.price_lbp, { dashIfZero: true })}`
-                        : "-"
-                    }
-                    hint={retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <CardTitle>Price Change History</CardTitle>
-                      <CardDescription>Sell price changes derived from item price inserts.</CardDescription>
-                    </div>
-                    <Button asChild variant="outline" size="sm" disabled={loading}>
-                      <Link href={`/inventory/price-changes/list?q=${encodeURIComponent(item.sku || "")}`}>Open Full Log</Link>
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <DataTable<PriceChangeRow>
-                    tableId="catalog.item.priceChanges"
-                    rows={priceChanges}
-                    columns={priceChangeColumns}
-                    getRowId={(r) => r.id}
-                    emptyText="No price changes yet."
-                    enablePagination
-                    enableGlobalFilter={false}
-                    initialSort={{ columnId: "when", dir: "desc" }}
-                  />
-                </CardContent>
-              </Card>
-
-              {legacyPrices.length ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Legacy Item Prices</CardTitle>
-                    <CardDescription>`item_prices` history (if used). Modern pricing uses price lists.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm text-fg-muted">
-                    <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                      <summary className="cursor-pointer text-sm font-medium text-foreground">Show history ({legacyPrices.length})</summary>
-                      <div className="mt-3 space-y-2">
-                        {legacyPrices.slice(0, 25).map((p) => (
-                          <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                            <span className="font-mono text-xs text-fg-subtle">
-                              {String(p.effective_from).slice(0, 10)}
-                              {p.effective_to ? ` → ${String(p.effective_to).slice(0, 10)}` : ""}
-                            </span>
-                            <span className="data-mono text-xs text-foreground">
-                              {fmtUsdLbp(p.price_usd, p.price_lbp, { sep: " · " })}
-                            </span>
-                          </div>
-                        ))}
+                  {/* Description */}
+                  {item.description ? (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Description</p>
+                        <p className="whitespace-pre-wrap text-sm">{item.description}</p>
                       </div>
-                    </details>
-                  </CardContent>
-                </Card>
-              ) : null}
-            </div>
-          )}
+                    </>
+                  ) : null}
 
-          {tabId === "inventory" && (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Inventory</CardTitle>
-                  <CardDescription>On-hand, reserved, available, and incoming.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                    <SummaryField label="Total On Hand" value={fmtQty(stockTotals.on_hand)} mono />
-                    <SummaryField label="Total Reserved" value={fmtQty(stockTotals.reserved)} mono />
-                    <SummaryField label="Total Available" value={fmtQty(stockTotals.available)} mono />
-                    <SummaryField label="Total Incoming" value={fmtQty(stockTotals.incoming)} mono />
-                  </div>
-                  <DataTable<StockRow>
-                    tableId="catalog.item.stock"
-                    rows={stock}
-                    columns={stockColumns}
-                    getRowId={(r) => `${r.warehouse_id}`}
-                    emptyText="No stock moves yet."
-                    enableGlobalFilter={false}
-                    initialSort={{ columnId: "warehouse", dir: "asc" }}
-                  />
-                  {(item.track_batches || item.track_expiry) ? (
-                    <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                      <summary className="cursor-pointer text-sm font-medium text-foreground">Batches</summary>
-                      <div className="mt-3">
-                        <DataTable<StockBatchRow>
-                          tableId="catalog.item.stockBatches"
-                          rows={stockBatches}
-                          columns={stockBatchColumns}
-                          getRowId={(r) => `${r.warehouse_id}:${r.batch_id || r.batch_no || ""}:${r.expiry_date || ""}`}
-                          emptyText="No batch stock yet."
-                          enableGlobalFilter={false}
-                          initialSort={{ columnId: "expiry", dir: "asc" }}
-                        />
+                  {/* External IDs */}
+                  {item.external_ids ? (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">External IDs</p>
+                        <ViewRaw value={item.external_ids} label="View external IDs" defaultOpen={false} />
                       </div>
-                    </details>
+                    </>
                   ) : null}
                 </CardContent>
               </Card>
+
+              {/* Reorder & operations */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Operations</CardTitle>
+                  <CardDescription>Reorder and shelf-life parameters</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <DetailField label="Reorder Point" value={String(item.reorder_point ?? "-")} mono />
+                    <DetailField label="Reorder Qty" value={String(item.reorder_qty ?? "-")} mono />
+                    <DetailField label="Shelf Life" value={`${item.default_shelf_life_days ?? "-"} days`} />
+                    <DetailField label="Min for Sale" value={`${item.min_shelf_life_days_for_sale ?? "-"} days`} />
+                    <DetailField label="Expiry Warning" value={`${item.expiry_warning_days ?? "-"} days`} />
+                    <DetailField label="Excise" value={item.is_excise ? "Yes" : "No"} />
+                    {item.short_name ? <DetailField label="Short Name" value={item.short_name} /> : null}
+                    {preferredSupplierName ? <DetailField label="Preferred Supplier" value={preferredSupplierName} /> : null}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          )}
 
-          {tabId === "logistics" && (
-            <div className="space-y-4">
+            {/* Right sidebar: image + quick stats */}
+            <div className="space-y-6">
+              {/* Image */}
               <Card>
                 <CardHeader>
-                  <CardTitle>UOM Conversions</CardTitle>
-                  <CardDescription>How non-base units convert into base UOM.</CardDescription>
+                  <CardTitle className="text-base">Image</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <DataTable<UomConversionRow>
-                    tableId="catalog.item.uomConversions"
-                    rows={uomConversions}
-                    columns={conversionColumns}
-                    getRowId={(r) => r.uom_code}
-                    emptyText="No conversions."
-                    enableGlobalFilter={false}
-                    initialSort={{ columnId: "uom", dir: "asc" }}
-                  />
+                  {item.image_attachment_id ? (
+                    <div className="space-y-3">
+                      <div className="overflow-hidden rounded-lg bg-muted/30 p-2">
+                        <Image
+                          src={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)}
+                          alt={item.image_alt || item.name}
+                          width={280}
+                          height={280}
+                          className="mx-auto h-[200px] w-[200px] object-contain"
+                          unoptimized
+                        />
+                      </div>
+                      {item.image_alt ? (
+                        <p className="text-xs text-muted-foreground">Alt: {item.image_alt}</p>
+                      ) : null}
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" asChild>
+                          <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)} target="_blank" rel="noreferrer">
+                            <ExternalLink className="mr-1.5 h-3 w-3" /> View
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-center">
+                      <div className="flex h-32 items-center justify-center rounded-lg bg-muted/20">
+                        <Package className="h-10 w-10 text-muted-foreground/40" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">No image</p>
+                      <Button size="sm" variant="outline" asChild>
+                        <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Upload</Link>
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
+              {/* Quick stock summary */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Warehouse Policies</CardTitle>
-                  <CardDescription>Per-warehouse min/max and replenishment hints.</CardDescription>
+                  <CardTitle className="text-base">Stock Summary</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <DataTable<ItemWarehousePolicyRow>
-                    tableId="catalog.item.warehousePolicies"
-                    rows={warehousePolicies}
-                    columns={policyColumns}
-                    getRowId={(p) => p.id}
-                    emptyText="No warehouse policies."
-                    enableGlobalFilter={false}
-                    initialSort={{ columnId: "warehouse", dir: "asc" }}
-                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">On Hand</p>
+                      <p className="font-mono text-lg font-semibold">{fmtQty(stockTotals.on_hand)}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Available</p>
+                      <p className="font-mono text-lg font-semibold">{fmtQty(stockTotals.available)}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Reserved</p>
+                      <p className="font-mono text-sm">{fmtQty(stockTotals.reserved)}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Incoming</p>
+                      <p className="font-mono text-sm">{fmtQty(stockTotals.incoming)}</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
-              <div className="grid gap-4 xl:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Barcodes</CardTitle>
-                    <CardDescription>Primary + alternate barcodes.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <DataTable<ItemBarcode>
-                      tableId="catalog.item.barcodes"
-                      rows={barcodes}
-                      columns={barcodeColumns}
-                      getRowId={(b) => b.id}
-                      emptyText="No barcodes."
-                      enableGlobalFilter={false}
-                      initialSort={{ columnId: "is_primary", dir: "desc" }}
-                    />
-                  </CardContent>
-                </Card>
+              {/* Timestamps */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Timestamps</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Created</span>
+                    <span className="font-mono text-xs">{formatDateLike(item.created_at)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Updated</span>
+                    <span className="font-mono text-xs">{formatDateLike(item.updated_at)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Suppliers</CardTitle>
-                    <CardDescription>Preferred supplier and last cost.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <DataTable<ItemSupplierLinkRow>
-                      tableId="catalog.item.suppliers"
-                      rows={suppliers}
-                      columns={supplierColumns}
-                      getRowId={(s) => s.id}
-                      emptyText="No suppliers linked."
-                      enableGlobalFilter={false}
-                      initialSort={{ columnId: "is_primary", dir: "desc" }}
-                    />
-                  </CardContent>
-                </Card>
+        {/* ================================================================ */}
+        {/* PRICING TAB                                                       */}
+        {/* ================================================================ */}
+        <TabsContent value="pricing" className="space-y-6">
+          {/* KPI Cards */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <KpiCard
+              title="Effective Sell Price"
+              icon={DollarSign}
+              value={priceSuggest?.current
+                ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " / " })
+                : "-"}
+              description={`Default list: ${defaultListLabel}${pricingSecondaryMissing ? " (LBP derived from FX)" : ""}`}
+            />
+            <KpiCard
+              title="Average Cost"
+              value={priceSuggest?.current
+                ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " / " })
+                : "-"}
+              description={priceSuggest?.current?.margin_usd != null
+                ? `Margin: ${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}% (USD)`
+                : undefined}
+            />
+            <KpiCard
+              title="Margin"
+              value={`${fmtPctFrac(priceSuggest?.current?.margin_usd)} (USD)`}
+              description={priceSuggest ? `Target: ${fmtPctFrac(priceSuggest.target_margin_pct)}` : undefined}
+            />
+          </div>
+
+          {/* WHOLESALE / RETAIL overrides */}
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div>
+                <CardTitle>Price List Overrides</CardTitle>
+                <CardDescription>Effective WHOLESALE and RETAIL prices for this item</CardDescription>
               </div>
-            </div>
-          )}
-        </>
-      ) : null}
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit Prices</Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/catalog/price-lists">Price Lists</Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-2 rounded-lg border p-4">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">WHOLESALE</p>
+                  <p className="font-mono text-lg font-semibold">
+                    {wholesaleEffective
+                      ? `${fmtUsdMaybe(wholesaleEffective.price_usd, { dashIfZero: true })} / ${fmtLbpMaybe(wholesaleEffective.price_lbp, { dashIfZero: true })}`
+                      : "-"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
+                  </p>
+                </div>
+                <div className="space-y-2 rounded-lg border p-4">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">RETAIL</p>
+                  <p className="font-mono text-lg font-semibold">
+                    {retailEffective
+                      ? `${fmtUsdMaybe(retailEffective.price_usd, { dashIfZero: true })} / ${fmtLbpMaybe(retailEffective.price_lbp, { dashIfZero: true })}`
+                      : "-"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Suggested Price */}
+          {priceSuggest?.suggested ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Suggested Price</CardTitle>
+                <CardDescription>
+                  Based on average cost and target margin ({fmtPctFrac(priceSuggest.target_margin_pct)}). Rounding: USD step {priceSuggest.rounding?.usd_step || "-"} / LBP step {priceSuggest.rounding?.lbp_step || "-"}.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Suggested</p>
+                    <p className="font-mono text-lg font-semibold">
+                      {fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " / " })}
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Apply via Edit</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {/* Legacy Prices */}
+          {legacyPrices.length ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Legacy Item Prices</CardTitle>
+                <CardDescription>Historical item_prices rows. Modern pricing uses price lists.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {legacyPrices.slice(0, 25).map((p) => (
+                    <div key={p.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {String(p.effective_from).slice(0, 10)}
+                        {p.effective_to ? ` -> ${String(p.effective_to).slice(0, 10)}` : ""}
+                      </span>
+                      <span className="font-mono text-sm">
+                        {fmtUsdLbp(p.price_usd, p.price_lbp, { sep: " / " })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
+
+        {/* ================================================================ */}
+        {/* STOCK TAB                                                         */}
+        {/* ================================================================ */}
+        <TabsContent value="stock" className="space-y-6">
+          {/* KPIs */}
+          <div className="grid gap-4 md:grid-cols-4">
+            <KpiCard title="On Hand" icon={Warehouse} value={fmtQty(stockTotals.on_hand)} />
+            <KpiCard title="Reserved" value={fmtQty(stockTotals.reserved)} />
+            <KpiCard title="Available" value={fmtQty(stockTotals.available)} />
+            <KpiCard title="Incoming" icon={Truck} value={fmtQty(stockTotals.incoming)} />
+          </div>
+
+          {/* Per-warehouse */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Warehouse Breakdown</CardTitle>
+              <CardDescription>Stock levels per warehouse</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={stockColumns}
+                data={stock}
+                isLoading={loading}
+                searchPlaceholder="Search warehouses..."
+                pageSize={20}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Batch stock */}
+          {(item.track_batches || item.track_expiry) && stockBatches.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Batch Stock</CardTitle>
+                <CardDescription>Stock by batch and expiry date</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DataTable
+                  columns={stockBatchColumns}
+                  data={stockBatches}
+                  isLoading={loading}
+                  searchPlaceholder="Search batches..."
+                  pageSize={20}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
+
+        {/* ================================================================ */}
+        {/* BATCHES & LOGISTICS TAB                                           */}
+        {/* ================================================================ */}
+        <TabsContent value="batches" className="space-y-6">
+          {/* UOM Conversions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>UOM Conversions</CardTitle>
+              <CardDescription>How non-base units convert to base UOM ({uomBase || item.unit_of_measure || "-"})</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={conversionColumns}
+                data={uomConversions}
+                isLoading={loading}
+                searchPlaceholder="Search UOMs..."
+                pageSize={10}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Warehouse Policies */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Warehouse Policies</CardTitle>
+              <CardDescription>Per-warehouse min/max and replenishment hints</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={policyColumns}
+                data={warehousePolicies}
+                isLoading={loading}
+                searchPlaceholder="Search warehouses..."
+                pageSize={10}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Barcodes & Suppliers side by side */}
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Barcodes</CardTitle>
+                <CardDescription>Primary and alternate barcodes ({barcodes.length})</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DataTable
+                  columns={barcodeColumns}
+                  data={barcodes}
+                  isLoading={loading}
+                  pageSize={10}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Suppliers</CardTitle>
+                <CardDescription>Linked suppliers and last cost ({suppliers.length})</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DataTable
+                  columns={supplierColumns}
+                  data={suppliers}
+                  isLoading={loading}
+                  pageSize={10}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ================================================================ */}
+        {/* HISTORY TAB                                                       */}
+        {/* ================================================================ */}
+        <TabsContent value="history" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div>
+                <CardTitle>Price Change History</CardTitle>
+                <CardDescription>Sell price changes derived from item price inserts ({priceChanges.length} records)</CardDescription>
+              </div>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/inventory/price-changes/list?q=${encodeURIComponent(item.sku || "")}`}>
+                  <ExternalLink className="mr-1.5 h-3 w-3" /> Full Log
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={priceChangeColumns}
+                data={priceChanges}
+                isLoading={loading}
+                searchPlaceholder="Search changes..."
+                pageSize={25}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

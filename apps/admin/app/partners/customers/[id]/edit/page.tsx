@@ -1,20 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Loader2, Save, User } from "lucide-react";
 
 import { apiGet, apiPatch } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
-import { ErrorBanner } from "@/components/error-banner";
-import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/business/page-header";
+import { EmptyState } from "@/components/business/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { MoneyInput } from "@/components/money-input";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 type PartyType = "individual" | "business";
 type CustomerType = "retail" | "wholesale" | "b2b";
@@ -43,18 +65,22 @@ type Customer = {
   is_active?: boolean;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function CustomerEditPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
 
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [status, setStatus] = useState("");
-
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
 
+  /* ---- form state ---- */
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [partyType, setPartyType] = useState<PartyType>("individual");
@@ -65,7 +91,6 @@ export default function CustomerEditPage() {
   const [taxId, setTaxId] = useState("");
   const [vatNo, setVatNo] = useState("");
   const [notes, setNotes] = useState("");
-
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [membershipNo, setMembershipNo] = useState("");
@@ -78,14 +103,20 @@ export default function CustomerEditPage() {
 
   const [saving, setSaving] = useState(false);
 
+  /* ---- data fetching ---- */
+
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setErr(null);
     try {
       const [res, u] = await Promise.all([
-        apiGet<{ customer: Customer }>(`/customers/${encodeURIComponent(id)}`),
-        apiGet<{ users: UserRow[] }>("/users").catch(() => ({ users: [] as UserRow[] })),
+        apiGet<{ customer: Customer }>(
+          `/customers/${encodeURIComponent(id)}`,
+        ),
+        apiGet<{ users: UserRow[] }>("/users").catch(() => ({
+          users: [] as UserRow[],
+        })),
       ]);
       const c = res.customer || null;
       setCustomer(c);
@@ -93,8 +124,8 @@ export default function CustomerEditPage() {
       if (c) {
         setCode(String(c.code || ""));
         setName(String(c.name || ""));
-        setPartyType((c.party_type as any) || "individual");
-        setCustomerType((c.customer_type as any) || "retail");
+        setPartyType((c.party_type as PartyType) || "individual");
+        setCustomerType((c.customer_type as CustomerType) || "retail");
         setSalespersonId(String(c.assigned_salesperson_user_id || ""));
         setMarketingOptIn(Boolean(c.marketing_opt_in));
         setLegalName(String(c.legal_name || ""));
@@ -105,7 +136,9 @@ export default function CustomerEditPage() {
         setEmail(String(c.email || ""));
         setMembershipNo(String(c.membership_no || ""));
         setIsMember(Boolean(c.is_member));
-        setMembershipExpiresAt(String(c.membership_expires_at || "").slice(0, 10));
+        setMembershipExpiresAt(
+          String(c.membership_expires_at || "").slice(0, 10),
+        );
         setIsActive(c.is_active !== false);
         setTermsDays(String(c.payment_terms_days ?? 0));
         setCreditLimitUsd(String(c.credit_limit_usd ?? 0));
@@ -114,7 +147,7 @@ export default function CustomerEditPage() {
       setStatus("");
     } catch (e) {
       setCustomer(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -124,11 +157,7 @@ export default function CustomerEditPage() {
     load();
   }, [load]);
 
-  const title = useMemo(() => {
-    if (loading) return "Loading...";
-    if (customer) return `Edit ${customer.name}`;
-    return "Edit Customer";
-  }, [loading, customer]);
+  /* ---- save ---- */
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -140,10 +169,10 @@ export default function CustomerEditPage() {
     const limUsd = parseNumberInput(creditLimitUsd);
     const limLbp = parseNumberInput(creditLimitLbp);
     if (!limUsd.ok) return setStatus("Invalid credit limit USD.");
-    if (!limLbp.ok) return setStatus("Invalid credit limit LL.");
+    if (!limLbp.ok) return setStatus("Invalid credit limit LBP.");
 
     setSaving(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       await apiPatch(`/customers/${encodeURIComponent(customer.id)}`, {
         code: code.trim() || null,
@@ -175,190 +204,341 @@ export default function CustomerEditPage() {
     }
   }
 
-  if (err) {
+  /* ---- derived display ---- */
+
+  const title = loading
+    ? "Loading..."
+    : customer
+      ? `Edit ${customer.name}`
+      : "Edit Customer";
+
+  /* ---- error state ---- */
+
+  if (err && !customer) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Edit Customer</h1>
-            <p className="text-sm text-fg-muted">{id}</p>
-          </div>
-          <Button type="button" variant="outline" onClick={() => router.push(`/partners/customers/${encodeURIComponent(id)}`)}>
-            Back
-          </Button>
-        </div>
-        <ErrorBanner error={err} onRetry={load} />
+      <div className="mx-auto max-w-4xl space-y-6">
+        <PageHeader
+          title="Edit Customer"
+          backHref={`/partners/customers/${encodeURIComponent(id)}`}
+        />
+        <Card>
+          <CardContent className="py-8">
+            <EmptyState
+              title="Failed to load customer"
+              description={err}
+              action={{ label: "Retry", onClick: load }}
+            />
+          </CardContent>
+        </Card>
       </div>
     );
   }
+
+  /* ---- not found ---- */
 
   if (!loading && !customer) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <EmptyState title="Customer not found" description="This customer may have been deleted or you may not have access." actionLabel="Back" onAction={() => router.push("/partners/customers/list")} />
+      <div className="mx-auto max-w-4xl space-y-6">
+        <PageHeader title="Edit Customer" backHref="/partners/customers/list" />
+        <EmptyState
+          icon={User}
+          title="Customer not found"
+          description="This customer may have been deleted or you may not have access."
+          action={{
+            label: "Back to list",
+            onClick: () => router.push("/partners/customers/list"),
+          }}
+        />
       </div>
     );
   }
 
+  /* ---- main render ---- */
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          <p className="text-sm text-fg-muted">
-            <span className="font-mono text-xs">{id}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push(`/partners/customers/${encodeURIComponent(id)}`)} disabled={saving}>
-            Back
-          </Button>
-          <Button type="button" variant="outline" onClick={load} disabled={saving || loading}>
-            Refresh
-          </Button>
-          <DocumentUtilitiesDrawer entityType="customer" entityId={id} allowUploadAttachments={true} className="ml-1" />
-        </div>
-      </div>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <PageHeader
+        title={title}
+        backHref={`/partners/customers/${encodeURIComponent(id)}`}
+        actions={
+          <>
+            <DocumentUtilitiesDrawer
+              entityType="customer"
+              entityId={id}
+              allowUploadAttachments={true}
+            />
+          </>
+        }
+      >
+        <p className="font-mono text-sm text-muted-foreground">{id}</p>
+      </PageHeader>
 
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {status}
+        </div>
+      )}
 
-      {customer ? (
-        <>
+      {customer && (
+        <form onSubmit={save} className="space-y-6">
+          {/* ---- Profile ---- */}
           <Card>
             <CardHeader>
               <CardTitle>Profile</CardTitle>
               <CardDescription>Identity and contact fields.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Code</label>
-                  <Input value={code} onChange={(e) => setCode(e.target.value)} disabled={saving} />
-                </div>
-                <div className="space-y-1 md:col-span-4">
-                  <label className="text-xs font-medium text-fg-muted">Name</label>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} disabled={saving} />
-                </div>
+            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Code</Label>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  disabled={saving}
+                  placeholder="e.g. CUS-001"
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>
+                  Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
 
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Type</label>
-                  <select className="ui-select" value={partyType} onChange={(e) => setPartyType(e.target.value as PartyType)} disabled={saving}>
-                    <option value="individual">individual</option>
-                    <option value="business">business</option>
-                  </select>
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Customer Type</label>
-                  <select className="ui-select" value={customerType} onChange={(e) => setCustomerType(e.target.value as CustomerType)} disabled={saving}>
-                    <option value="retail">retail</option>
-                    <option value="wholesale">wholesale</option>
-                    <option value="b2b">b2b</option>
-                  </select>
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Legal Name</label>
-                  <Input value={legalName} onChange={(e) => setLegalName(e.target.value)} disabled={saving} />
-                </div>
+              <div className="space-y-2">
+                <Label>Party Type</Label>
+                <Select
+                  value={partyType}
+                  onValueChange={(v) => setPartyType(v as PartyType)}
+                  disabled={saving}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="individual">Individual</SelectItem>
+                    <SelectItem value="business">Business</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Customer Type</Label>
+                <Select
+                  value={customerType}
+                  onValueChange={(v) => setCustomerType(v as CustomerType)}
+                  disabled={saving}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="retail">Retail</SelectItem>
+                    <SelectItem value="wholesale">Wholesale</SelectItem>
+                    <SelectItem value="b2b">B2B</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Legal Name</Label>
+                <Input
+                  value={legalName}
+                  onChange={(e) => setLegalName(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
 
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Assigned Salesperson (optional)</label>
-                  <SearchableSelect
-                    value={salespersonId}
-                    onChange={setSalespersonId}
-                    disabled={saving}
-                    placeholder="(none)"
-                    searchPlaceholder="Search users..."
-                    options={[
-                      { value: "", label: "(none)" },
-                      ...(users || []).map((u) => ({
-                        value: u.id,
-                        label: u.full_name ? `${u.full_name} (${u.email})` : u.email,
-                        keywords: u.email,
-                      })),
-                    ]}
-                  />
-                </div>
-                <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)} disabled={saving} /> Marketing opt-in
-                </label>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Assigned Salesperson</Label>
+                <SearchableSelect
+                  value={salespersonId}
+                  onChange={setSalespersonId}
+                  disabled={saving}
+                  placeholder="(none)"
+                  searchPlaceholder="Search users..."
+                  options={[
+                    { value: "", label: "(none)" },
+                    ...(users || []).map((u) => ({
+                      value: u.id,
+                      label: u.full_name
+                        ? `${u.full_name} (${u.email})`
+                        : u.email,
+                      keywords: u.email,
+                    })),
+                  ]}
+                />
+              </div>
+              <div className="flex items-center space-x-2 self-end pb-2">
+                <Checkbox
+                  id="marketing-opt-in"
+                  checked={marketingOptIn}
+                  onCheckedChange={(v) => setMarketingOptIn(v === true)}
+                  disabled={saving}
+                />
+                <Label htmlFor="marketing-opt-in" className="font-normal">
+                  Marketing opt-in
+                </Label>
+              </div>
 
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Phone</label>
-                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} disabled={saving} />
-                </div>
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Email</label>
-                  <Input value={email} onChange={(e) => setEmail(e.target.value)} disabled={saving} />
-                </div>
+              <div className="space-y-2">
+                <Label>Phone</Label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
 
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Tax ID</label>
-                  <Input value={taxId} onChange={(e) => setTaxId(e.target.value)} disabled={saving} />
-                </div>
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">VAT No</label>
-                  <Input value={vatNo} onChange={(e) => setVatNo(e.target.value)} disabled={saving} />
-                </div>
+              <div className="space-y-2">
+                <Label>Tax ID</Label>
+                <Input
+                  value={taxId}
+                  onChange={(e) => setTaxId(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>VAT No</Label>
+                <Input
+                  value={vatNo}
+                  onChange={(e) => setVatNo(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
 
-                <div className="space-y-1 md:col-span-6">
-                  <label className="text-xs font-medium text-fg-muted">Notes</label>
-                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} disabled={saving} />
-                </div>
-
-                <Card className="md:col-span-6">
-                  <CardHeader>
-                    <CardTitle className="text-base">Membership</CardTitle>
-                    <CardDescription>Loyalty and membership tracking.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Membership #</label>
-                      <Input value={membershipNo} onChange={(e) => setMembershipNo(e.target.value)} disabled={saving} />
-                    </div>
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Expires At</label>
-                      <Input type="date" value={membershipExpiresAt} onChange={(e) => setMembershipExpiresAt(e.target.value)} disabled={saving} />
-                    </div>
-                    <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
-                      <input type="checkbox" checked={isMember} onChange={(e) => setIsMember(e.target.checked)} disabled={saving} /> Is Member
-                    </label>
-                  </CardContent>
-                </Card>
-
-                <Card className="md:col-span-6">
-                  <CardHeader>
-                    <CardTitle className="text-base">Credit</CardTitle>
-                    <CardDescription>Terms and limits (AR).</CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Payment Terms (days)</label>
-                      <Input value={termsDays} onChange={(e) => setTermsDays(e.target.value)} disabled={saving} inputMode="numeric" />
-                    </div>
-                    <MoneyInput label="Credit Limit" currency="USD" value={creditLimitUsd} onChange={setCreditLimitUsd} quick={[0, 100, 500, 1000]} className="md:col-span-2" />
-                    <MoneyInput label="Credit Limit" currency="LBP" value={creditLimitLbp} onChange={setCreditLimitLbp} quick={[0, 1000000, 5000000]} className="md:col-span-2" />
-                  </CardContent>
-                </Card>
-
-                <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} disabled={saving} /> Active
-                </label>
-
-                <div className="md:col-span-6 flex justify-end">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? "..." : "Save"}
-                  </Button>
-                </div>
-              </form>
+              <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                <Label>Notes</Label>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  disabled={saving}
+                  rows={3}
+                />
+              </div>
             </CardContent>
           </Card>
 
+          {/* ---- Membership ---- */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Membership</CardTitle>
+              <CardDescription>
+                Loyalty and membership tracking.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Membership #</Label>
+                <Input
+                  value={membershipNo}
+                  onChange={(e) => setMembershipNo(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Expires At</Label>
+                <Input
+                  type="date"
+                  value={membershipExpiresAt}
+                  onChange={(e) => setMembershipExpiresAt(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="flex items-center space-x-2 self-end pb-2">
+                <Checkbox
+                  id="is-member"
+                  checked={isMember}
+                  onCheckedChange={(v) => setIsMember(v === true)}
+                  disabled={saving}
+                />
+                <Label htmlFor="is-member" className="font-normal">
+                  Is Member
+                </Label>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ---- Credit ---- */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Credit</CardTitle>
+              <CardDescription>
+                Payment terms and limits (Accounts Receivable).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Payment Terms (days)</Label>
+                <Input
+                  value={termsDays}
+                  onChange={(e) => setTermsDays(e.target.value)}
+                  disabled={saving}
+                  inputMode="numeric"
+                />
+              </div>
+              <MoneyInput
+                label="Credit Limit"
+                currency="USD"
+                value={creditLimitUsd}
+                onChange={setCreditLimitUsd}
+                quick={[0, 100, 500, 1000]}
+              />
+              <MoneyInput
+                label="Credit Limit"
+                currency="LBP"
+                value={creditLimitLbp}
+                onChange={setCreditLimitLbp}
+                quick={[0, 1000000, 5000000]}
+              />
+            </CardContent>
+          </Card>
+
+          {/* ---- Status + Save ---- */}
+          <Card>
+            <CardContent className="flex items-center justify-between pt-6">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="is-active"
+                  checked={isActive}
+                  onCheckedChange={(v) => setIsActive(v === true)}
+                  disabled={saving}
+                />
+                <Label htmlFor="is-active" className="font-normal">
+                  Active
+                </Label>
+              </div>
+              <Button type="submit" disabled={saving}>
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
+            </CardContent>
+          </Card>
+        </form>
+      )}
+
+      {/* ---- Addresses & Contacts (inline, always visible) ---- */}
+      {customer && (
+        <>
+          <Separator />
           <PartyAddresses partyKind="customer" partyId={customer.id} />
           <PartyContacts partyKind="customer" partyId={customer.id} />
-
-          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
         </>
-      ) : null}
+      )}
     </div>
   );
 }

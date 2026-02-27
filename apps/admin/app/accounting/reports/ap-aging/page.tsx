@@ -1,16 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
-import { ShortcutLink } from "@/components/shortcut-link";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { KpiCard } from "@/components/business/kpi-card";
+import { CurrencyDisplay } from "@/components/business/currency-display";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
+
+/* ---------- types ---------- */
 
 type AgingRow = {
   invoice_id: string;
@@ -31,6 +38,8 @@ type AgingRow = {
 
 type AgingRes = { as_of: string; rows: AgingRow[] };
 
+/* ---------- helpers ---------- */
+
 function todayIso() {
   const d = new Date();
   const y = d.getFullYear();
@@ -39,27 +48,29 @@ function todayIso() {
   return `${y}-${m}-${day}`;
 }
 
-function bucketTone(bucket: string): "success" | "info" | "warning" | "danger" {
+function toNum(v: unknown) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function bucketVariant(bucket: string): "success" | "info" | "warning" | "destructive" {
   switch (bucket) {
-    case "current":
-      return "success";
-    case "1-30":
-      return "info";
-    case "31-60":
-      return "warning";
+    case "current": return "success";
+    case "1-30": return "info";
+    case "31-60": return "warning";
     case "61-90":
-    case "90+":
-      return "danger";
-    default:
-      return "info";
+    case "90+": return "destructive";
+    default: return "info";
   }
 }
 
+/* ---------- page ---------- */
+
 export default function ApAgingPage() {
-  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [data, setData] = useState<AgingRes | null>(null);
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [asOf, setAsOf] = useState(todayIso());
 
   const bucketTotals = useMemo(() => {
@@ -67,8 +78,8 @@ export default function ApAgingPage() {
     for (const r of data?.rows || []) {
       const b = r.bucket || "unknown";
       const t = totals.get(b) || { usd: 0, lbp: 0 };
-      t.usd += Number(r.balance_usd || 0);
-      t.lbp += Number(r.balance_lbp || 0);
+      t.usd += toNum(r.balance_usd);
+      t.lbp += toNum(r.balance_lbp);
       totals.set(b, t);
     }
     const order: Record<string, number> = { current: 0, "1-30": 1, "31-60": 2, "61-90": 3, "90+": 4 };
@@ -76,16 +87,17 @@ export default function ApAgingPage() {
   }, [data]);
 
   const load = useCallback(async () => {
-    setStatus("");
+    setError("");
+    setLoading(true);
     try {
       const params = new URLSearchParams();
       if (asOf) params.set("as_of", asOf);
       const res = await apiGet<AgingRes>(`/reports/ap-aging?${params.toString()}`);
       setData(res);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
   }, [asOf]);
 
@@ -93,153 +105,122 @@ export default function ApAgingPage() {
     load();
   }, [load]);
 
-  const columns = useMemo((): Array<DataTableColumn<AgingRow>> => {
-    return [
-      { id: "bucket", header: "Bucket", accessor: (r) => r.bucket, sortable: true, globalSearch: false },
-      {
-        id: "invoice_no",
-        header: "Invoice",
-        accessor: (r) => r.invoice_no,
-        mono: true,
-        sortable: true,
-        cell: (r) => (
-          <ShortcutLink
-            href={`/purchasing/supplier-invoices/${encodeURIComponent(r.invoice_id)}`}
-            title="Open supplier invoice"
-            className="data-mono text-xs"
-          >
-            {r.invoice_no}
-          </ShortcutLink>
+  const columns = useMemo<ColumnDef<AgingRow>[]>(() => [
+    {
+      id: "bucket",
+      accessorFn: (r) => r.bucket,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Bucket" />,
+      cell: ({ row }) => <Badge variant={bucketVariant(row.original.bucket)}>{row.original.bucket}</Badge>,
+      filterFn: "equals",
+    },
+    {
+      id: "invoice_no",
+      accessorFn: (r) => r.invoice_no,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />,
+      cell: ({ row }) => (
+        <Link href={`/purchasing/supplier-invoices/${encodeURIComponent(row.original.invoice_id)}`} className="font-mono text-sm text-primary underline-offset-4 hover:underline">
+          {row.original.invoice_no}
+        </Link>
+      ),
+    },
+    {
+      id: "supplier",
+      accessorFn: (r) => r.supplier_name || r.supplier_id || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Supplier" />,
+      cell: ({ row }) =>
+        row.original.supplier_id ? (
+          <Link href={`/partners/suppliers/${encodeURIComponent(row.original.supplier_id)}`} className="text-sm text-primary underline-offset-4 hover:underline">
+            {row.original.supplier_name || row.original.supplier_id}
+          </Link>
+        ) : (
+          <span className="text-sm text-muted-foreground">{row.original.supplier_name || "-"}</span>
         ),
-      },
-      {
-        id: "supplier",
-        header: "Supplier",
-        accessor: (r) => r.supplier_name || r.supplier_id || "",
-        cell: (r) =>
-          r.supplier_id ? (
-            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(r.supplier_id)}`} title="Open supplier">
-              {r.supplier_name || r.supplier_id}
-            </ShortcutLink>
-          ) : (
-            r.supplier_name || "-"
-          ),
-        sortable: true,
-      },
-      {
-        id: "due",
-        header: "Due",
-        accessor: (r) => `${r.due_date} ${r.days_past_due}`,
-        mono: true,
-        sortable: true,
-        globalSearch: false,
-        cell: (r) => (
-          <span className="data-mono text-xs">
-            {r.due_date} <span className="text-fg-subtle">({Number(r.days_past_due || 0)}d)</span>
-          </span>
-        ),
-      },
-      {
-        id: "balance_usd",
-        header: "Balance USD",
-        accessor: (r) => Number(r.balance_usd || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.balance_usd)}</span>,
-      },
-      {
-        id: "balance_lbp",
-        header: "Balance LL",
-        accessor: (r) => Number(r.balance_lbp || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.balance_lbp)}</span>,
-      },
-    ];
-  }, []);
+    },
+    {
+      id: "due",
+      accessorFn: (r) => r.due_date,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Due" />,
+      cell: ({ row }) => (
+        <div className="font-mono text-sm">
+          {row.original.due_date}{" "}
+          <span className="text-muted-foreground">({toNum(row.original.days_past_due)}d)</span>
+        </div>
+      ),
+    },
+    {
+      id: "balance_usd",
+      accessorFn: (r) => toNum(r.balance_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Balance USD" />,
+      cell: ({ row }) => (
+        <div className="text-right">
+          <CurrencyDisplay amount={toNum(row.original.balance_usd)} currency="USD" className="font-mono text-sm" />
+        </div>
+      ),
+    },
+    {
+      id: "balance_lbp",
+      accessorFn: (r) => toNum(r.balance_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Balance LBP" />,
+      cell: ({ row }) => (
+        <div className="text-right">
+          <CurrencyDisplay amount={toNum(row.original.balance_lbp)} currency="LBP" className="font-mono text-sm" />
+        </div>
+      ),
+    },
+  ], []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>As Of</CardTitle>
-          <CardDescription>
-            <span className="font-mono text-xs">{data?.as_of || asOf}</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <Button variant="outline" onClick={load}>
+      <PageHeader
+        title="AP Aging"
+        description={`Outstanding payables as of ${data?.as_of || asOf} -- ${data?.rows?.length || 0} invoices`}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">Filters</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Report Filters</DialogTitle>
-                <DialogDescription>Select an as-of date.</DialogDescription>
-              </DialogHeader>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">As Of</label>
-                  <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-                </div>
-                <div className="flex items-end justify-end">
-                  <Button
-                    onClick={async () => {
-                      setFiltersOpen(false);
-                      await load();
-                    }}
-                  >
-                    Apply
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <Button variant="link" size="sm" className="ml-2" onClick={load}>Retry</Button>
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-4 pt-6">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">As Of</label>
+            <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="w-[180px]" />
+          </div>
+          <Button onClick={load} disabled={loading}>Apply</Button>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Bucket Totals</CardTitle>
-          <CardDescription>Outstanding payables by bucket.</CardDescription>
-        </CardHeader>
-        <CardContent className="ui-kpi-grid ui-kpi-grid-dense">
+      {/* Bucket KPI cards */}
+      {bucketTotals.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-5">
           {bucketTotals.map(([bucket, t]) => (
-            <div key={bucket} className="ui-kpi-card" data-tone={bucketTone(bucket)}>
-              <div className="ui-kpi-label">{bucket}</div>
-              <div className="ui-kpi-value">{fmtUsd(t.usd)}</div>
-              <div className="ui-kpi-subvalue">{fmtLbp(t.lbp)}</div>
-            </div>
+            <KpiCard
+              key={bucket}
+              title={bucket}
+              value={fmtUsd(t.usd)}
+              description={fmtLbp(t.lbp)}
+            />
           ))}
-          {bucketTotals.length === 0 ? (
-            <div className="text-sm text-fg-muted">No outstanding invoices.</div>
-          ) : null}
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Invoices</CardTitle>
-          <CardDescription>{data?.rows?.length || 0} outstanding invoices</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<AgingRow>
-            tableId="accounting.reports.ap_aging"
-            rows={data?.rows || []}
-            columns={columns}
-            initialSort={{ columnId: "balance_usd", dir: "desc" }}
-            globalFilterPlaceholder="Search invoice / supplier..."
-            emptyText="No outstanding invoices."
-          />
-        </CardContent>
-      </Card>
+      {/* Data table */}
+      <DataTable
+        columns={columns}
+        data={data?.rows || []}
+        isLoading={loading}
+        searchPlaceholder="Search invoice / supplier..."
+      />
     </div>
   );
 }

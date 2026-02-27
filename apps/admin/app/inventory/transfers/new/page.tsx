@@ -32,7 +32,7 @@ function toNum(s: string) {
 function Inner() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
 
   const [fromWarehouseId, setFromWarehouseId] = useState("");
@@ -54,13 +54,13 @@ function Inner() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const res = await apiGet<{ warehouses: WarehouseRow[] }>("/warehouses");
       setWarehouses(res.warehouses || []);
     } catch (e) {
       setWarehouses([]);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -175,18 +175,18 @@ function Inner() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    setErr("");
 
     if (!fromWarehouseId) {
-      setErr(new Error("Select a From warehouse."));
+      setErr("Select a From warehouse.");
       return;
     }
     if (!toWarehouseId) {
-      setErr(new Error("Select a To warehouse."));
+      setErr("Select a To warehouse.");
       return;
     }
     if (fromWarehouseId === toWarehouseId) {
-      setErr(new Error("From and To warehouses must differ."));
+      setErr("From and To warehouses must differ.");
       return;
     }
 
@@ -206,7 +206,7 @@ function Inner() {
     };
 
     if (!payload.lines.length) {
-      setErr(new Error("Add at least one line with qty > 0."));
+      setErr("Add at least one line with qty > 0.");
       return;
     }
 
@@ -215,7 +215,7 @@ function Inner() {
       const res = await apiPost<{ id: string }>(`/inventory/transfers/drafts`, payload);
       router.push(`/inventory/transfers/${encodeURIComponent(res.id)}`);
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setSubmitting(false);
     }
@@ -226,10 +226,10 @@ function Inner() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">New Transfer Draft</h1>
-          <p className="text-sm text-fg-muted">
+          <p className="text-sm text-muted-foreground">
             {fromName && toName ? (
               <>
-                {fromName} <span className="text-fg-subtle">→</span> {toName}
+                {fromName} <span className="text-muted-foreground">→</span> {toName}
               </>
             ) : (
               "Pick source and destination warehouses, then add lines."
@@ -253,8 +253,8 @@ function Inner() {
           </CardHeader>
           <CardContent className="grid gap-3 text-sm md:grid-cols-2">
             <label className="space-y-1">
-              <div className="text-xs text-fg-muted">From warehouse</div>
-              <select className="ui-select w-full" value={fromWarehouseId} onChange={(e) => setFromWarehouseId(e.target.value)} disabled={loading}>
+              <div className="text-xs text-muted-foreground">From warehouse</div>
+              <select className="w-full" value={fromWarehouseId} onChange={(e) => setFromWarehouseId(e.target.value)} disabled={loading}>
                 <option value="">Select...</option>
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
@@ -264,8 +264,8 @@ function Inner() {
               </select>
             </label>
             <label className="space-y-1">
-              <div className="text-xs text-fg-muted">To warehouse</div>
-              <select className="ui-select w-full" value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} disabled={loading}>
+              <div className="text-xs text-muted-foreground">To warehouse</div>
+              <select className="w-full" value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)} disabled={loading}>
                 <option value="">Select...</option>
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
@@ -276,7 +276,7 @@ function Inner() {
             </label>
 
             <div className="space-y-1">
-              <div className="text-xs text-fg-muted">From location (optional)</div>
+              <div className="text-xs text-muted-foreground">From location (optional)</div>
               <div className="grid grid-cols-1 gap-2">
                 <Input
                   value={fromLocCode}
@@ -303,7 +303,7 @@ function Inner() {
             </div>
 
             <div className="space-y-1">
-              <div className="text-xs text-fg-muted">To location (optional)</div>
+              <div className="text-xs text-muted-foreground">To location (optional)</div>
               <div className="grid grid-cols-1 gap-2">
                 <Input
                   value={toLocCode}
@@ -330,7 +330,7 @@ function Inner() {
             </div>
 
             <label className="space-y-1 md:col-span-2">
-              <div className="text-xs text-fg-muted">Memo (optional)</div>
+              <div className="text-xs text-muted-foreground">Memo (optional)</div>
               <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. Move to Branch B for wholesale order..." />
             </label>
           </CardContent>
@@ -350,9 +350,9 @@ function Inner() {
               <ItemTypeahead onSelect={addItem} onClear={() => {}} />
             </div>
 
-            <div className="ui-table-scroll">
-              <table className="ui-table">
-                <thead className="ui-thead">
+            <div className="overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50">
                   <tr>
                     <th className="px-3 py-2">Item</th>
                     <th className="px-3 py-2 text-right">Qty</th>
@@ -362,12 +362,12 @@ function Inner() {
                 </thead>
                 <tbody>
                   {lines.map((ln, idx) => (
-                    <tr key={ln.item_id} className="ui-tr-hover">
+                    <tr key={ln.item_id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-3 py-2">
                         <div className="font-medium">
                           <span className="data-mono">{ln.item_sku}</span> · {ln.item_name}
                         </div>
-                        {ln.unit_of_measure ? <div className="mt-0.5 text-xs text-fg-muted">UOM: {ln.unit_of_measure}</div> : null}
+                        {ln.unit_of_measure ? <div className="mt-0.5 text-xs text-muted-foreground">UOM: {ln.unit_of_measure}</div> : null}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <Input className="w-28 text-right data-mono" value={ln.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} placeholder="0" />
@@ -384,7 +384,7 @@ function Inner() {
                   ))}
                   {lines.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                      <td className="px-3 py-6 text-center text-muted-foreground" colSpan={4}>
                         No lines yet. Add items above.
                       </td>
                     </tr>
@@ -407,7 +407,7 @@ function Inner() {
 
 export default function TransferNewPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-muted-foreground">Loading...</div>}>
       <Inner />
     </Suspense>
   );

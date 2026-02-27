@@ -1,14 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, Play, Pause, CalendarClock } from "lucide-react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { formatDateLike } from "@/lib/datetime";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { formatDate, formatDateLike } from "@/lib/datetime";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type TemplateRow = { id: string; name: string; is_active: boolean; line_count?: number };
 
@@ -26,11 +36,19 @@ type RuleRow = {
   updated_at: string;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
 function todayISO() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function RecurringJournalsPage() {
   const [status, setStatus] = useState("");
@@ -39,6 +57,7 @@ export default function RecurringJournalsPage() {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [rules, setRules] = useState<RuleRow[]>([]);
 
+  // Create form
   const [templateId, setTemplateId] = useState("");
   const [cadence, setCadence] = useState<"daily" | "weekly" | "monthly">("monthly");
   const [dayOfWeek, setDayOfWeek] = useState("1");
@@ -61,8 +80,7 @@ export default function RecurringJournalsPage() {
       const first = (tpl.templates || []).find((t) => t.is_active);
       if (first) setTemplateId((cur) => cur || first.id);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -75,7 +93,7 @@ export default function RecurringJournalsPage() {
   async function createRule(e: React.FormEvent) {
     e.preventDefault();
     if (!templateId) {
-      setStatus("template is required");
+      setStatus("Template is required");
       return;
     }
     setCreating(true);
@@ -92,156 +110,208 @@ export default function RecurringJournalsPage() {
       await load();
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setCreating(false);
     }
   }
 
-  const toggleRule = useCallback(async (ruleId: string, isActive: boolean) => {
-    setStatus("Updating...");
-    try {
-      await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { is_active: isActive });
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
-  }, [load]);
+  const toggleRule = useCallback(
+    async (ruleId: string, isActive: boolean) => {
+      setStatus("Updating...");
+      try {
+        await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { is_active: isActive });
+        await load();
+        setStatus("");
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [load],
+  );
 
-  const bumpNextRun = useCallback(async (ruleId: string, next: string) => {
-    setStatus("Updating...");
-    try {
-      await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { next_run_date: next });
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
-  }, [load]);
+  const bumpNextRun = useCallback(
+    async (ruleId: string, next: string) => {
+      setStatus("Updating...");
+      try {
+        await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { next_run_date: next });
+        await load();
+        setStatus("");
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [load],
+  );
 
-  const columns = useMemo((): Array<DataTableColumn<RuleRow>> => {
-    return [
+  const columns = useMemo<ColumnDef<RuleRow>[]>(
+    () => [
       {
         id: "template_name",
-        header: "Template",
-        accessor: (r) => `${r.template_name || ""} ${r.journal_template_id || ""}`.trim(),
-        sortable: true,
-        cell: (r) => (
-          <div>
-            <div className="font-medium">{r.template_name}</div>
-            {!r.template_active ? <div className="text-xs text-danger">Template inactive (rule will auto-disable)</div> : null}
-            <div className="text-xs text-fg-subtle data-mono">{r.journal_template_id}</div>
-          </div>
-        ),
+        accessorFn: (r) => r.template_name || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Template" />,
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <div>
+              <p className="font-medium">{r.template_name}</p>
+              {!r.template_active && (
+                <p className="text-xs text-destructive">Template inactive (rule will auto-disable)</p>
+              )}
+              <p className="font-mono text-xs text-muted-foreground">{r.journal_template_id}</p>
+            </div>
+          );
+        },
       },
       {
         id: "cadence",
-        header: "Cadence",
-        accessor: (r) => {
-          const extra =
-            r.cadence === "weekly" && r.day_of_week ? ` DOW ${r.day_of_week}` : r.cadence === "monthly" && r.day_of_month ? ` DOM ${r.day_of_month}` : "";
-          return `${r.cadence}${extra}`;
+        accessorFn: (r) => r.cadence,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Cadence" />,
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <span className="text-sm capitalize">
+              {r.cadence}
+              {r.cadence === "weekly" && r.day_of_week != null && (
+                <span className="ml-1 text-muted-foreground">DOW {r.day_of_week}</span>
+              )}
+              {r.cadence === "monthly" && r.day_of_month != null && (
+                <span className="ml-1 text-muted-foreground">DOM {r.day_of_month}</span>
+              )}
+            </span>
+          );
         },
-        sortable: true,
-        globalSearch: false,
-        cell: (r) => (
-          <span className="text-xs text-fg-muted">
-            {r.cadence}
-            {r.cadence === "weekly" && r.day_of_week ? <span className="text-fg-subtle"> · DOW {r.day_of_week}</span> : null}
-            {r.cadence === "monthly" && r.day_of_month ? <span className="text-fg-subtle"> · DOM {r.day_of_month}</span> : null}
+      },
+      {
+        id: "next_run_date",
+        accessorFn: (r) => r.next_run_date || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Next Run" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{formatDate(row.original.next_run_date)}</span>
+        ),
+      },
+      {
+        id: "last_run_at",
+        accessorFn: (r) => r.last_run_at || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Last Run" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm text-muted-foreground">
+            {formatDateLike(row.original.last_run_at)}
           </span>
         ),
       },
-      { id: "next_run_date", header: "Next Run", accessor: (r) => r.next_run_date || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs">{formatDateLike(r.next_run_date)}</span> },
-      { id: "last_run_at", header: "Last Run", accessor: (r) => r.last_run_at || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs text-fg-muted">{formatDateLike(r.last_run_at)}</span> },
       {
         id: "is_active",
-        header: "Status",
-        accessor: (r) => (r.is_active ? "Active" : "Paused"),
-        sortable: true,
-        globalSearch: false,
-        cell: (r) => (r.is_active ? <span className="ui-chip ui-chip-success">Active</span> : <span className="ui-chip ui-chip-default">Paused</span>),
+        accessorFn: (r) => (r.is_active ? "active" : "paused"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.is_active ? "active" : "on_hold"} />
+        ),
       },
       {
         id: "actions",
         header: "",
-        accessor: () => "",
-        align: "right",
-        globalSearch: false,
-        cell: (r) => (
-          <div className="ui-actions-inline">
-            <Button variant="outline" size="sm" onClick={() => bumpNextRun(r.id, todayISO())}>
-              Run Today
-            </Button>
-            <Button variant={r.is_active ? "outline" : "default"} size="sm" onClick={() => toggleRule(r.id, !r.is_active)}>
-              {r.is_active ? "Pause" : "Resume"}
-            </Button>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => bumpNextRun(r.id, todayISO())}>
+                <Play className="mr-1 h-3 w-3" />
+                Run Today
+              </Button>
+              <Button
+                variant={r.is_active ? "outline" : "default"}
+                size="sm"
+                onClick={() => toggleRule(r.id, !r.is_active)}
+              >
+                {r.is_active ? (
+                  <>
+                    <Pause className="mr-1 h-3 w-3" />
+                    Pause
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-1 h-3 w-3" />
+                    Resume
+                  </>
+                )}
+              </Button>
+            </div>
+          );
+        },
       },
-    ];
-  }, [bumpNextRun, toggleRule]);
+    ],
+    [bumpNextRun, toggleRule],
+  );
 
   return (
-    <div className="ui-module-shell-narrow">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Accounting</p>
-            <h1 className="ui-module-title">Recurring Journals</h1>
-            <p className="ui-module-subtitle">Automate scheduled journal creation from active templates.</p>
-          </div>
-        </div>
-      </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader
+        title="Recurring Journals"
+        description="Automate scheduled journal creation from active templates."
+        actions={
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
-      <div className="ui-actions-inline">
-        <Button variant="outline" onClick={load} disabled={loading}>
-          {loading ? "..." : "Refresh"}
-        </Button>
-      </div>
+      {status && !/^(Saving|Updating)/i.test(status) && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
 
+      {/* Create Rule */}
       <Card>
         <CardHeader>
-          <CardTitle>Recurring Journals</CardTitle>
-          <CardDescription>
+          <CardTitle>New Recurring Rule</CardTitle>
+          <p className="text-sm text-muted-foreground">
             Schedule journals to be auto-created from journal templates. The worker runs the scheduler hourly.
-          </CardDescription>
+          </p>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <form onSubmit={createRule} className="ui-form-grid-6">
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">Template</label>
-              <select className="ui-select" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+        <CardContent>
+          <form onSubmit={createRule} className="grid grid-cols-1 gap-4 sm:grid-cols-6">
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Template</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+              >
                 <option value="">Select template...</option>
                 {activeTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
+                  <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
-              <div className="text-xs text-fg-subtle">
-                Only active templates are shown. You can run templates manually from Journal Templates too.
-              </div>
+              <p className="text-xs text-muted-foreground">Only active templates are shown.</p>
             </div>
 
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Cadence</label>
-              <select className="ui-select" value={cadence} onChange={(e) => setCadence(e.target.value as any)}>
+            <div className="space-y-2 sm:col-span-1">
+              <Label>Cadence</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value as "daily" | "weekly" | "monthly")}
+              >
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
               </select>
             </div>
 
-            {cadence === "weekly" ? (
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-fg-muted">Day of Week</label>
-                <select className="ui-select" value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
+            {cadence === "weekly" && (
+              <div className="space-y-2 sm:col-span-1">
+                <Label>Day of Week</Label>
+                <select
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={dayOfWeek}
+                  onChange={(e) => setDayOfWeek(e.target.value)}
+                >
                   <option value="1">Mon</option>
                   <option value="2">Tue</option>
                   <option value="3">Wed</option>
@@ -251,38 +321,51 @@ export default function RecurringJournalsPage() {
                   <option value="7">Sun</option>
                 </select>
               </div>
-            ) : null}
+            )}
 
-            {cadence === "monthly" ? (
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-fg-muted">Day of Month</label>
+            {cadence === "monthly" && (
+              <div className="space-y-2 sm:col-span-1">
+                <Label>Day of Month</Label>
                 <Input value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} placeholder="1" />
               </div>
-            ) : null}
+            )}
 
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Next Run</label>
+            <div className="space-y-2 sm:col-span-1">
+              <Label>Next Run</Label>
               <Input type="date" value={nextRunDate} onChange={(e) => setNextRunDate(e.target.value)} />
             </div>
 
-            <div className="md:col-span-6 flex justify-end">
+            <div className="flex items-end sm:col-span-6 sm:justify-end">
               <Button type="submit" disabled={creating}>
-                {creating ? "Saving..." : "Create / Update Rule"}
+                <Plus className="mr-2 h-4 w-4" />
+                {creating ? "Saving..." : "Create Rule"}
               </Button>
             </div>
           </form>
+        </CardContent>
+      </Card>
 
-          <div className="section-divider" />
-
-          <DataTable<RuleRow>
-            tableId="accounting.recurringJournals"
-            rows={rules}
-            columns={columns}
-            isLoading={loading}
-            initialSort={{ columnId: "next_run_date", dir: "asc" }}
-            globalFilterPlaceholder="Search template..."
-            emptyText="No recurring rules."
-          />
+      {/* Rules list */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Rules</CardTitle>
+          <p className="text-sm text-muted-foreground">{rules.length} recurring rules</p>
+        </CardHeader>
+        <CardContent>
+          {!loading && rules.length === 0 ? (
+            <EmptyState
+              icon={CalendarClock}
+              title="No recurring rules"
+              description="Create a rule above to automate journal creation."
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={rules}
+              isLoading={loading}
+              searchPlaceholder="Search template..."
+            />
+          )}
         </CardContent>
       </Card>
     </div>

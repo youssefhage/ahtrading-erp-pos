@@ -2,12 +2,10 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-
-// Lightweight "Sheet" (right-rail drawer) built on Radix Dialog.
-// Keeps utilities (attachments, audit trail, etc.) available without consuming vertical space.
 
 const Sheet = DialogPrimitive.Root;
 const SheetTrigger = DialogPrimitive.Trigger;
@@ -31,40 +29,46 @@ const SheetOverlay = React.forwardRef<
 ));
 SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
-type SheetSide = "right" | "left";
+const sheetVariants = cva(
+  "fixed z-50 flex flex-col gap-4 bg-card text-foreground shadow-xl outline-none border-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200",
+  {
+    variants: {
+      side: {
+        top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
+        bottom:
+          "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+        left: "inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
+        right:
+          "inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-xl data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
+      },
+    },
+    defaultVariants: {
+      side: "right",
+    },
+  }
+);
 
-const sideClass: Record<SheetSide, string> = {
-  right:
-    "inset-y-0 right-0 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
-  left:
-    "inset-y-0 left-0 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
-};
+interface SheetContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>,
+    VariantProps<typeof sheetVariants> {}
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { side?: SheetSide }
+  SheetContentProps
 >(({ className, children, side = "right", ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <DialogPrimitive.Content
       ref={ref}
-      className={cn(
-        "fixed z-50 flex h-full w-full flex-col gap-4 bg-bg-elevated text-foreground shadow-xl outline-none",
-        "border-border-subtle",
-        "sm:max-w-xl",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out",
-        "data-[state=closed]:duration-150 data-[state=open]:duration-200",
-        sideClass[side],
-        className
-      )}
+      className={cn(sheetVariants({ side }), className)}
       {...props}
     >
       {children}
       <DialogPrimitive.Close
         className={cn(
           "absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-md",
-          "border border-border-subtle bg-bg-elevated/70 text-fg-muted shadow-sm",
-          "transition-colors hover:bg-bg-sunken focus:outline-none focus:ring-2 focus:ring-primary/30"
+          "border border-border bg-card/80 text-muted-foreground shadow-sm",
+          "transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/30"
         )}
       >
         <X className="h-4 w-4" />
@@ -75,32 +79,87 @@ const SheetContent = React.forwardRef<
 ));
 SheetContent.displayName = DialogPrimitive.Content.displayName;
 
-function SheetHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("px-5 pt-5", className)} {...props} />;
+function SheetHeader({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 px-5 pt-5 text-center sm:text-left",
+        className
+      )}
+      {...props}
+    />
+  );
 }
+SheetHeader.displayName = "SheetHeader";
 
-function SheetTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn("text-base font-semibold tracking-tight text-foreground", className)} {...props} />;
+function SheetFooter({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col-reverse px-5 pb-5 sm:flex-row sm:justify-end sm:gap-2",
+        className
+      )}
+      {...props}
+    />
+  );
 }
+SheetFooter.displayName = "SheetFooter";
 
-function SheetDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p className={cn("mt-1 text-sm text-fg-subtle", className)} {...props} />;
-}
+const SheetTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn(
+      "text-base font-semibold tracking-tight text-foreground",
+      className
+    )}
+    {...props}
+  />
+));
+SheetTitle.displayName = DialogPrimitive.Title.displayName;
 
-function SheetBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex-1 overflow-auto px-5 pb-5", className)} {...props} />;
+const SheetDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+));
+SheetDescription.displayName = DialogPrimitive.Description.displayName;
+
+function SheetBody({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn("flex-1 overflow-auto px-5 pb-5", className)}
+      {...props}
+    />
+  );
 }
 
 export {
   Sheet,
-  SheetTrigger,
-  SheetClose,
   SheetPortal,
   SheetOverlay,
+  SheetTrigger,
+  SheetClose,
   SheetContent,
   SheetHeader,
+  SheetFooter,
   SheetTitle,
   SheetDescription,
   SheetBody,
 };
-

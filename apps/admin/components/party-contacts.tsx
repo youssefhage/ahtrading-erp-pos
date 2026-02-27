@@ -157,7 +157,7 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {status ? <div className="text-xs text-fg-muted">{status}</div> : null}
+        {status ? <div className="text-xs text-muted-foreground">{status}</div> : null}
 
         <div className="space-y-2">
           {(contacts || []).map((c) => (
@@ -166,11 +166,11 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
                 <div className="text-sm">
                   <div className="font-medium">
                     {c.name}{" "}
-                    {c.is_primary ? <span className="text-xs text-fg-subtle">(primary)</span> : null}{" "}
-                    {!c.is_active ? <span className="text-xs text-fg-subtle">(inactive)</span> : null}
+                    {c.is_primary ? <span className="text-xs text-muted-foreground">(primary)</span> : null}{" "}
+                    {!c.is_active ? <span className="text-xs text-muted-foreground">(inactive)</span> : null}
                   </div>
-                  <div className="text-fg-muted">{c.title || "-"}</div>
-                  <div className="text-fg-muted">
+                  <div className="text-muted-foreground">{c.title || "-"}</div>
+                  <div className="text-muted-foreground">
                     {[c.phone, c.email].filter(Boolean).join(" · ") || "-"}
                     {c.notes ? ` · ${c.notes}` : ""}
                   </div>
@@ -186,7 +186,7 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
               </div>
             </div>
           ))}
-          {!contacts.length ? <div className="text-sm text-fg-muted">No contacts yet.</div> : null}
+          {!contacts.length ? <div className="text-sm text-muted-foreground">No contacts yet.</div> : null}
         </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
@@ -198,36 +198,36 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
 
             <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idName} className="text-xs font-medium text-fg-muted">Name</label>
+                <label htmlFor={idName} className="text-xs font-medium text-muted-foreground">Name</label>
                 <Input id={idName} value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idTitle} className="text-xs font-medium text-fg-muted">Title</label>
+                <label htmlFor={idTitle} className="text-xs font-medium text-muted-foreground">Title</label>
                 <Input id={idTitle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Owner, Accountant, Buyer..." />
               </div>
               <div className="space-y-1">
-                <label htmlFor={idPhone} className="text-xs font-medium text-fg-muted">Phone</label>
+                <label htmlFor={idPhone} className="text-xs font-medium text-muted-foreground">Phone</label>
                 <Input id={idPhone} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+961..." />
               </div>
               <div className="space-y-1">
-                <label htmlFor={idEmail} className="text-xs font-medium text-fg-muted">Email</label>
+                <label htmlFor={idEmail} className="text-xs font-medium text-muted-foreground">Email</label>
                 <Input id={idEmail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idNotes} className="text-xs font-medium text-fg-muted">Notes</label>
+                <label htmlFor={idNotes} className="text-xs font-medium text-muted-foreground">Notes</label>
                 <Input id={idNotes} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="WhatsApp preferred, call mornings..." />
               </div>
 
               <div className="space-y-1">
-                <label htmlFor={idPrimary} className="text-xs font-medium text-fg-muted">Primary?</label>
-                <select id={idPrimary} className="ui-select" value={isPrimary ? "yes" : "no"} onChange={(e) => setIsPrimary(e.target.value === "yes")}>
+                <label htmlFor={idPrimary} className="text-xs font-medium text-muted-foreground">Primary?</label>
+                <select id={idPrimary} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={isPrimary ? "yes" : "no"} onChange={(e) => setIsPrimary(e.target.value === "yes")}>
                   <option value="no">No</option>
                   <option value="yes">Yes</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label htmlFor={idActive} className="text-xs font-medium text-fg-muted">Active?</label>
-                <select id={idActive} className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
+                <label htmlFor={idActive} className="text-xs font-medium text-muted-foreground">Active?</label>
+                <select id={idActive} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </select>

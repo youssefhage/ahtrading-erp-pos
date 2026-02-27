@@ -1,15 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { ConfirmButton } from "@/components/confirm-button";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type UserRow = {
   id: string;
@@ -63,7 +83,6 @@ export default function UsersPage() {
   const [editActive, setEditActive] = useState(true);
   const [editSaving, setEditSaving] = useState(false);
 
-  const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
   const loading = status.startsWith("Loading");
   const statusIsBusy = /^(Loading|Creating|Assigning|Applying|Saving|Removing)\b/.test(status);
   const statusIsNotice = status.startsWith("User already existed.") || status.startsWith("Email already exists.");
@@ -75,7 +94,7 @@ export default function UsersPage() {
         apiGet<{ users: UserRow[] }>("/users"),
         apiGet<{ users: UserRow[] }>("/users/directory"),
         apiGet<{ roles: RoleRow[] }>("/users/roles"),
-        apiGet<{ profile_types?: ProfileType[]; templates?: ProfileType[] }>("/users/profile-types")
+        apiGet<{ profile_types?: ProfileType[]; templates?: ProfileType[] }>("/users/profile-types"),
       ]);
       let nextRoles = r.roles || [];
       if (!nextRoles.length && !seededDefaultsOnceRef.current) {
@@ -85,7 +104,7 @@ export default function UsersPage() {
           const seeded = await apiGet<{ roles: RoleRow[] }>("/users/roles");
           nextRoles = seeded.roles || [];
         } catch {
-          // Keep the page usable even if seeding fails (permissions/network).
+          // Keep the page usable even if seeding fails.
         }
       }
       setUsers(u.users || []);
@@ -239,187 +258,159 @@ export default function UsersPage() {
     }
   }
 
-  const columns = useMemo((): Array<DataTableColumn<UserRow>> => {
-    return [
-      { id: "email", header: "Email", accessor: (u) => u.email, sortable: true },
-      { id: "full_name", header: "Name", accessor: (u) => u.full_name || "", sortable: true, cell: (u) => <span className="text-sm">{u.full_name || "-"}</span> },
-      { id: "phone", header: "Phone", accessor: (u) => u.phone || "", sortable: true, cell: (u) => <span className="text-sm">{u.phone || "-"}</span> },
-      { id: "id", header: "User ID", accessor: (u) => u.id, mono: true, defaultHidden: true },
+  const columns = useMemo<ColumnDef<UserRow>[]>(
+    () => [
+      {
+        accessorKey: "email",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Email" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.email}</span>,
+      },
+      {
+        id: "full_name",
+        accessorFn: (r) => r.full_name || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.full_name || "-"}</span>,
+      },
+      {
+        id: "phone",
+        accessorFn: (r) => r.phone || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Phone" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.phone || "-"}</span>,
+      },
       {
         id: "profile_type",
-        header: "Profile Type",
-        accessor: (u) => u.profile_type_name || u.profile_type_code || "",
-        sortable: true,
-        cell: (u) => <span className="text-sm">{u.profile_type_name || (u.profile_type_code === "mixed" ? "Mixed / Custom" : "-")}</span>,
+        accessorFn: (r) => r.profile_type_name || r.profile_type_code || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Profile Type" />,
+        cell: ({ row }) => {
+          const u = row.original;
+          return (
+            <span className="text-sm">
+              {u.profile_type_name || (u.profile_type_code === "mixed" ? "Mixed / Custom" : "-")}
+            </span>
+          );
+        },
       },
       {
         id: "active",
-        header: "Active",
-        accessor: (u) => (u.is_active ? "yes" : "no"),
-        cell: (u) => (u.is_active ? "yes" : "no"),
+        accessorFn: (r) => (r.is_active ? "active" : "inactive"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => (
+          <StatusBadge status={row.original.is_active ? "active" : "void"} />
+        ),
       },
       {
         id: "actions",
         header: "Actions",
-        accessor: () => "",
-        globalSearch: false,
-        align: "right",
-        cell: (u) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditUserId(u.id);
-                setEditEmail(u.email || "");
-                setEditFullName((u.full_name || "") as string);
-                setEditPhone((u.phone || "") as string);
-                setEditActive(Boolean(u.is_active));
-                setEditOpen(true);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setProfileUserId(u.id);
-                setProfileTypeCode((u.profile_type_code && u.profile_type_code !== "mixed") ? u.profile_type_code : "");
-                setProfileOpen(true);
-              }}
-            >
-              Profile Type
-            </Button>
-            <ConfirmButton
-              variant="outline"
-              size="sm"
-              title="Remove Access?"
-              description={`Remove ${u.email} from this company? This revokes their sessions.`}
-              confirmText="Remove"
-              confirmVariant="destructive"
-              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-              onConfirm={async () => {
-                setStatus("Removing access...");
-                await apiDelete(`/users/${encodeURIComponent(u.id)}`);
-                await load();
-                setStatus("");
-              }}
-            >
-              Remove Access
-            </ConfirmButton>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const u = row.original;
+          return (
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditUserId(u.id);
+                  setEditEmail(u.email || "");
+                  setEditFullName((u.full_name || "") as string);
+                  setEditPhone((u.phone || "") as string);
+                  setEditActive(Boolean(u.is_active));
+                  setEditOpen(true);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setProfileUserId(u.id);
+                  setProfileTypeCode(
+                    u.profile_type_code && u.profile_type_code !== "mixed" ? u.profile_type_code : "",
+                  );
+                  setProfileOpen(true);
+                }}
+              >
+                Profile Type
+              </Button>
+              <ConfirmDialog
+                title="Remove Access?"
+                description={`Remove ${u.email} from this company? This revokes their sessions.`}
+                confirmLabel="Remove"
+                variant="destructive"
+                onConfirm={async () => {
+                  setStatus("Removing access...");
+                  await apiDelete(`/users/${encodeURIComponent(u.id)}`);
+                  await load();
+                  setStatus("");
+                }}
+                trigger={
+                  <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()}>
+                    Remove Access
+                  </Button>
+                }
+              />
+            </div>
+          );
+        },
       },
-    ];
-  }, [load]);
+    ],
+    [load],
+  );
 
   return (
-    <Page width="lg" className="px-4 pb-10">
-      {status && !statusIsBusy && !statusIsNotice ? <ErrorBanner error={status} onRetry={load} /> : null}
-
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Users"
-        description="Manage access for this company (users, roles, profile types)."
+        description={`Manage access for this company -- ${users.length} user(s)`}
         actions={
           <>
-            <Button variant="outline" onClick={load} disabled={statusIsBusy}>
-              {loading ? "Loading..." : "Refresh"}
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={statusIsBusy}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger asChild>
-                <Button>New User</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create User</DialogTitle>
-                  <DialogDescription>Create the account and auto-assign access with a profile type (recommended).</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={createUser} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Email</label>
-                    <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@ahtrading.local" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Password</label>
-                    <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Profile Type (Recommended)</label>
-                    <select className="ui-select" value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
-                      <option value="">No profile type</option>
-                      {profileTypes.map((t) => (
-                        <option key={t.code} value={t.code}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {selectedProfileType ? (
-                    <p className="text-xs text-fg-muted">
-                      {selectedProfileType.description} ({selectedProfileType.permission_codes.length} permissions)
-                    </p>
-                  ) : null}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Or Assign Existing Role</label>
-                    <select className="ui-select" value={createRoleId} onChange={(e) => setCreateRoleId(e.target.value)} disabled={Boolean(templateCode)}>
-                      <option value="">No role</option>
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}{r.template_code ? " (Standard)" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={creating}>
-                      {creating ? "..." : "Create"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
 
             <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
               <DialogTrigger asChild>
-                <Button variant="secondary">Assign Role</Button>
+                <Button variant="outline" size="sm">
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                  Assign Role
+                </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Assign Role</DialogTitle>
                   <DialogDescription>Attach an existing company role to any user account.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={assignRole} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">User</label>
-                    <select className="ui-select" value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)}>
-                      <option value="">Select user...</option>
-                      {allUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.email}
-                        </option>
-                      ))}
-                    </select>
+                <form onSubmit={assignRole} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">User</label>
+                    <Select value={assignUserId} onValueChange={setAssignUserId}>
+                      <SelectTrigger><SelectValue placeholder="Select user..." /></SelectTrigger>
+                      <SelectContent>
+                        {allUsers.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>{u.email}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Role</label>
-                    <select className="ui-select" value={assignRoleId} onChange={(e) => setAssignRoleId(e.target.value)}>
-                      <option value="">Select role...</option>
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}{r.template_code ? " (Standard)" : ""}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Role</label>
+                    <Select value={assignRoleId} onValueChange={setAssignRoleId}>
+                      <SelectTrigger><SelectValue placeholder="Select role..." /></SelectTrigger>
+                      <SelectContent>
+                        {roles.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}{r.template_code ? " (Standard)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  {assignRoleId ? (
-                    <p className="text-xs text-fg-muted">
-                      Selected role: <span className="font-mono text-xs">{roleById.get(assignRoleId)?.name || assignRoleId}</span>
-                    </p>
-                  ) : null}
                   <div className="flex justify-end">
                     <Button type="submit" disabled={assigning}>
-                      {assigning ? "..." : "Assign"}
+                      {assigning ? "Assigning..." : "Assign"}
                     </Button>
                   </div>
                 </form>
@@ -428,44 +419,108 @@ export default function UsersPage() {
 
             <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
               <DialogTrigger asChild>
-                <Button variant="secondary">Set Profile Type</Button>
+                <Button variant="outline" size="sm">
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Set Profile Type
+                </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Set Profile Type</DialogTitle>
                   <DialogDescription>Assign a predefined profile type with its permission set.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={assignProfileType} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">User</label>
-                    <select className="ui-select" value={profileUserId} onChange={(e) => setProfileUserId(e.target.value)}>
-                      <option value="">Select user...</option>
-                      {allUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.email}
-                        </option>
-                      ))}
-                    </select>
+                <form onSubmit={assignProfileType} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">User</label>
+                    <Select value={profileUserId} onValueChange={setProfileUserId}>
+                      <SelectTrigger><SelectValue placeholder="Select user..." /></SelectTrigger>
+                      <SelectContent>
+                        {allUsers.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>{u.email}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Profile Type</label>
-                    <select className="ui-select" value={profileTypeCode} onChange={(e) => setProfileTypeCode(e.target.value)}>
-                      <option value="">Select profile type...</option>
-                      {profileTypes.map((t) => (
-                        <option key={t.code} value={t.code}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Profile Type</label>
+                    <Select value={profileTypeCode} onValueChange={setProfileTypeCode}>
+                      <SelectTrigger><SelectValue placeholder="Select profile type..." /></SelectTrigger>
+                      <SelectContent>
+                        {profileTypes.map((t) => (
+                          <SelectItem key={t.code} value={t.code}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {profileTypeCode && (
+                      <p className="text-xs text-muted-foreground">
+                        {profileTypes.find((p) => p.code === profileTypeCode)?.description || ""}
+                      </p>
+                    )}
                   </div>
-                  {profileTypeCode ? (
-                    <p className="text-xs text-fg-muted">
-                      {profileTypes.find((p) => p.code === profileTypeCode)?.description || ""}
-                    </p>
-                  ) : null}
                   <div className="flex justify-end">
                     <Button type="submit" disabled={profileSaving}>
-                      {profileSaving ? "..." : "Apply"}
+                      {profileSaving ? "Applying..." : "Apply"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New User
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create User</DialogTitle>
+                  <DialogDescription>Create the account and auto-assign access with a profile type (recommended).</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createUser} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Email</label>
+                    <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@company.local" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Password</label>
+                    <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Profile Type (Recommended)</label>
+                    <Select value={templateCode} onValueChange={setTemplateCode}>
+                      <SelectTrigger><SelectValue placeholder="No profile type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No profile type</SelectItem>
+                        {profileTypes.map((t) => (
+                          <SelectItem key={t.code} value={t.code}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedProfileType && (
+                      <p className="text-xs text-muted-foreground">
+                        {selectedProfileType.description} ({selectedProfileType.permission_codes.length} permissions)
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Or Assign Existing Role</label>
+                    <Select value={createRoleId} onValueChange={setCreateRoleId} disabled={Boolean(templateCode)}>
+                      <SelectTrigger><SelectValue placeholder="No role" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No role</SelectItem>
+                        {roles.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}{r.template_code ? " (Standard)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "Creating..." : "Create"}
                     </Button>
                   </div>
                 </form>
@@ -475,49 +530,77 @@ export default function UsersPage() {
         }
       />
 
-      <Section title="Users" description={`${users.length} user(s) with access to this company`}>
-        <DataTable<UserRow>
-          tableId="system.users"
-          rows={users}
-          columns={columns}
-          isLoading={loading}
-          emptyText={loading ? "Loading users..." : "No users."}
-          globalFilterPlaceholder="Search email / id..."
-          initialSort={{ columnId: "email", dir: "asc" }}
-        />
-      </Section>
+      {status && !statusIsBusy && !statusIsNotice && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="py-3">
+            <p className="text-sm text-destructive">{status}</p>
+          </CardContent>
+        </Card>
+      )}
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit User</DialogTitle>
-              <DialogDescription>Update profile fields or deactivate the account (global).</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Email</label>
-                <Input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="user@example.com" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Full Name</label>
-                <Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} placeholder="Full name" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Phone</label>
-                <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="+961..." />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-fg-muted">
-                <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
+      {statusIsNotice && (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardContent className="py-3">
+            <p className="text-sm text-yellow-700 dark:text-yellow-400">{status}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Users
+          </CardTitle>
+          <CardDescription>{users.length} user(s) with access to this company</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={users}
+            isLoading={loading}
+            searchPlaceholder="Search email, name..."
+          />
+        </CardContent>
+      </Card>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>Update profile fields or deactivate the account (global).</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email</label>
+              <Input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="user@example.com" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Full Name</label>
+              <Input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} placeholder="Full name" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Phone</label>
+              <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="+961..." />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="edit-active"
+                checked={editActive}
+                onCheckedChange={(v) => setEditActive(Boolean(v))}
+              />
+              <label htmlFor="edit-active" className="text-sm text-muted-foreground">
                 Active (uncheck to deactivate)
               </label>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={editSaving}>
-                  {editSaving ? "..." : "Save"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-    </Page>
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={editSaving}>
+                {editSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

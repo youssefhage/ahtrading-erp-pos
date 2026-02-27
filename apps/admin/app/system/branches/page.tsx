@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Building2, Plus, RefreshCw } from "lucide-react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 type BranchRow = {
   id: string;
@@ -115,9 +120,9 @@ export default function BranchesPage() {
     setEditId(b.id);
     setEditName(b.name);
     setEditAddress(b.address || "");
-    setEditDefaultWarehouseId(String((b as any).default_warehouse_id || ""));
-    setEditInvoicePrefix(String((b as any).invoice_prefix || ""));
-    setEditOperatingHours((b as any).operating_hours ? JSON.stringify((b as any).operating_hours, null, 2) : "");
+    setEditDefaultWarehouseId(String(b.default_warehouse_id || ""));
+    setEditInvoicePrefix(String(b.invoice_prefix || ""));
+    setEditOperatingHours(b.operating_hours ? JSON.stringify(b.operating_hours, null, 2) : "");
     setEditOpen(true);
   }
 
@@ -162,85 +167,114 @@ export default function BranchesPage() {
     return m;
   }, [warehouses]);
 
-  const columns: Array<DataTableColumn<BranchRow>> = [
-    { id: "name", header: "Name", accessor: (b) => b.name, sortable: true, cell: (b) => <span className="font-medium text-foreground">{b.name}</span> },
-    { id: "address", header: "Address", accessor: (b) => b.address || "", cell: (b) => <span className="text-fg-muted">{b.address || "-"}</span> },
-    {
-      id: "default_warehouse",
-      header: "Default Warehouse",
-      accessor: (b) => String((b as any).default_warehouse_id || ""),
-      cell: (b) =>
-        (b as any).default_warehouse_id ? (
-          <span className="text-xs text-fg-muted">{whNameById.get((b as any).default_warehouse_id) || (b as any).default_warehouse_id}</span>
-        ) : (
-          <span className="text-xs text-fg-subtle">-</span>
+  const columns = useMemo<ColumnDef<BranchRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      },
+      {
+        id: "address",
+        accessorFn: (r) => r.address || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Address" />,
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.address || "-"}</span>,
+      },
+      {
+        id: "default_warehouse",
+        accessorFn: (r) => String(r.default_warehouse_id || ""),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Default Warehouse" />,
+        cell: ({ row }) =>
+          row.original.default_warehouse_id ? (
+            <span className="text-sm text-muted-foreground">{whNameById.get(row.original.default_warehouse_id) || row.original.default_warehouse_id}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">-</span>
+          ),
+      },
+      {
+        id: "invoice_prefix",
+        accessorFn: (r) => String(r.invoice_prefix || ""),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Prefix" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm text-muted-foreground">{row.original.invoice_prefix || "-"}</span>
         ),
-    },
-    { id: "invoice_prefix", header: "Invoice Prefix", accessor: (b) => String((b as any).invoice_prefix || ""), cell: (b) => <span className="text-xs text-fg-muted">{(b as any).invoice_prefix || "-"}</span> },
-    { id: "id", header: "Branch ID", accessor: (b) => b.id, mono: true, defaultHidden: true, cell: (b) => <span className="text-xs text-fg-subtle">{b.id}</span> },
-    {
-      id: "actions",
-      header: "Actions",
-      accessor: () => "",
-      globalSearch: false,
-      align: "right",
-      cell: (b) => (
-        <Button variant="outline" size="sm" onClick={() => openEdit(b)} disabled={loading || creating || saving}>
-          Edit
-        </Button>
-      ),
-    },
-  ];
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => openEdit(row.original)} disabled={loading || creating || saving}>
+              Edit
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [loading, creating, saving, whNameById],
+  );
+
+  function WarehouseSelect({ value, onValueChange }: { value: string; onValueChange: (v: string) => void }) {
+    return (
+      <Select value={value || "__none__"} onValueChange={(v) => onValueChange(v === "__none__" ? "" : v)}>
+        <SelectTrigger>
+          <SelectValue placeholder="(none)" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">(none)</SelectItem>
+          {warehouses.map((w) => (
+            <SelectItem key={w.id} value={w.id}>
+              {w.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
 
   return (
-    <Page width="lg" className="px-4">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Branches"
         description="Branches are your stores/locations. POS devices can be scoped to a branch."
         actions={
-          <>
-            <Button variant="outline" onClick={load} disabled={loading || creating || saving}>
-              {loading ? "Loading..." : "Refresh"}
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={load} disabled={loading || creating || saving}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button disabled={loading || creating || saving}>New Branch</Button>
+                <Button size="sm" disabled={loading || creating || saving}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Branch
+                </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Create Branch</DialogTitle>
                   <DialogDescription>Add a new store/branch.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={createBranch} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                <form onSubmit={createBranch} className="grid grid-cols-1 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Name</label>
                     <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main" />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Address (optional)</label>
                     <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Lebanon" />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Default Warehouse (optional)</label>
-                    <select className="ui-select" value={defaultWarehouseId} onChange={(e) => setDefaultWarehouseId(e.target.value)}>
-                      <option value="">(none)</option>
-                      {warehouses.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Default Warehouse (optional)</label>
+                    <WarehouseSelect value={defaultWarehouseId} onValueChange={setDefaultWarehouseId} />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Invoice Prefix (optional)</label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Invoice Prefix (optional)</label>
                     <Input value={invoicePrefix} onChange={(e) => setInvoicePrefix(e.target.value)} placeholder="e.g. BR1-" />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Operating Hours JSON (optional)</label>
-                    <textarea
-                      className="ui-textarea"
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Operating Hours JSON (optional)</label>
+                    <Textarea
                       value={operatingHours}
                       onChange={(e) => setOperatingHours(e.target.value)}
                       rows={4}
@@ -249,73 +283,85 @@ export default function BranchesPage() {
                   </div>
                   <div className="flex justify-end">
                     <Button type="submit" disabled={creating || loading || saving}>
-                      {creating ? "..." : "Create"}
+                      {creating ? "Creating..." : "Create"}
                     </Button>
                   </div>
                 </form>
               </DialogContent>
             </Dialog>
-          </>
+          </div>
         }
       />
 
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Branch</DialogTitle>
             <DialogDescription>Update branch configuration and defaults.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Name</label>
+          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Address (optional)</label>
               <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Default Warehouse (optional)</label>
-              <select className="ui-select" value={editDefaultWarehouseId} onChange={(e) => setEditDefaultWarehouseId(e.target.value)}>
-                <option value="">(none)</option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Default Warehouse (optional)</label>
+              <WarehouseSelect value={editDefaultWarehouseId} onValueChange={setEditDefaultWarehouseId} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Invoice Prefix (optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Invoice Prefix (optional)</label>
               <Input value={editInvoicePrefix} onChange={(e) => setEditInvoicePrefix(e.target.value)} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Operating Hours JSON (optional)</label>
-              <textarea className="ui-textarea" value={editOperatingHours} onChange={(e) => setEditOperatingHours(e.target.value)} rows={6} />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Operating Hours JSON (optional)</label>
+              <Textarea value={editOperatingHours} onChange={(e) => setEditOperatingHours(e.target.value)} rows={6} />
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving || loading || creating}>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
                 Cancel
               </Button>
               <Button type="submit" disabled={saving || loading || creating}>
-                {saving ? "..." : "Save"}
+                {saving ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
-      <Section title="List" description={`${branches.length} branches`}>
-        <DataTable<BranchRow>
-          tableId="system.branches"
-          rows={branches}
-          columns={columns}
-          isLoading={loading}
-          emptyText={loading ? "Loading branches..." : "No branches."}
-          globalFilterPlaceholder="Search branch name / address..."
-          initialSort={{ columnId: "name", dir: "asc" }}
-        />
-      </Section>
-    </Page>
+      {/* Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-4 w-4" />
+            Branches
+          </CardTitle>
+          <CardDescription>{branches.length} branch(es)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={branches}
+            isLoading={loading}
+            searchPlaceholder="Search branch name / address..."
+          />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -1,17 +1,50 @@
 "use client";
 
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Plus, RefreshCw, ListOrdered, Star } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ShortcutLink } from "@/components/shortcut-link";
-import { ConfirmButton } from "@/components/confirm-button";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { EmptyState } from "@/components/business/empty-state";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
-import { useSearchParams } from "next/navigation";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 type ItemRow = { id: string; sku: string; name: string; barcode: string | null };
 
@@ -39,13 +72,19 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
+
 export default function PriceListsPage() {
   const sp = useSearchParams();
-  const [status, setStatus] = useState("");
   const [lists, setLists] = useState<PriceListRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
   const openedFromQueryRef = useRef(false);
 
+  /* ---- Create list ---- */
   const [createOpen, setCreateOpen] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -53,6 +92,7 @@ export default function PriceListsPage() {
   const [isDefault, setIsDefault] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  /* ---- Edit list ---- */
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState("");
   const [editName, setEditName] = useState("");
@@ -60,6 +100,7 @@ export default function PriceListsPage() {
   const [editDefault, setEditDefault] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
 
+  /* ---- List items dialog ---- */
   const [itemsOpen, setItemsOpen] = useState(false);
   const [itemsListId, setItemsListId] = useState("");
   const [listItems, setListItems] = useState<PriceListItemRow[]>([]);
@@ -71,6 +112,7 @@ export default function PriceListsPage() {
   const [addLbp, setAddLbp] = useState("");
   const [adding, setAdding] = useState(false);
 
+  /* ---- Edit price row ---- */
   const [editItemOpen, setEditItemOpen] = useState(false);
   const [editRowId, setEditRowId] = useState("");
   const [editEffectiveFrom, setEditEffectiveFrom] = useState(todayIso());
@@ -79,6 +121,7 @@ export default function PriceListsPage() {
   const [editLbp, setEditLbp] = useState("");
   const [editItemSaving, setEditItemSaving] = useState(false);
 
+  /* ---- Lookups ---- */
   const itemBySku = useMemo(() => {
     const m = new Map<string, ItemRow>();
     for (const it of items) m.set((it.sku || "").toUpperCase(), it);
@@ -91,121 +134,52 @@ export default function PriceListsPage() {
     return m;
   }, [items]);
 
-  const listItemColumns = useMemo((): Array<DataTableColumn<PriceListItemRow>> => {
-    return [
-      {
-        id: "sku",
-        header: "SKU",
-        accessor: (li) => itemById.get(li.item_id)?.sku || "",
-        mono: true,
-        sortable: true,
-        cell: (li) => {
-          const it = itemById.get(li.item_id);
-          return (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item" className="font-mono text-xs">
-              {it?.sku || "-"}
-            </ShortcutLink>
-          );
-        },
-      },
-      {
-        id: "item",
-        header: "Item",
-        accessor: (li) => itemById.get(li.item_id)?.name || li.item_id,
-        sortable: true,
-        cell: (li) => {
-          const it = itemById.get(li.item_id);
-          return (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item">
-              {it?.name || li.item_id}
-            </ShortcutLink>
-          );
-        },
-      },
-      { id: "price_usd", header: "USD", accessor: (li) => Number(li.price_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="font-mono text-xs">{li.price_usd}</span> },
-      { id: "price_lbp", header: "LL", accessor: (li) => Number(li.price_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="font-mono text-xs">{li.price_lbp}</span> },
-      { id: "effective_from", header: "From", accessor: (li) => li.effective_from, mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="text-xs">{li.effective_from}</span> },
-      { id: "effective_to", header: "To", accessor: (li) => li.effective_to || "", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="text-xs">{li.effective_to || "-"}</span> },
-      {
-        id: "actions",
-        header: "Actions",
-        accessor: () => "",
-        globalSearch: false,
-        align: "right",
-        cell: (li) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditRowId(li.id);
-                setEditEffectiveFrom(li.effective_from || todayIso());
-                setEditEffectiveTo(li.effective_to || "");
-                setEditUsd(String(li.price_usd ?? ""));
-                setEditLbp(String(li.price_lbp ?? ""));
-                setEditItemOpen(true);
-              }}
-            >
-              Edit
-            </Button>
-            <ConfirmButton
-              variant="outline"
-              size="sm"
-              title="Delete Price Row?"
-              description="This removes the history row."
-              confirmText="Delete"
-              confirmVariant="destructive"
-              disabled={!itemsListId}
-              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-              onConfirm={async () => {
-                if (!itemsListId) return;
-                setStatus("Deleting price row...");
-                await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
-                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
-                setListItems(res.items || []);
-                setStatus("");
-              }}
-            >
-              Delete
-            </ConfirmButton>
-          </div>
-        ),
-      },
-    ];
-  }, [itemById, itemsListId]);
-
+  /* ---- Load ---- */
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setLoading(true);
+    setErr(null);
     try {
       const [pl, it] = await Promise.all([
         apiGet<{ lists: PriceListRow[] }>("/pricing/lists"),
-        apiGet<{ items: ItemRow[] }>("/items/min")
+        apiGet<{ items: ItemRow[] }>("/items/min"),
       ]);
       setLists(pl.lists || []);
       setItems(it.items || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
+  /* ---- Deep-link: /catalog/price-lists?open=<list_id> ---- */
+  useEffect(() => {
+    if (openedFromQueryRef.current) return;
+    const openId = (sp?.get("open") || "").trim();
+    if (!openId) return;
+    if (!lists.length || !items.length) return;
+    const exists = lists.some((l) => l.id === openId);
+    if (!exists) return;
+    openedFromQueryRef.current = true;
+    openListItems(openId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp, lists, items]);
+
+  /* ---- List CRUD ---- */
   async function createList(e: React.FormEvent) {
     e.preventDefault();
-    if (!code.trim()) return setStatus("Code is required.");
-    if (!name.trim()) return setStatus("Name is required.");
+    if (!code.trim()) return setErr("Code is required.");
+    if (!name.trim()) return setErr("Name is required.");
     setCreating(true);
-    setStatus("Creating...");
+    setErr(null);
     try {
       const res = await apiPost<{ id: string }>("/pricing/lists", {
         code: code.trim(),
         name: name.trim(),
         currency,
-        is_default: isDefault
+        is_default: isDefault,
       });
       if (isDefault) {
         await apiPost("/pricing/company-settings", { key: "default_price_list_id", value_json: { id: res.id } });
@@ -216,10 +190,8 @@ export default function PriceListsPage() {
       setCurrency("USD");
       setIsDefault(false);
       await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setCreating(false);
     }
@@ -236,9 +208,9 @@ export default function PriceListsPage() {
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editId) return;
-    if (!editName.trim()) return setStatus("Name is required.");
+    if (!editName.trim()) return setErr("Name is required.");
     setEditSaving(true);
-    setStatus("Saving...");
+    setErr(null);
     try {
       await apiPatch(`/pricing/lists/${editId}`, { name: editName.trim(), currency: editCurrency, is_default: editDefault });
       if (editDefault) {
@@ -246,28 +218,26 @@ export default function PriceListsPage() {
       }
       setEditOpen(false);
       await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setEditSaving(false);
     }
   }
 
   const setDefaultList = useCallback(async (listId: string) => {
-    setStatus("Setting default...");
+    setErr(null);
     try {
       await apiPatch(`/pricing/lists/${listId}`, { is_default: true });
       await apiPost("/pricing/company-settings", { key: "default_price_list_id", value_json: { id: listId } });
       await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     }
   }, [load]);
 
+  /* ---- List items ---- */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const openListItems = useCallback(async (listId: string) => {
     setItemsListId(listId);
     setListItems([]);
@@ -278,59 +248,13 @@ export default function PriceListsPage() {
     setAddUsd("");
     setAddLbp("");
     setItemsOpen(true);
-    setStatus("Loading list items...");
     try {
       const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${listId}/items`);
       setListItems(res.items || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     }
   }, []);
-
-  // Deep-link support: /catalog/price-lists?open=<list_id>
-  useEffect(() => {
-    if (openedFromQueryRef.current) return;
-    const openId = (sp?.get("open") || "").trim();
-    if (!openId) return;
-    if (!lists.length || !items.length) return;
-    const exists = lists.some((l) => l.id === openId);
-    if (!exists) return;
-    openedFromQueryRef.current = true;
-    openListItems(openId);
-  }, [sp, lists, items, openListItems]);
-
-  const listColumns = useMemo((): Array<DataTableColumn<PriceListRow>> => {
-    return [
-      { id: "code", header: "Code", accessor: (pl) => pl.code, mono: true, sortable: true, cell: (pl) => <span className="font-mono text-xs">{pl.code}</span> },
-      { id: "name", header: "Name", accessor: (pl) => pl.name, sortable: true, cell: (pl) => <span className="font-medium">{pl.name}</span> },
-      { id: "currency", header: "Currency", accessor: (pl) => pl.currency, sortable: true, globalSearch: false, cell: (pl) => <span className="text-xs">{pl.currency}</span> },
-      { id: "is_default", header: "Default", accessor: (pl) => (pl.is_default ? "yes" : "no"), sortable: true, globalSearch: false, cell: (pl) => <span className="text-xs">{pl.is_default ? "yes" : "no"}</span> },
-      {
-        id: "actions",
-        header: "",
-        accessor: () => "",
-        align: "right",
-        globalSearch: false,
-        cell: (pl) => (
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => openListItems(pl.id)}>
-              Items
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => openEdit(pl)}>
-              Edit
-            </Button>
-            {!pl.is_default ? (
-              <Button size="sm" onClick={() => setDefaultList(pl.id)}>
-                Set Default
-              </Button>
-            ) : null}
-          </div>
-        ),
-      },
-    ];
-  }, [openEdit, openListItems, setDefaultList]);
 
   function onSkuChange(nextSku: string) {
     const normalized = (nextSku || "").trim().toUpperCase();
@@ -342,17 +266,17 @@ export default function PriceListsPage() {
   async function addPrice(e: React.FormEvent) {
     e.preventDefault();
     if (!itemsListId) return;
-    if (!addItemId) return setStatus("Pick a valid SKU / item.");
-    if (!addEffectiveFrom) return setStatus("effective_from is required.");
+    if (!addItemId) return setErr("Pick a valid SKU / item.");
+    if (!addEffectiveFrom) return setErr("Effective from date is required.");
     setAdding(true);
-    setStatus("Adding price...");
+    setErr(null);
     try {
       await apiPost(`/pricing/lists/${itemsListId}/items`, {
         item_id: addItemId,
         price_usd: Number(addUsd || 0),
         price_lbp: Number(addLbp || 0),
         effective_from: addEffectiveFrom,
-        effective_to: addEffectiveTo ? addEffectiveTo : null
+        effective_to: addEffectiveTo ? addEffectiveTo : null,
       });
       const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
       setListItems(res.items || []);
@@ -362,10 +286,8 @@ export default function PriceListsPage() {
       setAddLbp("");
       setAddEffectiveFrom(todayIso());
       setAddEffectiveTo("");
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setAdding(false);
     }
@@ -373,11 +295,10 @@ export default function PriceListsPage() {
 
   async function saveEditRow(e: React.FormEvent) {
     e.preventDefault();
-    if (!itemsListId) return;
-    if (!editRowId) return;
-    if (!editEffectiveFrom) return setStatus("effective_from is required.");
+    if (!itemsListId || !editRowId) return;
+    if (!editEffectiveFrom) return setErr("Effective from date is required.");
     setEditItemSaving(true);
-    setStatus("Saving price row...");
+    setErr(null);
     try {
       await apiPatch(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(editRowId)}`, {
         price_usd: Number(editUsd || 0),
@@ -388,236 +309,421 @@ export default function PriceListsPage() {
       const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
       setListItems(res.items || []);
       setEditItemOpen(false);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setEditItemSaving(false);
     }
   }
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Price Lists</CardTitle>
-          <CardDescription>{lists.length} lists</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
+  /* ---- Columns: price lists ---- */
+  const listColumns = useMemo<ColumnDef<PriceListRow>[]>(() => [
+    {
+      accessorKey: "code",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.code}</span>,
+    },
+    {
+      accessorKey: "name",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+    },
+    {
+      accessorKey: "currency",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Currency" />,
+      cell: ({ row }) => <Badge variant="outline">{row.original.currency}</Badge>,
+    },
+    {
+      accessorFn: (r) => (r.is_default ? "default" : ""),
+      id: "is_default",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Default" />,
+      cell: ({ row }) =>
+        row.original.is_default ? (
+          <Badge variant="default" className="gap-1">
+            <Star className="h-3 w-3" /> Default
+          </Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">-</span>
+        ),
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => {
+        const pl = row.original;
+        return (
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => openListItems(pl.id)}>
+              Items
             </Button>
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <Button variant="outline" size="sm" onClick={() => openEdit(pl)}>
+              Edit
+            </Button>
+            {!pl.is_default ? (
+              <Button variant="ghost" size="sm" onClick={() => setDefaultList(pl.id)}>
+                Set Default
+              </Button>
+            ) : null}
+          </div>
+        );
+      },
+    },
+  ], [openEdit, openListItems, setDefaultList]);
+
+  /* ---- Columns: list items ---- */
+  const listItemColumns = useMemo<ColumnDef<PriceListItemRow>[]>(() => [
+    {
+      accessorFn: (li) => itemById.get(li.item_id)?.sku || "",
+      id: "sku",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
+      cell: ({ row }) => {
+        const it = itemById.get(row.original.item_id);
+        return (
+          <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-mono text-xs text-primary hover:underline">
+            {it?.sku || "-"}
+          </Link>
+        );
+      },
+    },
+    {
+      accessorFn: (li) => itemById.get(li.item_id)?.name || li.item_id,
+      id: "item",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
+      cell: ({ row }) => {
+        const it = itemById.get(row.original.item_id);
+        return (
+          <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-medium text-primary hover:underline">
+            {it?.name || row.original.item_id}
+          </Link>
+        );
+      },
+    },
+    {
+      accessorFn: (li) => Number(li.price_usd || 0),
+      id: "price_usd",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.price_usd}</span>,
+    },
+    {
+      accessorFn: (li) => Number(li.price_lbp || 0),
+      id: "price_lbp",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.price_lbp}</span>,
+    },
+    {
+      accessorKey: "effective_from",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="From" />,
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.effective_from}</span>,
+    },
+    {
+      accessorFn: (li) => li.effective_to || "",
+      id: "effective_to",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="To" />,
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.effective_to || "-"}</span>,
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => {
+        const li = row.original;
+        return (
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditRowId(li.id);
+                setEditEffectiveFrom(li.effective_from || todayIso());
+                setEditEffectiveTo(li.effective_to || "");
+                setEditUsd(String(li.price_usd ?? ""));
+                setEditLbp(String(li.price_lbp ?? ""));
+                setEditItemOpen(true);
+              }}
+            >
+              Edit
+            </Button>
+            <ConfirmDialog
+              title="Delete Price Row?"
+              description="This removes the history row. This action cannot be undone."
+              confirmLabel="Delete"
+              variant="destructive"
+              onConfirm={async () => {
+                if (!itemsListId) return;
+                await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
+                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+                setListItems(res.items || []);
+              }}
+              trigger={
+                <Button variant="outline" size="sm" className="text-destructive hover:text-destructive">
+                  Delete
+                </Button>
+              }
+            />
+          </div>
+        );
+      },
+    },
+  ], [itemById, itemsListId]);
+
+  const currentList = lists.find((l) => l.id === itemsListId);
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-6">
+      <PageHeader
+        title="Price Lists"
+        description={`${lists.length} price list${lists.length === 1 ? "" : "s"}`}
+        actions={
+          <>
+            <Button variant="outline" onClick={load} disabled={loading}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) { setCode(""); setName(""); setCurrency("USD"); setIsDefault(false); } }}>
               <DialogTrigger asChild>
-                <Button>Create List</Button>
+                <Button><Plus className="mr-2 h-4 w-4" /> New List</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-md">
                 <DialogHeader>
                   <DialogTitle>Create Price List</DialogTitle>
-                  <DialogDescription>Use this to override default item prices (POS catalog will use the default list).</DialogDescription>
+                  <DialogDescription>Override default item prices. The POS catalog uses the default list.</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={createList} className="grid grid-cols-1 gap-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Code</label>
+                <form onSubmit={createList} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Code <span className="text-destructive">*</span></Label>
                       <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="WHOLESALE" />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Currency</label>
-                      <select className="ui-select" value={currency} onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}>
-                        <option value="USD">USD</option>
-                        <option value="LBP">LL</option>
-                      </select>
+                    <div className="space-y-2">
+                      <Label>Currency</Label>
+                      <Select value={currency} onValueChange={(v) => setCurrency(v as "USD" | "LBP")}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD</SelectItem>
+                          <SelectItem value="LBP">LL (LBP)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                  <div className="space-y-2">
+                    <Label>Name <span className="text-destructive">*</span></Label>
                     <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wholesale USD" />
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-fg-muted">
-                    <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
-                    Set as default (used by POS)
-                  </label>
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={creating}>
-                      {creating ? "..." : "Create"}
-                    </Button>
+                  <div className="flex items-center gap-3">
+                    <Switch checked={isDefault} onCheckedChange={setIsDefault} />
+                    <Label>Set as default (used by POS)</Label>
                   </div>
+                  <DialogFooter>
+                    <Button type="submit" disabled={creating}>
+                      {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Create
+                    </Button>
+                  </DialogFooter>
                 </form>
               </DialogContent>
             </Dialog>
-          </div>
+          </>
+        }
+      />
 
-          <DataTable<PriceListRow>
-            tableId="catalog.priceLists"
-            rows={lists}
-            columns={listColumns}
-            initialSort={{ columnId: "code", dir: "asc" }}
-            globalFilterPlaceholder="Search code / name..."
-            emptyText="No price lists yet."
-          />
-        </CardContent>
-      </Card>
+      {err ? <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert> : null}
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Price List</DialogTitle>
-              <DialogDescription>Defaults are used by POS catalog pricing.</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Name</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Currency</label>
-                  <select
-                    className="ui-select"
-                    value={editCurrency}
-                    onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}
-                  >
-                    <option value="USD">USD</option>
-                    <option value="LBP">LL</option>
-                  </select>
-                </div>
+      {!loading && lists.length === 0 ? (
+        <Card>
+          <CardContent className="py-12">
+            <EmptyState
+              icon={ListOrdered}
+              title="No price lists yet"
+              description="Create a price list to override default item prices."
+              action={{ label: "New List", onClick: () => setCreateOpen(true) }}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>All Lists</CardTitle>
+            <CardDescription>Click Items to manage prices for a list.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={listColumns}
+              data={lists}
+              isLoading={loading}
+              searchPlaceholder="Search code / name..."
+              pageSize={25}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ---- Edit List Dialog ---- */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Price List</DialogTitle>
+            <DialogDescription>Default lists are used by POS catalog pricing.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
               </div>
-              <label className="flex items-center gap-2 text-sm text-fg-muted">
-                <input type="checkbox" checked={editDefault} onChange={(e) => setEditDefault(e.target.checked)} />
-                Set as default (POS)
-              </label>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={editSaving}>
-                  {editSaving ? "..." : "Save"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={itemsOpen} onOpenChange={setItemsOpen}>
-          <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh] overflow-hidden p-0">
-            <div className="flex h-full min-h-0 flex-col">
-              <DialogHeader className="shrink-0 border-b border-border-subtle px-5 pb-4 pt-5 pr-12">
-                <DialogTitle>Price List Items</DialogTitle>
-                <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
-              </DialogHeader>
-
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,1fr)]">
-                  <div className="min-w-0">
-                    <DataTable<PriceListItemRow>
-                      tableId={`catalog.priceListItems.${itemsListId || "none"}`}
-                      rows={listItems}
-                      columns={listItemColumns}
-                      initialSort={{ columnId: "effective_from", dir: "desc" }}
-                      globalFilterPlaceholder="Search SKU / item..."
-                      emptyText="No items yet."
-                    />
-                  </div>
-
-                  <Card className="h-fit xl:sticky xl:top-0">
-                    <CardHeader>
-                      <CardTitle>Add / Update Price</CardTitle>
-                      <CardDescription>Insert a new row (history is preserved).</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <form onSubmit={addPrice} className="grid grid-cols-1 gap-3">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-fg-muted">SKU</label>
-                            <Input
-                              value={addSku}
-                              onChange={(e) => onSkuChange(e.target.value)}
-                              placeholder="SKU"
-                              list="skuList"
-                            />
-                            <datalist id="skuList">
-                              {items.slice(0, 2000).map((it) => (
-                                <option key={it.id} value={(it.sku || "").toUpperCase()}>
-                                  {it.name}
-                                </option>
-                              ))}
-                            </datalist>
-                            {addItemId ? (
-                              <p className="text-xs text-fg-subtle">Item: {itemById.get(addItemId)?.name || addItemId}</p>
-                            ) : (
-                              <p className="text-xs text-fg-subtle">Pick a valid SKU.</p>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-fg-muted">Effective From</label>
-                            <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-fg-muted">Price USD</label>
-                            <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0" inputMode="decimal" />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-fg-muted">Price LL</label>
-                            <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-fg-muted">Effective To (optional)</label>
-                          <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
-                        </div>
-                        <div className="flex justify-end">
-                          <Button type="submit" disabled={adding}>
-                            {adding ? "..." : "Add Price Row"}
-                          </Button>
-                        </div>
-                      </form>
-                    </CardContent>
-                  </Card>
-                </div>
+              <div className="space-y-2">
+                <Label>Currency</Label>
+                <Select value={editCurrency} onValueChange={(v) => setEditCurrency(v as "USD" | "LBP")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="LBP">LL (LBP)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="flex items-center gap-3">
+              <Switch checked={editDefault} onCheckedChange={setEditDefault} />
+              <Label>Set as default (POS)</Label>
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={editSaving}>
+                {editSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={editItemOpen} onOpenChange={setEditItemOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Edit Price Row</DialogTitle>
-              <DialogDescription>Edits this history row in place.</DialogDescription>
+      {/* ---- List Items Dialog (full-width) ---- */}
+      <Dialog open={itemsOpen} onOpenChange={setItemsOpen}>
+        <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh] overflow-hidden p-0">
+          <div className="flex h-full min-h-0 flex-col">
+            <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6 pr-12">
+              <DialogTitle>
+                Price List Items
+                {currentList ? (
+                  <Badge variant="outline" className="ml-3 font-mono text-xs">
+                    {currentList.code} -- {currentList.name}
+                  </Badge>
+                ) : null}
+              </DialogTitle>
+              <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
             </DialogHeader>
-            <form onSubmit={saveEditRow} className="grid grid-cols-1 gap-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Effective From</label>
-                  <Input value={editEffectiveFrom} onChange={(e) => setEditEffectiveFrom(e.target.value)} type="date" />
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,1fr)]">
+                {/* Table */}
+                <div className="min-w-0">
+                  <DataTable
+                    columns={listItemColumns}
+                    data={listItems}
+                    searchPlaceholder="Search SKU / item..."
+                    pageSize={25}
+                  />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Effective To (optional)</label>
-                  <Input value={editEffectiveTo} onChange={(e) => setEditEffectiveTo(e.target.value)} type="date" />
-                </div>
+
+                {/* Add price form */}
+                <Card className="h-fit xl:sticky xl:top-0">
+                  <CardHeader>
+                    <CardTitle className="text-base">Add / Update Price</CardTitle>
+                    <CardDescription>Insert a new row (history is preserved).</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={addPrice} className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>SKU</Label>
+                          <Input
+                            value={addSku}
+                            onChange={(e) => onSkuChange(e.target.value)}
+                            placeholder="SKU"
+                            list="skuList"
+                          />
+                          <datalist id="skuList">
+                            {items.slice(0, 2000).map((it) => (
+                              <option key={it.id} value={(it.sku || "").toUpperCase()}>
+                                {it.name}
+                              </option>
+                            ))}
+                          </datalist>
+                          {addItemId ? (
+                            <p className="text-xs text-muted-foreground">
+                              Item: {itemById.get(addItemId)?.name || addItemId}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Pick a valid SKU.</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Effective From</Label>
+                          <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Price USD</Label>
+                          <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Price LL</Label>
+                          <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Effective To (optional)</Label>
+                        <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
+                      </div>
+                      <div className="flex justify-end">
+                        <Button type="submit" disabled={adding}>
+                          {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Add Price Row
+                        </Button>
+                      </div>
+                    </form>
+                  </CardContent>
+                </Card>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Price USD</label>
-                  <Input value={editUsd} onChange={(e) => setEditUsd(e.target.value)} placeholder="0" inputMode="decimal" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Price LL</label>
-                  <Input value={editLbp} onChange={(e) => setEditLbp(e.target.value)} placeholder="0" inputMode="decimal" />
-                </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Edit Price Row Dialog ---- */}
+      <Dialog open={editItemOpen} onOpenChange={setEditItemOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Price Row</DialogTitle>
+            <DialogDescription>Edits this history row in place.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEditRow} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Effective From</Label>
+                <Input value={editEffectiveFrom} onChange={(e) => setEditEffectiveFrom(e.target.value)} type="date" />
               </div>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={editItemSaving}>
-                  {editItemSaving ? "..." : "Save"}
-                </Button>
+              <div className="space-y-2">
+                <Label>Effective To (optional)</Label>
+                <Input value={editEffectiveTo} onChange={(e) => setEditEffectiveTo(e.target.value)} type="date" />
               </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Price USD</Label>
+                <Input value={editUsd} onChange={(e) => setEditUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Price LL</Label>
+                <Input value={editLbp} onChange={(e) => setEditLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={editItemSaving}>
+                {editItemSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

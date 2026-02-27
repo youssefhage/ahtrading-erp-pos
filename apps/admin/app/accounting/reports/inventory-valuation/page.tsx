@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw, FileDown } from "lucide-react";
 
 import { apiBase, apiGet } from "@/lib/api";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+
+/* ---------- types ---------- */
 
 type Row = {
   id: string;
@@ -17,71 +21,48 @@ type Row = {
   value_lbp: string | number;
 };
 
-function fmt(n: string | number) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+/* ---------- helpers ---------- */
+
+function toNum(v: unknown) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
+function fmt(n: number, frac = 2) {
+  return n.toLocaleString("en-US", { maximumFractionDigits: frac });
+}
+
+/* ---------- page ---------- */
+
 export default function InventoryValuationPage() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
-  const [status, setStatus] = useState("");
   const [downloadingCsv, setDownloadingCsv] = useState(false);
 
-  const columns = useMemo((): Array<DataTableColumn<Row>> => {
-    return [
-      { id: "sku", header: "SKU", accessor: (r) => r.sku, mono: true, sortable: true },
-      { id: "name", header: "Item", accessor: (r) => r.name || "", sortable: true },
-      {
-        id: "qty_on_hand",
-        header: "Qty",
-        accessor: (r) => Number(r.qty_on_hand || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-qty">{fmt(r.qty_on_hand)}</span>,
-      },
-      {
-        id: "value_usd",
-        header: "Value USD",
-        accessor: (r) => Number(r.value_usd || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.value_usd)}</span>,
-      },
-      {
-        id: "value_lbp",
-        header: "Value LL",
-        accessor: (r) => Number(r.value_lbp || 0),
-        align: "right",
-        mono: true,
-        sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.value_lbp)}</span>,
-      },
-    ];
-  }, []);
-
-  async function load() {
-    setStatus("");
+  const load = useCallback(async () => {
+    setError("");
+    setLoading(true);
     try {
       const res = await apiGet<{ inventory: Row[] }>("/reports/inventory-valuation");
       setRows(res.inventory || []);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   async function downloadCsv() {
-    setStatus("");
+    setError("");
     setDownloadingCsv(true);
     try {
       const res = await fetch(`${apiBase()}/reports/inventory-valuation?format=csv`, {
-        credentials: "include"
+        credentials: "include",
       });
       if (!res.ok) throw new Error(await res.text());
       const text = await res.text();
@@ -95,41 +76,76 @@ export default function InventoryValuationPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setDownloadingCsv(false);
     }
   }
 
+  const columns = useMemo<ColumnDef<Row>[]>(() => [
+    {
+      id: "sku",
+      accessorFn: (r) => r.sku,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
+      cell: ({ row }) => <span className="font-mono text-sm">{row.original.sku}</span>,
+    },
+    {
+      id: "name",
+      accessorFn: (r) => r.name || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
+    },
+    {
+      id: "qty_on_hand",
+      accessorFn: (r) => toNum(r.qty_on_hand),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Qty" />,
+      cell: ({ row }) => <div className="text-right font-mono text-sm tabular-nums">{fmt(toNum(row.original.qty_on_hand))}</div>,
+    },
+    {
+      id: "value_usd",
+      accessorFn: (r) => toNum(r.value_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Value USD" />,
+      cell: ({ row }) => <div className="text-right font-mono text-sm tabular-nums">{fmt(toNum(row.original.value_usd))}</div>,
+    },
+    {
+      id: "value_lbp",
+      accessorFn: (r) => toNum(r.value_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Value LBP" />,
+      cell: ({ row }) => <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">{fmt(toNum(row.original.value_lbp))}</div>,
+    },
+  ], []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      <PageHeader
+        title="Inventory Valuation"
+        description={`On-hand quantities and values computed from stock moves -- ${rows.length} items`}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button variant="secondary" size="sm" onClick={downloadCsv} disabled={downloadingCsv}>
+              <FileDown className="mr-2 h-4 w-4" />
+              {downloadingCsv ? "Downloading..." : "CSV"}
+            </Button>
+          </div>
+        }
+      />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>On-hand + Value</CardTitle>
-            <CardDescription>Computed from stock_moves. {rows.length} items</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Button variant="secondary" onClick={downloadCsv} disabled={downloadingCsv}>
-                {downloadingCsv ? "Downloading..." : "Download CSV"}
-              </Button>
-            </div>
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <Button variant="link" size="sm" className="ml-2" onClick={load}>Retry</Button>
+        </div>
+      )}
 
-            <DataTable<Row>
-              tableId="accounting.reports.inventory_valuation"
-              rows={rows}
-              columns={columns}
-              initialSort={{ columnId: "value_usd", dir: "desc" }}
-              globalFilterPlaceholder="Search SKU / item..."
-              emptyText="No items / moves yet."
-            />
-          </CardContent>
-        </Card>
-      </div>);
+      <DataTable
+        columns={columns}
+        data={rows}
+        isLoading={loading}
+        searchPlaceholder="Search SKU / item..."
+      />
+    </div>
+  );
 }

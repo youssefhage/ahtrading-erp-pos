@@ -608,7 +608,7 @@ export default function SalesInvoicePrintPage() {
 
   return (
     <div className="print-paper min-h-screen">
-      <div className="no-print sticky top-0 z-10 border-b border-black/10 bg-bg-elevated/95 backdrop-blur">
+      <div className="no-print sticky top-0 z-10 border-b border-black/10 bg-card/95 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <Button asChild variant="outline">
@@ -622,7 +622,7 @@ export default function SalesInvoicePrintPage() {
             {directPrintOk ? (
               <>
                 <select
-                  className="h-10 rounded-md border border-border bg-bg-elevated px-2 text-xs"
+                  className="h-10 rounded-md border border-border bg-card px-2 text-xs"
                   value={selectedPrinter}
                   onChange={(e) => setSelectedPrinter((e.target as HTMLSelectElement).value)}
                   title="Printer"
@@ -645,7 +645,7 @@ export default function SalesInvoicePrintPage() {
         {directStatus || directError ? (
           <div className="mx-auto max-w-4xl px-4 pb-3 text-xs">
             {directStatus ? <span className="text-black/70">{directStatus}</span> : null}
-            {directError ? <span className="text-danger">{directStatus ? " · " : ""}{directError}</span> : null}
+            {directError ? <span className="text-destructive">{directStatus ? " · " : ""}{directError}</span> : null}
           </div>
         ) : null}
       </div>

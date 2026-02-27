@@ -69,8 +69,8 @@ export function ViewRaw(props: {
         {open ? "Hide raw" : label}
       </Button>
       {open ? (
-        <div className="rounded-md border border-border-subtle bg-bg-sunken/60">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle px-2 py-1">
+        <div className="rounded-md border border bg-muted/60">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border px-2 py-1">
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -105,12 +105,12 @@ export function ViewRaw(props: {
             <span className="ml-1">Download</span>
           </Button>
         </div>
-        <span className="text-sm text-fg-subtle">{lines.length} lines</span>
+        <span className="text-sm text-muted-foreground">{lines.length} lines</span>
       </div>
-          <div className={cn("max-h-96 overflow-auto p-3 text-sm leading-6 text-fg-muted", wrap ? "whitespace-pre-wrap" : "whitespace-pre")}>
+          <div className={cn("max-h-96 overflow-auto p-3 text-sm leading-6 text-muted-foreground", wrap ? "whitespace-pre-wrap" : "whitespace-pre")}>
             {lines.map((line, idx) => (
               <div key={idx} className="grid min-h-5 grid-cols-[2rem_1fr] gap-2">
-                <span className="select-none text-right text-fg-subtle">{String(idx + 1).padStart(3, "0")}</span>
+                <span className="select-none text-right text-muted-foreground">{String(idx + 1).padStart(3, "0")}</span>
                 <pre className={cn("min-h-5 tabular-nums font-mono", wrap ? "whitespace-pre-wrap" : "whitespace-pre")}>{line || " "}</pre>
               </div>
             ))}

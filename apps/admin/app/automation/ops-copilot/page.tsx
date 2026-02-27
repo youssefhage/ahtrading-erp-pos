@@ -1,15 +1,50 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  Clock,
+  Cpu,
+  Database,
+  Inbox,
+  Lock,
+  RefreshCw,
+  Server,
+  ShieldAlert,
+  XCircle,
+} from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { hasAnyPermission, permissionsToStringArray } from "@/lib/permissions";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
+import {
+  hasAnyPermission,
+  permissionsToStringArray,
+} from "@/lib/permissions";
+import { cn } from "@/lib/utils";
+
 import { AiSetupGate } from "@/components/ai-setup-gate";
-import { Page } from "@/components/page";
+import { ErrorBanner } from "@/components/error-banner";
+
+import { PageHeader } from "@/components/business/page-header";
+import { KpiCard } from "@/components/business/kpi-card";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
+
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 type CopilotOverview = {
   generated_at: string;
@@ -79,14 +114,9 @@ type MeContext = {
   permissions?: string[];
 };
 
-function pill(label: string, value: string) {
-  return (
-    <div className="rounded-md border border-border bg-bg-elevated px-3 py-2">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fg-subtle">{label}</div>
-      <div className="mt-1 font-mono text-xs text-foreground">{value}</div>
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 function fmtAge(iso: string | null | undefined): string {
   if (!iso) return "-";
@@ -115,293 +145,652 @@ function fmtInterval(seconds: number): string {
   return `${d}d`;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Section components                                                 */
+/* ------------------------------------------------------------------ */
+
+function MetricPill({
+  label,
+  value,
+  variant,
+}: {
+  label: string;
+  value: string | number;
+  variant?: "default" | "warning" | "danger";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2",
+        variant === "warning" && "border-yellow-500/30 bg-yellow-500/5",
+        variant === "danger" && "border-red-500/30 bg-red-500/5",
+        !variant || variant === "default"
+          ? "border-border bg-muted/50"
+          : ""
+      )}
+    >
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Page                                                          */
+/* ------------------------------------------------------------------ */
+
 export default function OpsCopilotPage() {
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [data, setData] = useState<CopilotOverview | null>(null);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   async function load() {
-    setErr(null);
+    setErr("");
     setPermissionsLoaded(false);
+    setLoading(true);
     try {
       const me = await apiGet<MeContext>("/auth/me");
       const nextPermissions = permissionsToStringArray(me);
       setPermissions(nextPermissions);
 
-      if (!hasAnyPermission({ permissions: nextPermissions }, ["ai:read", "ai:write"])) {
+      if (
+        !hasAnyPermission({ permissions: nextPermissions }, [
+          "ai:read",
+          "ai:write",
+        ])
+      ) {
         setData(null);
-        setErr(null);
+        setErr("");
         return;
       }
-      const res = await apiGet<CopilotOverview>("/ai/copilot/overview");
+      const res = await apiGet<CopilotOverview>(
+        "/ai/copilot/overview"
+      );
       setData(res);
-    } catch (err) {
-      setErr(err);
+    } catch (nextErr) {
+      setErr(nextErr instanceof Error ? nextErr.message : String(nextErr));
     } finally {
       setPermissionsLoaded(true);
+      setLoading(false);
     }
   }
 
-  const canReadAi = hasAnyPermission({ permissions }, ["ai:read", "ai:write"]);
+  const canReadAi = hasAnyPermission({ permissions }, [
+    "ai:read",
+    "ai:write",
+  ]);
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const aiActions = useMemo(() => data?.ai.actions_by_status || {}, [data]);
-  const recs = useMemo(() => data?.ai.recommendations_by_status || {}, [data]);
-  const pendingByAgent = useMemo(() => data?.ai.pending_recommendations_by_agent || {}, [data]);
-  const outbox = useMemo(() => data?.pos.outbox_by_status || {}, [data]);
-  const heartbeats = useMemo(() => data?.workers.heartbeats || [], [data]);
-  const overdue = useMemo(() => data?.jobs.overdue_schedules || [], [data]);
-  const recentJobFailures = useMemo(() => data?.jobs.recent_failed_runs || [], [data]);
-  const pendingByAgentRows = useMemo(
+  /* ---------- Derived data ---------- */
+
+  const aiActions = useMemo(
+    () => data?.ai.actions_by_status || {},
+    [data]
+  );
+  const recs = useMemo(
+    () => data?.ai.recommendations_by_status || {},
+    [data]
+  );
+  const pendingByAgent = useMemo(
+    () => data?.ai.pending_recommendations_by_agent || {},
+    [data]
+  );
+  const outbox = useMemo(
+    () => data?.pos.outbox_by_status || {},
+    [data]
+  );
+  const heartbeats = useMemo(
+    () => data?.workers.heartbeats || [],
+    [data]
+  );
+  const overdue = useMemo(
+    () => data?.jobs.overdue_schedules || [],
+    [data]
+  );
+  const recentJobFailures = useMemo(
+    () => data?.jobs.recent_failed_runs || [],
+    [data]
+  );
+
+  const pendingByAgentEntries = useMemo(
     () =>
       Object.entries(pendingByAgent)
         .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
-        .slice(0, 12)
-        .map(([agent, pending]) => ({ agent, pending: Number(pending || 0) })),
-    [pendingByAgent],
+        .slice(0, 12),
+    [pendingByAgent]
   );
-  const pendingByAgentColumns = useMemo((): Array<DataTableColumn<{ agent: string; pending: number }>> => {
-    return [
-      {
-        id: "agent",
-        header: "Agent",
-        sortable: true,
-        mono: true,
-        accessor: (r) => r.agent,
-        cell: (r) => <span className="font-mono text-xs text-fg-muted">{r.agent}</span>,
-      },
-      {
-        id: "pending",
-        header: "Pending",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => r.pending,
-        cell: (r) => <span className="data-mono">{r.pending}</span>,
-      },
-    ];
-  }, []);
-  const outboxRows = useMemo(
-    () => Object.entries(outbox).map(([status, count]) => ({ status, count: Number(count || 0) })),
-    [outbox],
+
+  const totalOutbox = useMemo(
+    () => Object.values(outbox).reduce((a, b) => a + (b || 0), 0),
+    [outbox]
   );
-  const outboxColumns = useMemo((): Array<DataTableColumn<{ status: string; count: number }>> => {
-    return [
-      { id: "status", header: "Status", sortable: true, accessor: (r) => r.status, cell: (r) => <span className="text-fg-muted">{r.status}</span> },
-      { id: "count", header: "Count", sortable: true, align: "right", mono: true, accessor: (r) => r.count, cell: (r) => <span className="data-mono">{r.count}</span> },
-    ];
-  }, []);
-  const periodLockColumns = useMemo(
-    (): Array<DataTableColumn<CopilotOverview["accounting"]["period_locks"][number]>> => [
-      { id: "start", header: "Start", sortable: true, accessor: (l) => l.start_date, cell: (l) => <span className="text-fg-muted">{l.start_date}</span> },
-      { id: "end", header: "End", sortable: true, accessor: (l) => l.end_date, cell: (l) => <span className="text-fg-muted">{l.end_date}</span> },
-      { id: "reason", header: "Reason", sortable: true, accessor: (l) => l.reason || "", cell: (l) => <span className="text-fg-subtle">{l.reason || "-"}</span> },
-    ],
-    [],
-  );
-  const heartbeatColumns = useMemo((): Array<DataTableColumn<CopilotOverview["workers"]["heartbeats"][number]>> => {
-    return [
-      { id: "worker", header: "Worker", sortable: true, accessor: (h) => h.worker_name, cell: (h) => <span className="text-fg-muted">{h.worker_name}</span> },
-      { id: "last_seen", header: "Last Seen", sortable: true, mono: true, accessor: (h) => h.last_seen_at, cell: (h) => <span className="text-fg-muted">{h.last_seen_at}</span> },
-      { id: "age", header: "Age", sortable: true, align: "right", mono: true, accessor: (h) => fmtAge(h.last_seen_at), cell: (h) => <span className="data-mono">{fmtAge(h.last_seen_at)}</span> },
-    ];
-  }, []);
-  const scheduleColumns = useMemo((): Array<DataTableColumn<CopilotOverview["jobs"]["schedules"][number]>> => {
-    return [
-      { id: "job", header: "Job", sortable: true, accessor: (s) => s.job_code, cell: (s) => <span className="text-fg-muted">{s.job_code}</span> },
-      { id: "interval", header: "Interval", sortable: true, mono: true, accessor: (s) => s.interval_seconds, cell: (s) => <span className="data-mono text-fg-muted">{fmtInterval(s.interval_seconds)}</span> },
-      { id: "next", header: "Next", sortable: true, mono: true, accessor: (s) => s.next_run_at || "", cell: (s) => <span className="text-fg-subtle">{s.next_run_at || "-"}</span> },
-      { id: "overdue", header: "Overdue", sortable: true, align: "right", mono: true, accessor: (s) => (s.is_overdue ? 1 : 0), cell: (s) => <span className="data-mono">{s.is_overdue ? "yes" : "no"}</span> },
-    ];
-  }, []);
-  const failureColumns = useMemo((): Array<DataTableColumn<CopilotOverview["jobs"]["recent_failed_runs"][number]>> => {
-    return [
-      { id: "job", header: "Recent Failures", sortable: true, accessor: (r) => r.job_code, cell: (r) => <span className="text-fg-muted">{r.job_code}</span> },
-      { id: "when", header: "When", sortable: true, mono: true, accessor: (r) => r.started_at, cell: (r) => <span className="text-fg-subtle">{fmtAge(r.started_at)}</span> },
-      { id: "message", header: "Message", sortable: true, align: "right", accessor: (r) => r.error_message || "", cell: (r) => <span className="text-fg-subtle">{r.error_message || "-"}</span> },
-    ];
-  }, []);
+
+  /* ---------------------------------------------------------------- */
+  /*  Render                                                           */
+  /* ---------------------------------------------------------------- */
 
   return (
-    <Page>
-        {err ? <AiSetupGate error={err} /> : null}
-        {err ? <ErrorBanner error={err} onRetry={load} /> : null}
-        {permissionsLoaded && !canReadAi ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>AI Ops Copilot Access Required</CardTitle>
-              <CardDescription>Request ai:read from your administrator to view the AI ops snapshot.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-fg-muted">
-                You’re currently missing the AI permission for the active company.
-              </p>
-            </CardContent>
-          </Card>
-        ) : null}
+    <div className="space-y-8">
+      {err ? <AiSetupGate error={err} /> : null}
+      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm text-fg-muted">
-              Read-only operational snapshot (safe by default). Generated:{" "}
-              <span className="font-mono text-xs text-foreground">{data?.generated_at || "-"}</span>
-            </p>
-          </div>
-          <Button variant="outline" onClick={load} disabled={!canReadAi} title={canReadAi ? "Refresh" : "Requires ai:read"}>
+      <PageHeader
+        title="Operations Copilot"
+        description="Read-only operational snapshot. Safe to view at any time."
+        badge={
+          data?.generated_at ? (
+            <Badge variant="outline" className="font-mono text-xs">
+              {fmtAge(data.generated_at)}
+            </Badge>
+          ) : undefined
+        }
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={load}
+            disabled={!canReadAi || loading}
+          >
+            <RefreshCw
+              className={cn(
+                "mr-2 h-3.5 w-3.5",
+                loading && "animate-spin"
+              )}
+            />
             Refresh
           </Button>
-        </div>
+        }
+      />
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>AI</CardTitle>
-              <CardDescription>Recommendations + actions lifecycle.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {pill("recs pending", String(recs["pending"] || 0))}
-                {pill("recs approved", String(recs["approved"] || 0))}
-                {pill("actions approved", String(aiActions["approved"] || 0))}
-                {pill("actions queued", String(aiActions["queued"] || 0))}
-                {pill("actions blocked", String(aiActions["blocked"] || 0))}
-                {pill("actions failed", String(aiActions["failed"] || 0))}
-              </div>
-              <div className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fg-subtle">
-                  Pending By Agent
+      {/* Permission gate */}
+      {permissionsLoaded && !canReadAi && (
+        <Card>
+          <CardContent className="py-12">
+            <EmptyState
+              icon={ShieldAlert}
+              title="AI Ops Copilot Access Required"
+              description="Request ai:read from your administrator to view the AI ops snapshot."
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {canReadAi && data && (
+        <>
+          {/* Top-level KPIs */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              title="Pending Recommendations"
+              value={String(recs["pending"] || 0)}
+              icon={Bot}
+              trend={
+                Number(recs["pending"] || 0) > 0 ? "up" : "neutral"
+              }
+              trendValue={
+                Number(recs["pending"] || 0) > 0
+                  ? "needs review"
+                  : ""
+              }
+            />
+            <KpiCard
+              title="POS Outbox Total"
+              value={String(totalOutbox)}
+              icon={Inbox}
+            />
+            <KpiCard
+              title="Failed Jobs (24h)"
+              value={String(data.jobs.failed_runs_24h || 0)}
+              icon={XCircle}
+              trend={
+                Number(data.jobs.failed_runs_24h || 0) > 0
+                  ? "down"
+                  : "neutral"
+              }
+              trendValue={
+                Number(data.jobs.failed_runs_24h || 0) > 0
+                  ? "investigate"
+                  : ""
+              }
+            />
+            <KpiCard
+              title="Overdue Jobs"
+              value={String(overdue.length)}
+              icon={AlertTriangle}
+              trend={overdue.length > 0 ? "down" : "neutral"}
+              trendValue={
+                overdue.length > 0 ? "behind schedule" : ""
+              }
+            />
+          </div>
+
+          {/* Dashboard grid */}
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* AI card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">AI</CardTitle>
                 </div>
-                <div className="mt-2">
-                  {Object.keys(pendingByAgent).length ? (
-                    <div className="space-y-2">
-                      <DataTable<{ agent: string; pending: number }>
-                        tableId="automation.ops.pending_by_agent"
-                        rows={pendingByAgentRows}
-                        columns={pendingByAgentColumns}
-                        getRowId={(r) => r.agent}
-                        emptyText="No pending recommendations."
-                        enableGlobalFilter={false}
-                        enablePagination={false}
-                        initialSort={{ columnId: "pending", dir: "desc" }}
-                      />
+                <CardDescription>
+                  Recommendations and actions lifecycle.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricPill
+                    label="Recs Pending"
+                    value={String(recs["pending"] || 0)}
+                    variant={
+                      Number(recs["pending"] || 0) > 0
+                        ? "warning"
+                        : "default"
+                    }
+                  />
+                  <MetricPill
+                    label="Recs Approved"
+                    value={String(recs["approved"] || 0)}
+                  />
+                  <MetricPill
+                    label="Actions Queued"
+                    value={String(aiActions["queued"] || 0)}
+                  />
+                  <MetricPill
+                    label="Actions Failed"
+                    value={String(aiActions["failed"] || 0)}
+                    variant={
+                      Number(aiActions["failed"] || 0) > 0
+                        ? "danger"
+                        : "default"
+                    }
+                  />
+                  <MetricPill
+                    label="Actions Approved"
+                    value={String(aiActions["approved"] || 0)}
+                  />
+                  <MetricPill
+                    label="Actions Blocked"
+                    value={String(aiActions["blocked"] || 0)}
+                    variant={
+                      Number(aiActions["blocked"] || 0) > 0
+                        ? "warning"
+                        : "default"
+                    }
+                  />
+                </div>
+
+                {/* Pending by agent */}
+                {pendingByAgentEntries.length > 0 && (
+                  <div>
+                    <Separator className="mb-3" />
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Pending by Agent
+                    </p>
+                    <div className="space-y-1.5">
+                      {pendingByAgentEntries.map(
+                        ([agent, count]) => (
+                          <div
+                            key={agent}
+                            className="flex items-center justify-between rounded-md border px-3 py-1.5"
+                          >
+                            <span className="font-mono text-xs">
+                              {agent}
+                            </span>
+                            <Badge
+                              variant="warning"
+                              className="font-mono text-xs"
+                            >
+                              {String(count)}
+                            </Badge>
+                          </div>
+                        )
+                      )}
                     </div>
-                  ) : (
-                    <div className="text-xs text-fg-subtle">No pending recommendations.</div>
-                  )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* POS card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Inbox className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">POS</CardTitle>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+                <CardDescription>
+                  Outbox queue health.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricPill
+                    label="Pending"
+                    value={String(outbox["pending"] || 0)}
+                  />
+                  <MetricPill
+                    label="Processed"
+                    value={String(outbox["processed"] || 0)}
+                  />
+                  <MetricPill
+                    label="Failed"
+                    value={String(data.pos.outbox_failed || 0)}
+                    variant={
+                      Number(data.pos.outbox_failed || 0) > 0
+                        ? "danger"
+                        : "default"
+                    }
+                  />
+                  <MetricPill
+                    label="Total"
+                    value={String(totalOutbox)}
+                  />
+                </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>POS</CardTitle>
-              <CardDescription>Outbox queue health.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {pill("pending", String(outbox["pending"] || 0))}
-                {pill("processed", String(outbox["processed"] || 0))}
-                {pill("failed", String(data?.pos.outbox_failed || 0))}
-                {pill("total", String(Object.values(outbox).reduce((a, b) => a + (b || 0), 0)))}
-              </div>
-              <DataTable<{ status: string; count: number }>
-                tableId="automation.ops.outbox_status"
-                rows={outboxRows}
-                columns={outboxColumns}
-                getRowId={(r) => r.status}
-                emptyText="No outbox data."
-                enableGlobalFilter={false}
-                enablePagination={false}
-                initialSort={{ columnId: "count", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
+                {/* Status breakdown */}
+                {Object.keys(outbox).length > 0 && (
+                  <div>
+                    <Separator className="mb-3" />
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Status Breakdown
+                    </p>
+                    <div className="space-y-1.5">
+                      {Object.entries(outbox)
+                        .sort(
+                          (a, b) =>
+                            Number(b[1] || 0) - Number(a[1] || 0)
+                        )
+                        .map(([status, count]) => (
+                          <div
+                            key={status}
+                            className="flex items-center justify-between rounded-md border px-3 py-1.5"
+                          >
+                            <span className="text-xs text-muted-foreground capitalize">
+                              {status}
+                            </span>
+                            <span className="font-mono text-xs font-medium">
+                              {String(count)}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Integrity + Close</CardTitle>
-              <CardDescription>Negative stock + accounting period locks.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {pill("negative rows", String(data?.inventory.negative_on_hand_rows || 0))}
-                {pill("neg value USD", String(data?.inventory.approx_value_usd || "0"))}
-                {pill("neg value LL", String(data?.inventory.approx_value_lbp || "0"))}
-                {pill("locks", String(data?.accounting.period_locks?.length || 0))}
-              </div>
-              <DataTable<CopilotOverview["accounting"]["period_locks"][number]>
-                tableId="automation.ops.period_locks"
-                rows={data?.accounting.period_locks || []}
-                columns={periodLockColumns}
-                getRowId={(l) => l.id}
-                emptyText="No active locks."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "start", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
-        </div>
+            {/* Integrity card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">
+                    Integrity & Close
+                  </CardTitle>
+                </div>
+                <CardDescription>
+                  Negative stock and accounting period locks.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricPill
+                    label="Negative Rows"
+                    value={String(
+                      data.inventory.negative_on_hand_rows || 0
+                    )}
+                    variant={
+                      Number(
+                        data.inventory.negative_on_hand_rows || 0
+                      ) > 0
+                        ? "danger"
+                        : "default"
+                    }
+                  />
+                  <MetricPill
+                    label="Neg Value USD"
+                    value={String(
+                      data.inventory.approx_value_usd || "0"
+                    )}
+                  />
+                  <MetricPill
+                    label="Neg Value LBP"
+                    value={String(
+                      data.inventory.approx_value_lbp || "0"
+                    )}
+                  />
+                  <MetricPill
+                    label="Period Locks"
+                    value={String(
+                      data.accounting.period_locks?.length || 0
+                    )}
+                  />
+                </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Worker</CardTitle>
-              <CardDescription>Background worker liveness (per company).</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {pill("heartbeats", String(heartbeats.length))}
-                {pill("overdue jobs", String(overdue.length))}
-              </div>
-              <DataTable<CopilotOverview["workers"]["heartbeats"][number]>
-                tableId="automation.ops.heartbeats"
-                rows={heartbeats}
-                columns={heartbeatColumns}
-                getRowId={(h) => h.worker_name}
-                emptyText="No worker heartbeat rows yet (worker may be offline)."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "last_seen", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
+                {/* Period locks */}
+                {(data.accounting.period_locks || []).length > 0 && (
+                  <div>
+                    <Separator className="mb-3" />
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Active Locks
+                    </p>
+                    <div className="space-y-2">
+                      {data.accounting.period_locks.map((lock) => (
+                        <div
+                          key={lock.id}
+                          className="flex items-start justify-between rounded-md border px-3 py-2"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <Lock className="h-3 w-3 text-muted-foreground" />
+                              <span className="font-mono text-xs">
+                                {lock.start_date} to {lock.end_date}
+                              </span>
+                            </div>
+                            {lock.reason && (
+                              <p className="text-xs text-muted-foreground">
+                                {lock.reason}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Jobs</CardTitle>
-              <CardDescription>Background schedules and recent failures.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {pill("failed 24h", String(data?.jobs.failed_runs_24h || 0))}
-                {pill("schedules", String(data?.jobs.schedules.length || 0))}
-              </div>
+          {/* Bottom row: Workers + Jobs */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Workers card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Server className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">Workers</CardTitle>
+                </div>
+                <CardDescription>
+                  Background worker liveness (per company).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricPill
+                    label="Heartbeats"
+                    value={String(heartbeats.length)}
+                  />
+                  <MetricPill
+                    label="Overdue Jobs"
+                    value={String(overdue.length)}
+                    variant={overdue.length > 0 ? "warning" : "default"}
+                  />
+                </div>
 
-              <DataTable<CopilotOverview["jobs"]["schedules"][number]>
-                tableId="automation.ops.schedules"
-                rows={data?.jobs.schedules || []}
-                columns={scheduleColumns}
-                getRowId={(s) => s.job_code}
-                emptyText="No schedules found."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "job", dir: "asc" }}
-              />
+                {heartbeats.length > 0 ? (
+                  <div className="space-y-2">
+                    {heartbeats.map((hb) => {
+                      const age = fmtAge(hb.last_seen_at);
+                      const isStale =
+                        Date.now() - new Date(hb.last_seen_at).getTime() >
+                        5 * 60 * 1000;
+                      return (
+                        <div
+                          key={hb.worker_name}
+                          className="flex items-center justify-between rounded-md border px-3 py-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={cn(
+                                "h-2 w-2 rounded-full",
+                                isStale
+                                  ? "bg-red-500"
+                                  : "bg-green-500"
+                              )}
+                            />
+                            <span className="text-sm">
+                              {hb.worker_name}
+                            </span>
+                          </div>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {age}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No worker heartbeat rows yet (worker may be
+                    offline).
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-              <DataTable<CopilotOverview["jobs"]["recent_failed_runs"][number]>
-                tableId="automation.ops.failed_runs"
-                rows={recentJobFailures}
-                columns={failureColumns}
-                getRowId={(r) => r.id}
-                emptyText="No recent failed runs."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "when", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
-        </div>
-      </Page>);
+            {/* Jobs card */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">Jobs</CardTitle>
+                </div>
+                <CardDescription>
+                  Background schedules and recent failures.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricPill
+                    label="Failed 24h"
+                    value={String(data.jobs.failed_runs_24h || 0)}
+                    variant={
+                      Number(data.jobs.failed_runs_24h || 0) > 0
+                        ? "danger"
+                        : "default"
+                    }
+                  />
+                  <MetricPill
+                    label="Schedules"
+                    value={String(data.jobs.schedules.length || 0)}
+                  />
+                </div>
+
+                {/* Schedules */}
+                {(data.jobs.schedules || []).length > 0 && (
+                  <div>
+                    <Separator className="mb-3" />
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Schedules
+                    </p>
+                    <div className="space-y-1.5">
+                      {data.jobs.schedules.map((s) => (
+                        <div
+                          key={s.job_code}
+                          className="flex items-center justify-between rounded-md border px-3 py-2"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-medium">
+                                {s.job_code}
+                              </span>
+                              <Badge
+                                variant={
+                                  s.enabled ? "success" : "secondary"
+                                }
+                                className="text-[10px]"
+                              >
+                                {s.enabled ? "On" : "Off"}
+                              </Badge>
+                              {s.is_overdue && (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[10px]"
+                                >
+                                  Overdue
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              Every {fmtInterval(s.interval_seconds)}
+                              {s.next_run_at &&
+                                ` \u2022 Next: ${fmtAge(s.next_run_at)}`}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent failures */}
+                {recentJobFailures.length > 0 && (
+                  <div>
+                    <Separator className="mb-3" />
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Recent Failures
+                    </p>
+                    <div className="space-y-1.5">
+                      {recentJobFailures.map((f) => (
+                        <div
+                          key={f.id}
+                          className="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <XCircle className="h-3 w-3 text-red-500" />
+                              <span className="font-mono text-xs font-medium">
+                                {f.job_code}
+                              </span>
+                            </div>
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              {fmtAge(f.started_at)}
+                            </span>
+                          </div>
+                          {f.error_message && (
+                            <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                              {f.error_message}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }

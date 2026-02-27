@@ -1,16 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw, Building2, ArrowRightLeft } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { getFxRateUsdToLbp } from "@/lib/fx";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { fmtUsd, fmtLbp } from "@/lib/money";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { CurrencyDisplay } from "@/components/business/currency-display";
+import { EmptyState } from "@/components/business/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Label } from "@/components/ui/label";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type DocRow = {
   id: string;
@@ -40,9 +51,18 @@ type SettlementRow = {
 
 type Company = { id: string; name: string };
 
-function fmt(n: string | number) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+function n(v: unknown) {
+  const x = Number(v || 0);
+  return Number.isFinite(x) ? x : 0;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function IntercompanyPage() {
   const [status, setStatus] = useState("");
@@ -51,6 +71,7 @@ export default function IntercompanyPage() {
   const [settlements, setSettlements] = useState<SettlementRow[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
 
+  // Settlement form
   const [fromCompanyId, setFromCompanyId] = useState("");
   const [toCompanyId, setToCompanyId] = useState("");
   const [amountUsd, setAmountUsd] = useState("0");
@@ -60,54 +81,115 @@ export default function IntercompanyPage() {
   const [saving, setSaving] = useState(false);
   const statusIsBusy = /^Posting settlement\b/i.test(status);
 
-  const docColumns = useMemo((): Array<DataTableColumn<DocRow>> => {
-    return [
+  const docColumns = useMemo<ColumnDef<DocRow>[]>(
+    () => [
       {
         id: "created_at",
-        header: "When",
-        accessor: (d) => d.created_at || "",
-        mono: true,
-        sortable: true,
-        globalSearch: false,
-        cell: (d) => <span className="data-mono text-xs">{formatDateTime(d.created_at)}</span>,
+        accessorFn: (d) => d.created_at || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="When" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{formatDateTime(row.original.created_at)}</span>
+        ),
       },
       {
         id: "source",
-        header: "Source",
-        accessor: (d) => `${d.source_type}:${String(d.source_id).slice(0, 8)}`,
-        mono: true,
-        sortable: true,
-        cell: (d) => (
-          <span className="data-mono text-xs">
-            {d.source_type}:{String(d.source_id).slice(0, 8)}
+        accessorFn: (d) => `${d.source_type}:${String(d.source_id).slice(0, 8)}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">
+            {row.original.source_type}:{String(row.original.source_id).slice(0, 8)}
           </span>
         ),
       },
-      { id: "source_company_name", header: "Source Co", accessor: (d) => d.source_company_name || d.source_company_id.slice(0, 8), sortable: true },
-      { id: "issue_company_name", header: "Issue Co", accessor: (d) => d.issue_company_name || d.issue_company_id.slice(0, 8), sortable: true },
-      { id: "sell_company_name", header: "Sell Co", accessor: (d) => d.sell_company_name || d.sell_company_id.slice(0, 8), sortable: true },
-      { id: "settlement_status", header: "Status", accessor: (d) => d.settlement_status, sortable: true, globalSearch: false, cell: (d) => <StatusChip value={d.settlement_status} /> },
-    ];
-  }, []);
+      {
+        id: "source_company_name",
+        accessorFn: (d) => d.source_company_name || d.source_company_id.slice(0, 8),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Source Co" />,
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.source_company_name || row.original.source_company_id.slice(0, 8)}</span>
+        ),
+      },
+      {
+        id: "issue_company_name",
+        accessorFn: (d) => d.issue_company_name || d.issue_company_id.slice(0, 8),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Issue Co" />,
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.issue_company_name || row.original.issue_company_id.slice(0, 8)}</span>
+        ),
+      },
+      {
+        id: "sell_company_name",
+        accessorFn: (d) => d.sell_company_name || d.sell_company_id.slice(0, 8),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Sell Co" />,
+        cell: ({ row }) => (
+          <span className="text-sm">{row.original.sell_company_name || row.original.sell_company_id.slice(0, 8)}</span>
+        ),
+      },
+      {
+        id: "settlement_status",
+        accessorFn: (d) => d.settlement_status,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.settlement_status} />,
+      },
+    ],
+    [],
+  );
 
-  const settlementColumns = useMemo((): Array<DataTableColumn<SettlementRow>> => {
-    return [
+  const settlementColumns = useMemo<ColumnDef<SettlementRow>[]>(
+    () => [
       {
         id: "created_at",
-        header: "When",
-        accessor: (s) => s.created_at || "",
-        mono: true,
-        sortable: true,
-        globalSearch: false,
-        cell: (s) => <span className="data-mono text-xs">{formatDateTime(s.created_at)}</span>,
+        accessorFn: (s) => s.created_at || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="When" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{formatDateTime(row.original.created_at)}</span>
+        ),
       },
-      { id: "from_company_name", header: "From", accessor: (s) => s.from_company_name || s.from_company_id.slice(0, 8), sortable: true },
-      { id: "to_company_name", header: "To", accessor: (s) => s.to_company_name || s.to_company_id.slice(0, 8), sortable: true },
-      { id: "amount_usd", header: "USD", accessor: (s) => Number(s.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (s) => <span className="data-mono ui-tone-usd">{fmt(s.amount_usd)}</span> },
-      { id: "amount_lbp", header: "LL", accessor: (s) => Number(s.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (s) => <span className="data-mono ui-tone-lbp">{fmt(s.amount_lbp)}</span> },
-      { id: "exchange_rate", header: "Rate", accessor: (s) => Number(s.exchange_rate || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (s) => <span className="data-mono">{fmt(s.exchange_rate)}</span> },
-    ];
-  }, []);
+      {
+        id: "from_company_name",
+        accessorFn: (s) => s.from_company_name || s.from_company_id.slice(0, 8),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="From" />,
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.from_company_name || row.original.from_company_id.slice(0, 8)}
+          </span>
+        ),
+      },
+      {
+        id: "to_company_name",
+        accessorFn: (s) => s.to_company_name || s.to_company_id.slice(0, 8),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="To" />,
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.to_company_name || row.original.to_company_id.slice(0, 8)}
+          </span>
+        ),
+      },
+      {
+        id: "amount_usd",
+        accessorFn: (s) => n(s.amount_usd),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD" className="justify-end" />,
+        cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_usd)} currency="USD" />,
+      },
+      {
+        id: "amount_lbp",
+        accessorFn: (s) => n(s.amount_lbp),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" className="justify-end" />,
+        cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_lbp)} currency="LBP" />,
+      },
+      {
+        id: "exchange_rate",
+        accessorFn: (s) => n(s.exchange_rate),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Rate" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm">
+            {Number(row.original.exchange_rate || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
 
   async function load() {
     setLoading(true);
@@ -116,7 +198,7 @@ export default function IntercompanyPage() {
       const [c, d, s] = await Promise.all([
         apiGet<{ companies: Company[] }>("/companies"),
         apiGet<{ documents: DocRow[] }>("/intercompany/documents?limit=200"),
-        apiGet<{ settlements: SettlementRow[] }>("/intercompany/settlements?limit=200")
+        apiGet<{ settlements: SettlementRow[] }>("/intercompany/settlements?limit=200"),
       ]);
       setCompanies(c.companies || []);
       setDocs(d.documents || []);
@@ -125,8 +207,7 @@ export default function IntercompanyPage() {
       if (!toCompanyId && c.companies?.length) setToCompanyId(c.companies[0].id);
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -140,13 +221,12 @@ export default function IntercompanyPage() {
   useEffect(() => {
     let cancelled = false;
     async function prime() {
-      // Only prime if the user hasn't set anything yet.
       const curr = Number(exchangeRate || 0);
       if (Number.isFinite(curr) && curr > 0) return;
       const r = await getFxRateUsdToLbp();
       if (cancelled) return;
-      const n = Number(r?.usd_to_lbp || 0);
-      if (Number.isFinite(n) && n > 0) setExchangeRate(String(n));
+      const val = Number(r?.usd_to_lbp || 0);
+      if (Number.isFinite(val) && val > 0) setExchangeRate(String(val));
     }
     prime().catch(() => {});
     return () => {
@@ -156,8 +236,8 @@ export default function IntercompanyPage() {
 
   async function settle(e: React.FormEvent) {
     e.preventDefault();
-    if (!fromCompanyId || !toCompanyId) return setStatus("from/to company are required");
-    if (fromCompanyId === toCompanyId) return setStatus("from and to must differ");
+    if (!fromCompanyId || !toCompanyId) return setStatus("From/to company are required");
+    if (fromCompanyId === toCompanyId) return setStatus("From and to must differ");
     setSaving(true);
     setStatus("Posting settlement...");
     try {
@@ -167,128 +247,153 @@ export default function IntercompanyPage() {
         amount_usd: Number(amountUsd || 0),
         amount_lbp: Number(amountLbp || 0),
         exchange_rate: Number(exchangeRate || 0),
-        method
+        method,
       });
       await load();
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="ui-module-shell-narrow">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Accounting</p>
-            <h1 className="ui-module-title">Intercompany</h1>
-            <p className="ui-module-subtitle">Track documents and settlements between legal entities.</p>
-          </div>
-        </div>
-      </div>
-      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Intercompany"
+        description="Track documents and settlements between legal entities."
+        actions={
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
+      {status && !statusIsBusy && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Settlement Form */}
       <Card>
         <CardHeader>
           <CardTitle>Intercompany Settlement</CardTitle>
-          <CardDescription>Record a settlement between companies (posts journals on both sides).</CardDescription>
+          <p className="text-sm text-muted-foreground">
+            Record a settlement between companies (posts journals on both sides).
+          </p>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <form onSubmit={settle} className="ui-form-grid-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">From (payer)</label>
-              <select className="ui-select" value={fromCompanyId} onChange={(e) => setFromCompanyId(e.target.value)}>
+        <CardContent>
+          <form onSubmit={settle} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label>From (payer)</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={fromCompanyId}
+                onChange={(e) => setFromCompanyId(e.target.value)}
+              >
                 <option value="">Select...</option>
                 {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">To (receiver)</label>
-              <select className="ui-select" value={toCompanyId} onChange={(e) => setToCompanyId(e.target.value)}>
+            <div className="space-y-2">
+              <Label>To (receiver)</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={toCompanyId}
+                onChange={(e) => setToCompanyId(e.target.value)}
+              >
                 <option value="">Select...</option>
                 {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Method</label>
-              <select className="ui-select" value={method} onChange={(e) => setMethod(e.target.value as any)}>
+            <div className="space-y-2">
+              <Label>Method</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={method}
+                onChange={(e) => setMethod(e.target.value as "cash" | "bank")}
+              >
                 <option value="bank">Bank</option>
                 <option value="cash">Cash</option>
               </select>
             </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Amount USD</label>
-              <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} />
+            <div className="space-y-2">
+              <Label>Amount USD</Label>
+              <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} inputMode="decimal" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Amount LL</label>
-              <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} />
+            <div className="space-y-2">
+              <Label>Amount LL</Label>
+              <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} inputMode="decimal" />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Exchange Rate</label>
-              <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
+            <div className="space-y-2">
+              <Label>Exchange Rate</Label>
+              <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" />
             </div>
-
-            <div className="flex items-end justify-end md:col-span-3">
-              <div className="flex items-center gap-2">
-                <Button variant="outline" type="button" onClick={load} disabled={loading}>
-                  {loading ? "Loading..." : "Refresh"}
-                </Button>
-                <Button disabled={saving} type="submit">
-                  {saving ? "Posting..." : "Settle"}
-                </Button>
-              </div>
+            <div className="flex items-end justify-end sm:col-span-3">
+              <Button disabled={saving} type="submit">
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                {saving ? "Posting..." : "Settle"}
+              </Button>
             </div>
           </form>
         </CardContent>
       </Card>
 
+      {/* Documents */}
       <Card>
         <CardHeader>
           <CardTitle>Intercompany Documents</CardTitle>
-          <CardDescription>{docs.length} recent documents</CardDescription>
+          <p className="text-sm text-muted-foreground">{docs.length} recent documents</p>
         </CardHeader>
         <CardContent>
-          <DataTable<DocRow>
-            tableId="accounting.intercompany.documents"
-            rows={docs}
-            columns={docColumns}
-            isLoading={loading}
-            initialSort={{ columnId: "created_at", dir: "desc" }}
-            globalFilterPlaceholder="Search source / company..."
-            emptyText={loading ? "Loading..." : "No intercompany documents."}
-          />
+          {!loading && docs.length === 0 ? (
+            <EmptyState
+              icon={Building2}
+              title="No intercompany documents"
+              description="Documents are created when cross-company transactions occur."
+            />
+          ) : (
+            <DataTable
+              columns={docColumns}
+              data={docs}
+              isLoading={loading}
+              searchPlaceholder="Search source / company..."
+            />
+          )}
         </CardContent>
       </Card>
 
+      {/* Settlements */}
       <Card>
         <CardHeader>
           <CardTitle>Settlements</CardTitle>
-          <CardDescription>{settlements.length} recent settlements</CardDescription>
+          <p className="text-sm text-muted-foreground">{settlements.length} recent settlements</p>
         </CardHeader>
         <CardContent>
-          <DataTable<SettlementRow>
-            tableId="accounting.intercompany.settlements"
-            rows={settlements}
-            columns={settlementColumns}
-            isLoading={loading}
-            initialSort={{ columnId: "created_at", dir: "desc" }}
-            globalFilterPlaceholder="Search company..."
-            emptyText={loading ? "Loading..." : "No settlements."}
-          />
+          {!loading && settlements.length === 0 ? (
+            <EmptyState
+              icon={ArrowRightLeft}
+              title="No settlements"
+              description="Record a settlement above to clear intercompany balances."
+            />
+          ) : (
+            <DataTable
+              columns={settlementColumns}
+              data={settlements}
+              isLoading={loading}
+              searchPlaceholder="Search company..."
+            />
+          )}
         </CardContent>
       </Card>
     </div>

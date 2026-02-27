@@ -21,12 +21,7 @@ function titleize(s: string): string {
 
 export function StatusChip(props: { value?: string | null; className?: string }) {
   const raw = normalize(props.value);
-  const semanticToneClass =
-    raw === "draft"
-      ? "ui-chip-status-draft"
-      : raw === "posted"
-        ? "ui-chip-status-posted"
-        : "";
+  const semanticToneClass = "";
 
   let variant: ChipVariant = "default";
   if (["posted", "paid", "active", "completed", "success", "executed", "approved", "reconciled", "done"].includes(raw)) variant = "success";

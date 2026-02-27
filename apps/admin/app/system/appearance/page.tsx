@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Moon, Sun, Palette } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/business/page-header";
 import { getCompanyId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -16,15 +18,15 @@ const ALL_ACCENT_THEMES = ["cobalt", "sky", "emerald", "teal", "rose", "slate"] 
 const ACCENT_THEMES: {
   key: AccentTheme;
   label: string;
-  primary: string; // "r g b"
-  dim: string; // "r g b"
+  primary: string;
+  dim: string;
 }[] = [
   { key: "cobalt", label: "Cobalt", primary: "37 99 235", dim: "29 78 216" },
   { key: "sky", label: "Sky", primary: "14 165 233", dim: "3 105 161" },
   { key: "emerald", label: "Emerald", primary: "16 185 129", dim: "4 120 87" },
   { key: "teal", label: "Teal", primary: "20 184 166", dim: "15 118 110" },
   { key: "rose", label: "Rose", primary: "244 63 94", dim: "190 18 60" },
-  { key: "slate", label: "Slate", primary: "100 116 139", dim: "51 65 85" }
+  { key: "slate", label: "Slate", primary: "100 116 139", dim: "51 65 85" },
 ];
 
 function normalizeCompanyThemeScope(companyId: string) {
@@ -71,11 +73,9 @@ function applyColorTheme(next: ColorTheme, companyId: string) {
 
 function applyAccentTheme(next: AccentTheme, companyId: string) {
   saveThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId, next);
-  // Remove any existing `theme-*` classes, then apply the new one.
   const root = document.documentElement;
   ALL_ACCENT_THEMES.forEach((t) => root.classList.remove(`theme-${t}`));
   root.classList.add(`theme-${next}`);
-  // Clear any leftover inline style overrides so the CSS class rules take effect.
   root.style.removeProperty("--primary");
   root.style.removeProperty("--primary-fg");
   root.style.removeProperty("--primary-dim");
@@ -140,24 +140,26 @@ export default function AppearanceSettingsPage() {
 
   const selectedAccent = useMemo(
     () => ACCENT_THEMES.find((t) => t.key === accentTheme) ?? ACCENT_THEMES[0],
-    [accentTheme]
+    [accentTheme],
   );
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-foreground">Appearance</h1>
-        <p className="mt-1 text-sm text-fg-subtle">
-          Choose how the portal looks on this device. Your selection is saved in your browser per active company.
+    <div className="space-y-8">
+      <PageHeader
+        title="Appearance"
+        description="Choose how the portal looks on this device. Your selection is saved in your browser per active company."
+      >
+        <p className="text-xs text-muted-foreground">
+          Active company: <code className="font-mono text-sm">{companyId || "not selected"}</code>
         </p>
-        <p className="mt-1 text-xs text-fg-subtle">
-          Active company: <code className="font-mono">{companyId || "not selected"}</code>
-        </p>
-      </div>
+      </PageHeader>
 
       <Card>
         <CardHeader>
-          <CardTitle>Color Mode</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            {colorTheme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            Color Mode
+          </CardTitle>
           <CardDescription>Light or dark UI mode.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -166,10 +168,10 @@ export default function AppearanceSettingsPage() {
               type="button"
               aria-pressed={colorTheme === "light"}
               className={cn(
-                "group flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                "group flex items-center gap-4 rounded-lg border p-4 text-left transition-colors",
                 colorTheme === "light"
-                  ? "border-primary/30 bg-primary/5"
-                  : "border-border-subtle bg-bg-elevated/50 hover:border-border-strong"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border hover:border-muted-foreground/30",
               )}
               onClick={() => {
                 setColorTheme("light");
@@ -177,18 +179,18 @@ export default function AppearanceSettingsPage() {
               }}
             >
               <span
-                className="h-9 w-9 shrink-0 rounded-md border border-border-subtle"
+                className="h-10 w-10 shrink-0 rounded-md border"
                 style={{
-                  background: "linear-gradient(135deg, rgb(250 250 250), rgb(228 228 231))"
+                  background: "linear-gradient(135deg, rgb(250 250 250), rgb(228 228 231))",
                 }}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">Light</div>
-                <div className="text-xs text-fg-subtle">Bright background, high contrast text.</div>
+                <div className="text-sm font-medium">Light</div>
+                <div className="text-xs text-muted-foreground">Bright background, high contrast text.</div>
               </div>
               {colorTheme === "light" && (
-                <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                  ACTIVE
+                <span className="ml-auto rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                  Active
                 </span>
               )}
             </button>
@@ -197,10 +199,10 @@ export default function AppearanceSettingsPage() {
               type="button"
               aria-pressed={colorTheme === "dark"}
               className={cn(
-                "group flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                "group flex items-center gap-4 rounded-lg border p-4 text-left transition-colors",
                 colorTheme === "dark"
-                  ? "border-primary/30 bg-primary/5"
-                  : "border-border-subtle bg-bg-elevated/50 hover:border-border-strong"
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border hover:border-muted-foreground/30",
               )}
               onClick={() => {
                 setColorTheme("dark");
@@ -208,18 +210,18 @@ export default function AppearanceSettingsPage() {
               }}
             >
               <span
-                className="h-9 w-9 shrink-0 rounded-md border border-border-subtle"
+                className="h-10 w-10 shrink-0 rounded-md border"
                 style={{
-                  background: "linear-gradient(135deg, rgb(9 9 11), rgb(24 24 27))"
+                  background: "linear-gradient(135deg, rgb(9 9 11), rgb(24 24 27))",
                 }}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">Dark</div>
-                <div className="text-xs text-fg-subtle">Low glare, better in dim environments.</div>
+                <div className="text-sm font-medium">Dark</div>
+                <div className="text-xs text-muted-foreground">Low glare, better in dim environments.</div>
               </div>
               {colorTheme === "dark" && (
-                <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                  ACTIVE
+                <span className="ml-auto rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                  Active
                 </span>
               )}
             </button>
@@ -229,10 +231,13 @@ export default function AppearanceSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Accent Theme</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Palette className="h-4 w-4" />
+            Accent Theme
+          </CardTitle>
           <CardDescription>Changes the primary color used for actions, highlights, and focus.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {ACCENT_THEMES.map((t) => (
               <button
@@ -240,10 +245,10 @@ export default function AppearanceSettingsPage() {
                 type="button"
                 aria-pressed={accentTheme === t.key}
                 className={cn(
-                  "group flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                  "group flex items-center gap-4 rounded-lg border p-4 text-left transition-colors",
                   accentTheme === t.key
-                    ? "border-primary/30 bg-primary/5"
-                    : "border-border-subtle bg-bg-elevated/50 hover:border-border-strong"
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                    : "border-border hover:border-muted-foreground/30",
                 )}
                 onClick={() => {
                   setAccentTheme(t.key);
@@ -251,29 +256,30 @@ export default function AppearanceSettingsPage() {
                 }}
               >
                 <span
-                  className="h-9 w-9 shrink-0 rounded-md border border-border-subtle"
+                  className="h-10 w-10 shrink-0 rounded-md border"
                   style={{ background: swatchBg(t.primary, t.dim) }}
                 />
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">{t.label}</div>
-                  <div className="text-xs text-fg-subtle">
-                    Primary: <span className="font-mono">{t.primary}</span>
-                  </div>
+                  <div className="text-sm font-medium">{t.label}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{t.primary}</div>
                 </div>
                 {accentTheme === t.key && (
-                  <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                    ACTIVE
+                  <span className="ml-auto rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    Active
                   </span>
                 )}
               </button>
             ))}
           </div>
 
-          <div className="mt-4 rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
-            <div className="text-xs text-fg-subtle">
+          <div className="rounded-lg border bg-muted/40 p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               Current accent:{" "}
-              <span className="font-medium text-foreground">{selectedAccent.label}</span>{" "}
-              <span className="ml-2 inline-block h-2 w-2 rounded-full align-middle" style={{ background: `rgb(${selectedAccent.primary})` }} />{" "}
+              <span className="font-medium text-foreground">{selectedAccent.label}</span>
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ background: `rgb(${selectedAccent.primary})` }}
+              />
             </div>
           </div>
         </CardContent>

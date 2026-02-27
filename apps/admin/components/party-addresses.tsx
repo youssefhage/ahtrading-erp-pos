@@ -161,7 +161,7 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {status ? <div className="text-xs text-fg-muted">{status}</div> : null}
+        {status ? <div className="text-xs text-muted-foreground">{status}</div> : null}
 
         <div className="space-y-2">
           {(addresses || []).map((a) => (
@@ -169,10 +169,10 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
               <div className="flex items-start justify-between gap-2">
                 <div className="text-sm">
                   <div className="font-medium">
-                    {a.label || "Address"} {a.is_default ? <span className="text-xs text-fg-subtle">(default)</span> : null}
+                    {a.label || "Address"} {a.is_default ? <span className="text-xs text-muted-foreground">(default)</span> : null}
                   </div>
-                  <div className="text-fg-muted">{[a.line1, a.line2].filter(Boolean).join(", ") || "-"}</div>
-                  <div className="text-fg-muted">
+                  <div className="text-muted-foreground">{[a.line1, a.line2].filter(Boolean).join(", ") || "-"}</div>
+                  <div className="text-muted-foreground">
                     {[a.city, a.region, a.country].filter(Boolean).join(", ") || "-"}{a.postal_code ? ` · ${a.postal_code}` : ""}
                   </div>
                 </div>
@@ -187,7 +187,7 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
               </div>
             </div>
           ))}
-          {!addresses.length ? <div className="text-sm text-fg-muted">No addresses yet.</div> : null}
+          {!addresses.length ? <div className="text-sm text-muted-foreground">No addresses yet.</div> : null}
         </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
@@ -199,37 +199,37 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
 
             <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idLabel} className="text-xs font-medium text-fg-muted">Label</label>
+                <label htmlFor={idLabel} className="text-xs font-medium text-muted-foreground">Label</label>
                 <Input id={idLabel} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Main, Warehouse, Billing..." />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idLine1} className="text-xs font-medium text-fg-muted">Line 1</label>
+                <label htmlFor={idLine1} className="text-xs font-medium text-muted-foreground">Line 1</label>
                 <Input id={idLine1} value={line1} onChange={(e) => setLine1(e.target.value)} placeholder="Street, building..." />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idLine2} className="text-xs font-medium text-fg-muted">Line 2</label>
+                <label htmlFor={idLine2} className="text-xs font-medium text-muted-foreground">Line 2</label>
                 <Input id={idLine2} value={line2} onChange={(e) => setLine2(e.target.value)} placeholder="Area, floor..." />
               </div>
               <div className="space-y-1">
-                <label htmlFor={idCity} className="text-xs font-medium text-fg-muted">City</label>
+                <label htmlFor={idCity} className="text-xs font-medium text-muted-foreground">City</label>
                 <Input id={idCity} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Beirut" />
               </div>
               <div className="space-y-1">
-                <label htmlFor={idRegion} className="text-xs font-medium text-fg-muted">Region</label>
+                <label htmlFor={idRegion} className="text-xs font-medium text-muted-foreground">Region</label>
                 <Input id={idRegion} value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Mount Lebanon" />
               </div>
               <div className="space-y-1">
-                <label htmlFor={idCountry} className="text-xs font-medium text-fg-muted">Country</label>
+                <label htmlFor={idCountry} className="text-xs font-medium text-muted-foreground">Country</label>
                 <Input id={idCountry} value={country} onChange={(e) => setCountry(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label htmlFor={idPostal} className="text-xs font-medium text-fg-muted">Postal Code</label>
+                <label htmlFor={idPostal} className="text-xs font-medium text-muted-foreground">Postal Code</label>
                 <Input id={idPostal} value={postal} onChange={(e) => setPostal(e.target.value)} />
               </div>
 
               <div className="space-y-1 md:col-span-2">
-                <label htmlFor={idDefault} className="text-xs font-medium text-fg-muted">Default?</label>
-                <select id={idDefault} className="ui-select" value={isDefault ? "yes" : "no"} onChange={(e) => setIsDefault(e.target.value === "yes")}>
+                <label htmlFor={idDefault} className="text-xs font-medium text-muted-foreground">Default?</label>
+                <select id={idDefault} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={isDefault ? "yes" : "no"} onChange={(e) => setIsDefault(e.target.value === "yes")}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </select>

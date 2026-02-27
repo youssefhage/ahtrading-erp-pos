@@ -64,7 +64,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
@@ -85,7 +85,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const [w, fx] = await Promise.all([
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
@@ -152,7 +152,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
         setLines([]);
       }
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -194,10 +194,10 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
 
   function addLine(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
-    if (!addItem) return setErr(new Error("Select an item."));
+    setErr("");
+    if (!addItem) return setErr("Select an item.");
     const q = toNum(addQty);
-    if (q <= 0) return setErr(new Error("qty must be > 0"));
+    if (q <= 0) return setErr("qty must be > 0");
     let unitUsd = toNum(addUsd);
     let unitLbp = toNum(addLbp);
     const ex = toNum(exchangeRate);
@@ -205,7 +205,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
       if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
     }
-    if (unitUsd === 0 && unitLbp === 0) return setErr(new Error("Set USD or LL unit cost."));
+    if (unitUsd === 0 && unitLbp === 0) return setErr("Set USD or LL unit cost.");
 
     setLines((prev) => [
       ...prev,
@@ -234,11 +234,11 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
   }
 
   async function save() {
-    setErr(null);
-    if (!supplierId) return setErr(new Error("supplier is required"));
-    if (!warehouseId) return setErr(new Error("warehouse is required"));
+    setErr("");
+    if (!supplierId) return setErr("supplier is required");
+    if (!warehouseId) return setErr("warehouse is required");
     const ex = toNum(exchangeRate);
-    if (!ex) return setErr(new Error("exchange_rate is required"));
+    if (!ex) return setErr("exchange_rate is required");
 
     const linesOut = [];
     for (let i = 0; i < (lines || []).length; i++) {
@@ -247,8 +247,8 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       const unitUsd = toNum(l.unit_cost_usd);
       const unitLbp = toNum(l.unit_cost_lbp);
       if (!l.item_id) continue;
-      if (qty <= 0) return setErr(new Error(`Qty must be > 0 (item ${i + 1}).`));
-      if (unitUsd === 0 && unitLbp === 0) return setErr(new Error(`Set USD or LL unit cost (item ${i + 1}).`));
+      if (qty <= 0) return setErr(`Qty must be > 0 (item ${i + 1}).`);
+      if (unitUsd === 0 && unitLbp === 0) return setErr(`Set USD or LL unit cost (item ${i + 1}).`);
       linesOut.push({ item_id: l.item_id, qty, unit_cost_usd: unitUsd, unit_cost_lbp: unitLbp });
     }
 
@@ -272,7 +272,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
         router.push(`/purchasing/purchase-orders/${encodeURIComponent(res.id)}`);
       }
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -290,7 +290,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          <p className="text-sm text-fg-muted">Draft first, Post when ready (commit incoming inventory).</p>
+          <p className="text-sm text-muted-foreground">Draft first, Post when ready (commit incoming inventory).</p>
         </div>
         <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders")} disabled={saving}>
           Back
@@ -307,12 +307,12 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">Supplier</label>
+              <label className="text-xs font-medium text-muted-foreground">Supplier</label>
               <SupplierTypeahead disabled={loading || saving} onSelect={(s) => { setSupplierId(s.id); setSupplierLabel(s.name); }} />
-              {supplierId ? <div className="text-xs text-fg-subtle">Selected: {selectedSupplierText}</div> : null}
+              {supplierId ? <div className="text-xs text-muted-foreground">Selected: {selectedSupplierText}</div> : null}
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+              <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
               <SearchableSelect
                 value={warehouseId}
                 onChange={setWarehouseId}
@@ -329,18 +329,18 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">Supplier Ref (optional)</label>
+              <label className="text-xs font-medium text-muted-foreground">Supplier Ref (optional)</label>
               <Input value={supplierRef} onChange={(e) => setSupplierRef(e.target.value)} placeholder="Vendor PO reference" disabled={loading || saving} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Expected Delivery (optional)</label>
+              <label className="text-xs font-medium text-muted-foreground">Expected Delivery (optional)</label>
               <Input value={expectedDeliveryDate} onChange={(e) => setExpectedDeliveryDate(e.target.value)} placeholder="YYYY-MM-DD" disabled={loading || saving} />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+              <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD→LL)</label>
               <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading || saving} />
             </div>
           </div>
@@ -355,25 +355,25 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
         <CardContent className="space-y-4">
           <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
             <div className="md:col-span-6 space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Item</label>
+              <label className="text-xs font-medium text-muted-foreground">Item</label>
               <ItemTypeahead disabled={loading || saving} onSelect={onPickItem} />
               {addItem ? (
-                <div className="text-xs text-fg-subtle">
+                <div className="text-xs text-muted-foreground">
                   Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}{" "}
                   {(addItem as any).unit_of_measure ? <span className="font-mono">({String((addItem as any).unit_of_measure)})</span> : null}
                 </div>
               ) : null}
             </div>
             <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Qty</label>
+              <label className="text-xs font-medium text-muted-foreground">Qty</label>
               <Input ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} disabled={loading || saving} />
             </div>
             <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Unit USD</label>
+              <label className="text-xs font-medium text-muted-foreground">Unit USD</label>
               <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} disabled={loading || saving} />
             </div>
             <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Unit LL</label>
+              <label className="text-xs font-medium text-muted-foreground">Unit LL</label>
               <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} disabled={loading || saving} />
             </div>
             <div className="md:col-span-12 flex justify-end">
@@ -383,9 +383,9 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
             </div>
           </form>
 
-          <div className="ui-table-scroll">
-            <table className="ui-table">
-              <thead className="ui-thead">
+          <div className="overflow-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="border-b bg-muted/50">
                 <tr>
                   <th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2 text-right">Qty</th>
@@ -396,14 +396,14 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
               </thead>
               <tbody>
                 {lines.map((l, idx) => (
-                  <tr key={idx} className="ui-tr-hover">
+                  <tr key={idx} className="border-b last:border-0 hover:bg-muted/30">
                     <td className="px-3 py-2">
                       <div className="min-w-0">
                         <div className="truncate">
-                          <span className="font-mono text-xs text-fg-muted">{l.item_sku || l.item_id}</span>{" "}
+                          <span className="font-mono text-xs text-muted-foreground">{l.item_sku || l.item_id}</span>{" "}
                           {l.item_name ? <span className="text-foreground">· {l.item_name}</span> : null}
                         </div>
-                        {l.unit_of_measure ? <div className="mt-0.5 font-mono text-xs text-fg-subtle">{String(l.unit_of_measure)}</div> : null}
+                        {l.unit_of_measure ? <div className="mt-0.5 font-mono text-xs text-muted-foreground">{String(l.unit_of_measure)}</div> : null}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -424,7 +424,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
                 ))}
                 {!lines.length ? (
                   <tr>
-                    <td className="px-3 py-3 text-sm text-fg-muted" colSpan={5}>
+                    <td className="px-3 py-3 text-sm text-muted-foreground" colSpan={5}>
                       No items yet.
                     </td>
                   </tr>

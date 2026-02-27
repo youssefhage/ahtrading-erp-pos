@@ -44,7 +44,7 @@ export function DocumentUtilitiesDrawer(props: {
           type="button"
           size="sm"
           variant="ghost"
-          className="text-fg-muted"
+          className="text-muted-foreground"
           onClick={() => openTo(defaultTab)}
         >
           <PanelRightOpen className="h-4 w-4" />
@@ -64,7 +64,7 @@ export function DocumentUtilitiesDrawer(props: {
                 variant={tab === "attachments" ? "secondary" : "ghost"}
                 onClick={() => setTab("attachments")}
               >
-                <Paperclip className="h-4 w-4 text-fg-muted" />
+                <Paperclip className="h-4 w-4 text-muted-foreground" />
                 Attachments
               </Button>
             ) : null}
@@ -75,7 +75,7 @@ export function DocumentUtilitiesDrawer(props: {
                 variant={tab === "timeline" ? "secondary" : "ghost"}
                 onClick={() => setTab("timeline")}
               >
-                <Clock className="h-4 w-4 text-fg-muted" />
+                <Clock className="h-4 w-4 text-muted-foreground" />
                 Timeline
               </Button>
             ) : null}

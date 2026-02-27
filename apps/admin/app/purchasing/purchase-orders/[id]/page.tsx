@@ -68,7 +68,7 @@ export default function PurchaseOrderViewPage() {
   const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
 
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [detail, setDetail] = useState<OrderDetail | null>(null);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -82,7 +82,7 @@ export default function PurchaseOrderViewPage() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const [d, w] = await Promise.all([
         apiGet<OrderDetail>(`/purchases/orders/${encodeURIComponent(id)}`),
@@ -92,7 +92,7 @@ export default function PurchaseOrderViewPage() {
       setWarehouses(w.warehouses || []);
     } catch (e) {
       setDetail(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -122,11 +122,11 @@ export default function PurchaseOrderViewPage() {
             <div className="flex flex-col gap-0.5">
               <div className="font-medium text-foreground">
                 <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                  <span className="font-mono text-xs text-fg-muted">{l.item_sku || l.item_id}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{l.item_sku || l.item_id}</span>
                   {l.item_name ? <span> · {l.item_name}</span> : null}
                 </ShortcutLink>
               </div>
-              {l.unit_of_measure ? <div className="font-mono text-xs text-fg-subtle">UOM: {String(l.unit_of_measure)}</div> : null}
+              {l.unit_of_measure ? <div className="font-mono text-xs text-muted-foreground">UOM: {String(l.unit_of_measure)}</div> : null}
             </div>
           );
         },
@@ -237,12 +237,12 @@ export default function PurchaseOrderViewPage() {
   async function post() {
     if (!order) return;
     setBusy(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/purchases/orders/${encodeURIComponent(order.id)}/post`, {});
       await load();
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -251,12 +251,12 @@ export default function PurchaseOrderViewPage() {
   async function cancel() {
     if (!order) return;
     setBusy(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/purchases/orders/${encodeURIComponent(order.id)}/cancel`, {});
       await load();
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -274,7 +274,7 @@ export default function PurchaseOrderViewPage() {
     if (!order) return;
     if (!receiveWarehouseId) return;
     setBusy(true);
-    setErr(null);
+    setErr("");
     try {
       const res = await apiPost<{ id: string }>(`/purchases/receipts/drafts/from-order/${encodeURIComponent(order.id)}`, {
         warehouse_id: receiveWarehouseId,
@@ -282,7 +282,7 @@ export default function PurchaseOrderViewPage() {
       setReceiveOpen(false);
       router.push(`/purchasing/goods-receipts/${encodeURIComponent(res.id)}`);
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setBusy(false);
     }
@@ -290,11 +290,11 @@ export default function PurchaseOrderViewPage() {
 
   if (err) {
     return (
-      <div className="ui-detail-shell">
+      <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold text-foreground">Purchase Order</h1>
-            <p className="text-sm text-fg-muted">{id}</p>
+            <p className="text-sm text-muted-foreground">{id}</p>
           </div>
           <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders/list")}>
             Back
@@ -307,20 +307,20 @@ export default function PurchaseOrderViewPage() {
 
   if (!loading && !detail) {
     return (
-      <div className="ui-detail-shell">
+      <div className="mx-auto max-w-6xl space-y-6">
         <EmptyState title="Purchase order not found" description="This order may have been deleted or you may not have access." actionLabel="Back" onAction={() => router.push("/purchasing/purchase-orders/list")} />
       </div>
     );
   }
 
   return (
-    <div className="ui-detail-shell">
-      <div className="ui-detail-header">
-        <div className="ui-detail-header-row">
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-4">
           <div>
-            <h1 className="ui-detail-title">{order?.order_no || (loading ? "Loading..." : "Purchase Order")}</h1>
-            <p className="ui-detail-meta">
-              <span className="ui-detail-meta-id">{id}</span>
+            <h1 className="text-2xl font-semibold tracking-tight">{order?.order_no || (loading ? "Loading..." : "Purchase Order")}</h1>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono text-xs">{id}</span>
               {order ? (
                 <>
                   {" "}
@@ -329,7 +329,7 @@ export default function PurchaseOrderViewPage() {
               ) : null}
             </p>
           </div>
-          <div className="ui-detail-actions">
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders/list")} disabled={busy}>
               Back
             </Button>
@@ -389,96 +389,100 @@ export default function PurchaseOrderViewPage() {
 
       {activeTab === "overview" ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-          <div className="ui-panel p-5 md:col-span-8">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-[220px]">
-                <p className="ui-panel-title">Supplier</p>
-                <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
-                  {order?.supplier_id ? (
-                    <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
-                      {order.supplier_name || order.supplier_id}
-                    </ShortcutLink>
-                  ) : (
-                    "-"
-                  )}
-                </p>
-                <p className="mt-1 text-sm text-fg-muted">
-                  Created{" "}
-                  <span className="data-mono">
-                    {order ? formatDateLike(order.created_at) : "-"}
+          <Card className="md:col-span-8">
+            <CardContent className="p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-[220px]">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Supplier</p>
+                  <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
+                    {order?.supplier_id ? (
+                      <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
+                        {order.supplier_name || order.supplier_id}
+                      </ShortcutLink>
+                    ) : (
+                      "-"
+                    )}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Created{" "}
+                    <span className="data-mono">
+                      {order ? formatDateLike(order.created_at) : "-"}
+                    </span>
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                    <span className="text-muted-foreground">Warehouse</span>
+                    <span className="data-mono text-foreground">{order?.warehouse_name || order?.warehouse_id || "-"}</span>
                   </span>
-                </p>
+                  <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                    <span className="text-muted-foreground">Exchange</span>
+                    <span className="data-mono text-foreground">{order ? Number(order.exchange_rate || 0).toFixed(0) : "-"}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="data-mono text-foreground">{order?.status || "-"}</span>
+                  </span>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <span className="ui-chip ui-chip-default">
-                  <span className="text-fg-subtle">Warehouse</span>
-                  <span className="data-mono text-foreground">{order?.warehouse_name || order?.warehouse_id || "-"}</span>
-                </span>
-                <span className="ui-chip ui-chip-default">
-                  <span className="text-fg-subtle">Exchange</span>
-                  <span className="data-mono text-foreground">{order ? Number(order.exchange_rate || 0).toFixed(0) : "-"}</span>
-                </span>
-                <span className="ui-chip ui-chip-default">
-                  <span className="text-fg-subtle">Status</span>
-                  <span className="data-mono text-foreground">{order?.status || "-"}</span>
-                </span>
-              </div>
-            </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-lg border bg-muted/25 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Dates</p>
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-muted-foreground">Expected Delivery</span>
+                      <span className="text-sm font-medium">{order?.expected_delivery_date || "-"}</span>
+                    </div>
+                  </div>
+                </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                <p className="ui-panel-title">Dates</p>
-                <div className="mt-2 space-y-1">
-                  <div className="ui-kv">
-                    <span className="ui-kv-label">Expected Delivery</span>
-                    <span className="ui-kv-value">{order?.expected_delivery_date || "-"}</span>
+                <div className="rounded-lg border bg-muted/25 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Document</p>
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-muted-foreground">Order No</span>
+                      <span className="text-sm font-medium">{order?.order_no || "(draft)"}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-muted-foreground">Supplier Ref</span>
+                      <span className="text-sm font-medium">{order?.supplier_ref || "-"}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                <p className="ui-panel-title">Document</p>
-                <div className="mt-2 space-y-1">
-                  <div className="ui-kv">
-                    <span className="ui-kv-label">Order No</span>
-                    <span className="ui-kv-value">{order?.order_no || "(draft)"}</span>
-                  </div>
-                  <div className="ui-kv">
-                    <span className="ui-kv-label">Supplier Ref</span>
-                    <span className="ui-kv-value">{order?.supplier_ref || "-"}</span>
-                  </div>
+              {!canPost && order?.status === "draft" && lines.length === 0 ? (
+                <div className="mt-3">
+                  <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one item before posting." />
                 </div>
-              </div>
-            </div>
+              ) : null}
+            </CardContent>
+          </Card>
 
-            {!canPost && order?.status === "draft" && lines.length === 0 ? (
+          <Card className="md:col-span-4">
+            <CardContent className="p-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Totals</p>
+
               <div className="mt-3">
-                <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one item before posting." />
+                <div className="text-sm text-muted-foreground">Total</div>
+                <div className="data-mono mt-1 text-3xl font-semibold leading-none text-emerald-600">{totals.usd}</div>
+                <div className="data-mono mt-1 text-sm text-muted-foreground">{totals.lbp}</div>
               </div>
-            ) : null}
-          </div>
 
-          <div className="ui-panel p-5 md:col-span-4">
-            <p className="ui-panel-title">Totals</p>
-
-            <div className="mt-3">
-              <div className="text-sm text-fg-muted">Total</div>
-              <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{totals.usd}</div>
-              <div className="data-mono mt-1 text-sm text-fg-muted">{totals.lbp}</div>
-            </div>
-
-            <div className="mt-4 space-y-2">
-              <div className="ui-kv ui-kv-strong">
-                <span className="ui-kv-label">Total USD</span>
-                <span className="ui-kv-value">{totals.usd}</span>
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 font-medium">
+                  <span className="text-sm text-muted-foreground">Total USD</span>
+                  <span className="text-sm font-medium">{totals.usd}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-sm text-muted-foreground">Total LL</span>
+                  <span className="text-sm font-medium">{totals.lbp}</span>
+                </div>
               </div>
-              <div className="ui-kv ui-kv-sub">
-                <span className="ui-kv-label">Total LL</span>
-                <span className="ui-kv-value">{totals.lbp}</span>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       ) : null}
 
@@ -512,8 +516,8 @@ export default function PurchaseOrderViewPage() {
           </DialogHeader>
           <form onSubmit={createReceiptDraft} className="grid grid-cols-1 gap-3 md:grid-cols-6">
             <div className="space-y-1 md:col-span-6">
-              <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-              <select className="ui-select" value={receiveWarehouseId} onChange={(e) => setReceiveWarehouseId(e.target.value)} disabled={busy}>
+              <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
+              <select value={receiveWarehouseId} onChange={(e) => setReceiveWarehouseId(e.target.value)} disabled={busy}>
                 <option value="">Select warehouse...</option>
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>

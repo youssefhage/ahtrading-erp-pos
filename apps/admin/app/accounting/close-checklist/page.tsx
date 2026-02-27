@@ -1,15 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw, Filter, ClipboardCheck, ExternalLink } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { KpiCard } from "@/components/business/kpi-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { StatusChip } from "@/components/ui/status-chip";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
 
 type CheckRow = {
   code: string;
@@ -25,13 +41,28 @@ type Res = {
   checks: CheckRow[];
 };
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
 function todayIso() {
-    const d = new Date();
+  const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+const levelStatusMap: Record<string, string> = {
+  ok: "active",
+  warn: "pending",
+  error: "overdue",
+  info: "draft",
+};
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function CloseChecklistPage() {
   const [status, setStatus] = useState("");
@@ -55,8 +86,7 @@ export default function CloseChecklistPage() {
       setData(res);
       setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -66,105 +96,136 @@ export default function CloseChecklistPage() {
     load();
   }, [load]);
 
-  const columns = useMemo((): Array<DataTableColumn<CheckRow>> => {
-    return [
-      { id: "level", header: "Status", accessor: (c) => c.level, sortable: true, globalSearch: false, cell: (c) => <StatusChip value={c.level} /> },
-      { id: "title", header: "Check", accessor: (c) => c.title, sortable: true, cell: (c) => <span className="text-xs">{c.title}</span> },
-      { id: "count", header: "Count", accessor: (c) => Number(c.count || 0), sortable: true, align: "right", mono: true, globalSearch: false, cell: (c) => <span className="data-mono text-xs">{Number(c.count || 0)}</span> },
+  const summary = useMemo(() => {
+    const checks = data?.checks || [];
+    return {
+      total: checks.length,
+      ok: checks.filter((c) => c.level === "ok").length,
+      warn: checks.filter((c) => c.level === "warn").length,
+      error: checks.filter((c) => c.level === "error").length,
+    };
+  }, [data]);
+
+  const columns = useMemo<ColumnDef<CheckRow>[]>(
+    () => [
+      {
+        id: "level",
+        accessorFn: (c) => c.level,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => (
+          <StatusBadge status={levelStatusMap[row.original.level] || row.original.level} />
+        ),
+      },
+      {
+        id: "title",
+        accessorFn: (c) => c.title,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Check" />,
+        cell: ({ row }) => <span className="text-sm">{row.original.title}</span>,
+      },
+      {
+        id: "count",
+        accessorFn: (c) => Number(c.count || 0),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Count" className="justify-end" />,
+        cell: ({ row }) => (
+          <div className="text-right font-mono text-sm">{Number(row.original.count || 0)}</div>
+        ),
+      },
       {
         id: "href",
+        accessorFn: (c) => c.href || "",
         header: "Link",
-        accessor: (c) => c.href || "",
-        sortable: false,
-        globalSearch: false,
-        cell: (c) =>
-          c.href ? (
-            <a className="ui-link text-xs" href={c.href}>
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.href ? (
+            <a href={row.original.href} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
               Open
+              <ExternalLink className="h-3 w-3" />
             </a>
           ) : (
-            <span className="text-xs text-fg-subtle">-</span>
+            <span className="text-sm text-muted-foreground">-</span>
           ),
       },
-    ];
-  }, []);
+    ],
+    [],
+  );
 
   return (
-    <div className="ui-module-shell-narrow">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Accounting</p>
-            <h1 className="ui-module-title">Period Close Checklist</h1>
-            <p className="ui-module-subtitle">Surface close blockers early before period lock.</p>
-          </div>
-        </div>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader
+        title="Period Close Checklist"
+        description="Surface close blockers early before period lock."
+        actions={
+          <>
+            <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Filter className="mr-2 h-4 w-4" />
+                  Filters
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Checklist Filters</DialogTitle>
+                  <DialogDescription>Use as-of or override with a custom date range.</DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>As Of</Label>
+                    <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Start Date</Label>
+                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Date</Label>
+                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                  <div className="flex justify-end sm:col-span-3">
+                    <Button onClick={async () => { setFiltersOpen(false); await load(); }}>Apply</Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </>
+        }
+      />
+
+      {status && (
+        <Card className="border-destructive bg-destructive/5">
+          <CardContent className="flex items-center justify-between py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* KPI Summary */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <KpiCard title="Total Checks" value={summary.total} icon={ClipboardCheck} />
+        <KpiCard title="Passed" value={summary.ok} trend="up" />
+        <KpiCard title="Warnings" value={summary.warn} trend={summary.warn > 0 ? "down" : "neutral"} />
+        <KpiCard title="Errors" value={summary.error} trend={summary.error > 0 ? "down" : "neutral"} />
       </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Period Close Checklist</CardTitle>
-          <CardDescription>Review blockers before locking a period.</CardDescription>
-        </CardHeader>
-        <CardContent className="ui-actions-between">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            {loading ? "Loading..." : "Refresh"}
-          </Button>
-          <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">Filters</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Checklist Filters</DialogTitle>
-                <DialogDescription>Use as-of or override with a custom date range.</DialogDescription>
-              </DialogHeader>
-              <div className="ui-form-grid-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">As Of</label>
-                  <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Start Date</label>
-                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">End Date</label>
-                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                </div>
-                <div className="flex justify-end md:col-span-3">
-                  <Button
-                    onClick={async () => {
-                      setFiltersOpen(false);
-                      await load();
-                    }}
-                  >
-                    Apply
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </CardContent>
-      </Card>
-
+      {/* Checks */}
       <Card>
         <CardHeader>
           <CardTitle>Checks</CardTitle>
-          <CardDescription>
-            Period: {data?.start_date || "-"} → {data?.end_date || "-"}
-          </CardDescription>
+          <p className="text-sm text-muted-foreground">
+            Period: {data?.start_date || "-"} to {data?.end_date || "-"}
+          </p>
         </CardHeader>
         <CardContent>
-          <DataTable<CheckRow>
-            tableId="accounting.closeChecklist"
-            rows={data?.checks || []}
+          <DataTable
             columns={columns}
+            data={data?.checks || []}
             isLoading={loading}
-            initialSort={{ columnId: "level", dir: "asc" }}
-            globalFilterPlaceholder="Search checks..."
-            emptyText={loading ? "Loading..." : "No checks found."}
+            searchPlaceholder="Search checks..."
           />
         </CardContent>
       </Card>

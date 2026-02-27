@@ -1,16 +1,24 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Plus, RefreshCw, Users } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
-import { ErrorBanner } from "@/components/error-banner";
-import { EmptyState } from "@/components/empty-state";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { EmptyState } from "@/components/business/empty-state";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Chip } from "@/components/ui/chip";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 type PartyType = "individual" | "business";
 
@@ -36,181 +44,273 @@ type Customer = {
   is_active?: boolean;
 };
 
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function CustomersListPage() {
+  const router = useRouter();
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
-  const [q, setQ] = useState("");
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize] = useState(25);
   const [page, setPage] = useState(0);
+  const [q, setQ] = useState("");
 
-  const offset = page * pageSize;
-  const query = useMemo(() => ({ q: q.trim(), limit: pageSize, offset }), [q, pageSize, offset]);
+  /* ---- data fetching ---- */
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
     try {
       const params = new URLSearchParams();
-      params.set("limit", String(query.limit));
-      params.set("offset", String(query.offset));
+      params.set("limit", String(pageSize));
+      params.set("offset", String(page * pageSize));
       params.set("include_inactive", "true");
-      if (query.q) params.set("q", query.q);
-      const res = await apiGet<{ customers: Customer[]; total?: number }>(`/customers?${params.toString()}`);
+      const term = q.trim();
+      if (term) params.set("q", term);
+      const res = await apiGet<{ customers: Customer[]; total?: number }>(
+        `/customers?${params.toString()}`,
+      );
       setCustomers(res.customers || []);
       setTotal(typeof res.total === "number" ? res.total : null);
-    } catch (e) {
+    } catch {
       setCustomers([]);
       setTotal(null);
-      setErr(e);
     } finally {
       setLoading(false);
     }
-  }, [query.limit, query.offset, query.q]);
+  }, [q, pageSize, page]);
 
   useEffect(() => {
     setPage(0);
-  }, [q, pageSize]);
+  }, [q]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => load(), 250);
-    return () => window.clearTimeout(t);
+    const t = setTimeout(() => load(), 250);
+    return () => clearTimeout(t);
   }, [load]);
 
-  const columns = useMemo(() => {
-    const cols: Array<DataTableColumn<Customer>> = [
-      { id: "code", header: "Code", sortable: true, mono: true, defaultHidden: true, accessor: (c) => c.code || "" },
+  /* ---- columns ---- */
+
+  const columns = useMemo<ColumnDef<Customer>[]>(
+    () => [
       {
-        id: "name",
-        header: "Name",
-        sortable: true,
-        accessor: (c) => c.name,
-        cell: (c) => (
-          <Link href={`/partners/customers/${encodeURIComponent(c.id)}`} className="ui-link font-medium">
-            {c.name}
+        accessorKey: "code",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Code" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">
+            {row.original.code || "--"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Name" />
+        ),
+        cell: ({ row }) => (
+          <Link
+            href={`/partners/customers/${encodeURIComponent(row.original.id)}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {row.original.name}
           </Link>
         ),
       },
       {
         id: "party_type",
-        header: "Type",
-        sortable: true,
-        accessor: (c) => c.party_type || "individual",
-        cell: (c) => <Chip variant={(c.party_type || "individual") === "business" ? "primary" : "default"}>{c.party_type || "individual"}</Chip>,
-        globalSearch: true,
+        accessorFn: (row) => row.party_type || "individual",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Type" />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={
+              (row.original.party_type || "individual") === "business"
+                ? "info"
+                : "secondary"
+            }
+          >
+            {row.original.party_type || "individual"}
+          </Badge>
+        ),
+        filterFn: (row, id, value) => value.includes(row.getValue(id)),
       },
-      { id: "phone", header: "Phone", sortable: true, accessor: (c) => c.phone || "-" },
-      { id: "email", header: "Email", sortable: true, accessor: (c) => c.email || "-", defaultHidden: true },
-      { id: "membership_no", header: "Membership #", sortable: true, defaultHidden: true, accessor: (c) => c.membership_no || "-" },
       {
-        id: "is_active",
-        header: "Active",
-        sortable: true,
-        accessor: (c) => (c.is_active === false ? "No" : "Yes"),
-        cell: (c) => <Chip variant={c.is_active === false ? "default" : "success"}>{c.is_active === false ? "No" : "Yes"}</Chip>,
+        accessorKey: "phone",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Phone" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.phone || "--"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "email",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Email" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.email || "--"}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        accessorFn: (row) => (row.is_active === false ? "inactive" : "active"),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <StatusBadge
+            status={row.original.is_active === false ? "inactive" : "active"}
+          />
+        ),
+        filterFn: (row, id, value) => value.includes(row.getValue(id)),
       },
       {
         id: "credit_balance_usd",
-        header: "AR USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (c) => Number(c.credit_balance_usd || 0),
-        cell: (c) => fmtUsd(c.credit_balance_usd),
+        accessorFn: (row) => Number(row.credit_balance_usd || 0),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="AR (USD)" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">
+            {fmtUsd(row.original.credit_balance_usd)}
+          </span>
+        ),
       },
       {
         id: "credit_balance_lbp",
-        header: "AR LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (c) => Number(c.credit_balance_lbp || 0),
-        cell: (c) => fmtLbp(c.credit_balance_lbp),
+        accessorFn: (row) => Number(row.credit_balance_lbp || 0),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="AR (LBP)" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm text-muted-foreground">
+            {fmtLbp(row.original.credit_balance_lbp)}
+          </span>
+        ),
       },
       {
         id: "actions",
-        header: "Actions",
-        align: "right",
-        cell: (c) => (
-          <div className="text-right">
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/partners/customers/${encodeURIComponent(c.id)}/edit`}>Edit</Link>
-            </Button>
-          </div>
+        enableHiding: false,
+        cell: ({ row }) => (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(
+                `/partners/customers/${encodeURIComponent(row.original.id)}/edit`,
+              );
+            }}
+          >
+            Edit
+          </Button>
         ),
       },
-    ];
-    return cols;
-  }, []);
+    ],
+    [router],
+  );
 
-  if (err) {
+  /* ---- empty state ---- */
+
+  if (!loading && customers.length === 0 && !q.trim()) {
     return (
       <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Customers</h1>
-            <p className="text-sm text-fg-muted">Partners</p>
-          </div>
-          <Button asChild>
-            <Link href="/partners/customers/new">New Customer</Link>
-          </Button>
-        </div>
-        <ErrorBanner error={err} onRetry={load} />
+        <PageHeader
+          title="Customers"
+          description="Partners"
+          actions={
+            <Button size="sm" onClick={() => router.push("/partners/customers/new")}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Customer
+            </Button>
+          }
+        />
+        <EmptyState
+          icon={Users}
+          title="No customers yet"
+          description="Create customers for invoicing, credit control, and loyalty tracking."
+          action={{
+            label: "New Customer",
+            onClick: () => router.push("/partners/customers/new"),
+          }}
+        />
       </div>
     );
   }
 
+  /* ---- main render ---- */
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Customers</h1>
-          <p className="text-sm text-fg-muted">
-            {total != null ? `${total.toLocaleString("en-US")} total` : `${customers.length} shown`}
-            {loading ? " · refreshing..." : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button asChild>
-            <Link href="/partners/customers/new">New Customer</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Customers"
+        description={
+          total != null
+            ? `${total.toLocaleString("en-US")} total`
+            : `${customers.length} shown`
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => load()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => router.push("/partners/customers/new")}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New Customer
+            </Button>
+          </>
+        }
+      />
 
-      {!loading && customers.length === 0 ? (
-        <EmptyState title="No customers yet" description="Create customers for invoicing, credit control, and loyalty tracking." actionLabel="New Customer" onAction={() => (window.location.href = "/partners/customers/new")} />
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Directory</CardTitle>
-            <CardDescription>Search by name, code, phone, email, or membership number.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <DataTable<Customer>
-              tableId="partners.customers.list"
-              rows={customers}
-              columns={columns}
-              getRowId={(r) => r.id}
-              initialSort={{ columnId: "name", dir: "asc" }}
-              globalFilterPlaceholder="Name / phone / code / email / membership"
-              globalFilterValue={q}
-              onGlobalFilterValueChange={setQ}
-              isLoading={loading}
-              serverPagination={{
-                page,
-                pageSize,
-                total,
-                onPageChange: setPage,
-                onPageSizeChange: setPageSize,
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
+      <DataTable
+        columns={columns}
+        data={customers}
+        isLoading={loading}
+        searchPlaceholder="Search by name, phone, code, email, or membership..."
+        onRowClick={(row) =>
+          router.push(`/partners/customers/${encodeURIComponent(row.id)}`)
+        }
+        totalRows={total ?? undefined}
+        filterableColumns={[
+          {
+            id: "party_type",
+            title: "Type",
+            options: [
+              { label: "Individual", value: "individual" },
+              { label: "Business", value: "business" },
+            ],
+          },
+          {
+            id: "status",
+            title: "Status",
+            options: [
+              { label: "Active", value: "active" },
+              { label: "Inactive", value: "inactive" },
+            ],
+          },
+        ]}
+      />
     </div>
   );
 }

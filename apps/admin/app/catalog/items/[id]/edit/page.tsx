@@ -3,21 +3,54 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Printer, RefreshCw } from "lucide-react";
+import { Printer, RefreshCw, Trash2, Plus, Save, Loader2, Package } from "lucide-react";
+import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
 import { generateEan13Barcode, printBarcodeStickerLabel } from "@/lib/barcode-label";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { ErrorBanner } from "@/components/error-banner";
-import { EmptyState } from "@/components/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { KpiCard } from "@/components/business/kpi-card";
+import { EmptyState } from "@/components/business/empty-state";
+import { ConfirmDialog } from "@/components/business/confirm-dialog";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { SearchableSelect } from "@/components/searchable-select";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Alert,
+  AlertDescription,
+} from "@/components/ui/alert";
 import { FileInput } from "@/components/file-input";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 type Item = {
   id: string;
@@ -74,7 +107,7 @@ type SupplierRow = {
 };
 
 type ItemSupplierLinkRow = {
-  id: string; // link id
+  id: string;
   supplier_id: string;
   name: string;
   is_primary: boolean;
@@ -118,29 +151,24 @@ type PriceListItemRow = {
   created_at: string;
 };
 
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
+
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
 }
 
 function parseTags(input: string): string[] | null {
-  const parts = (input || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const parts = (input || "").split(",").map((t) => t.trim()).filter(Boolean);
   const uniq = Array.from(new Set(parts));
   return uniq.length ? uniq : null;
 }
 
-function InlineMetric(props: { label: string; value: ReactNode; hint?: ReactNode; mono?: boolean; className?: string }) {
-  return (
-    <div className={cn("min-w-0 border-l-2 border-border-subtle pl-3", props.className)}>
-      <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</div>
-      <div className={cn("mt-1 text-sm font-semibold text-foreground", props.mono && "data-mono")}>{props.value}</div>
-      {props.hint ? <div className="mt-2 text-xs text-fg-subtle">{props.hint}</div> : null}
-    </div>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/*  Main Component                                                            */
+/* -------------------------------------------------------------------------- */
 
 export default function ItemEditPage() {
   const router = useRouter();
@@ -149,7 +177,7 @@ export default function ItemEditPage() {
 
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("");
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
 
   const [item, setItem] = useState<Item | null>(null);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -183,7 +211,6 @@ export default function ItemEditPage() {
   const [priceSuggest, setPriceSuggest] = useState<PriceSuggest | null>(null);
   const [priceBusy, setPriceBusy] = useState(false);
 
-  // Price list override (WHOLESALE/RETAIL)
   const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
   const [defaultPriceListId, setDefaultPriceListId] = useState<string>("");
   const [selectedPriceListId, setSelectedPriceListId] = useState<string>("");
@@ -217,10 +244,11 @@ export default function ItemEditPage() {
   const [editImageAttachmentId, setEditImageAttachmentId] = useState("");
   const [editImageAlt, setEditImageAlt] = useState("");
 
+  /* ---- Data Loading ---- */
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const [it, tc, cats, uo, bc, conv, sup, links, pls, settings] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
@@ -234,6 +262,7 @@ export default function ItemEditPage() {
         apiGet<{ lists: PriceListRow[] }>("/pricing/lists").catch(() => ({ lists: [] as PriceListRow[] })),
         apiGet<{ settings: Array<{ key: string; value_json: any }> }>("/pricing/company-settings").catch(() => ({ settings: [] as any[] })),
       ]);
+
       const row = it.item || null;
       setItem(row);
       setTaxCodes(tc.tax_codes || []);
@@ -253,7 +282,6 @@ export default function ItemEditPage() {
       const defId = defIdFromSetting || defIdFromFlag || "";
       setDefaultPriceListId(defId);
       setSelectedPriceListId((prev) => {
-        // Keep user's selection if still valid; otherwise fall back to default, otherwise first list.
         if (prev && lists.some((l) => l.id === prev)) return prev;
         if (defId && lists.some((l) => l.id === defId)) return defId;
         return lists[0]?.id || "";
@@ -296,16 +324,15 @@ export default function ItemEditPage() {
       setStatus("");
     } catch (e) {
       setItem(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
+  /* ---- Price list rows ---- */
   const loadPriceListRows = useCallback(async () => {
     if (!id || !selectedPriceListId) {
       setPlItems([]);
@@ -327,9 +354,7 @@ export default function ItemEditPage() {
     }
   }, [id, selectedPriceListId]);
 
-  useEffect(() => {
-    loadPriceListRows();
-  }, [loadPriceListRows]);
+  useEffect(() => { loadPriceListRows(); }, [loadPriceListRows]);
 
   async function addPriceListOverride(e: React.FormEvent) {
     e.preventDefault();
@@ -356,12 +381,12 @@ export default function ItemEditPage() {
     }
   }
 
+  /* ---- UOM options ---- */
   const uomOptions = useMemo(() => {
     const out: Array<{ value: string; label: string }> = [];
     const seen = new Set<string>();
     const cur = String(editUom || "").trim();
     if (cur && !seen.has(cur) && !(uoms || []).includes(cur)) {
-      // If DB contains an unexpected/inactive UOM, still show it so the user can correct it.
       seen.add(cur);
       out.push({ value: cur, label: `${cur} (current)` });
     }
@@ -374,15 +399,9 @@ export default function ItemEditPage() {
     return out;
   }, [uoms, editUom]);
 
-  const title = useMemo(() => {
-    if (loading) return "Loading...";
-    if (item) return `Edit ${item.sku}`;
-    return "Edit Item";
-  }, [loading, item]);
+  const selectedPriceList = useMemo(() => priceLists.find((l) => l.id === selectedPriceListId) || null, [priceLists, selectedPriceListId]);
 
-  const selectedPriceList = useMemo(() => {
-    return priceLists.find((l) => l.id === selectedPriceListId) || null;
-  }, [priceLists, selectedPriceListId]);
+  /* ---- CRUD operations ---- */
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -430,7 +449,6 @@ export default function ItemEditPage() {
     if (!item) return;
     const expectedSku = String(item.sku || "").trim();
     if (!expectedSku) return setStatus("This item has no SKU; cannot confirm delete.");
-
     const typed = window.prompt(`Type SKU to permanently delete this item:\n${expectedSku}`, "");
     if (typed === null) return;
     const confirmSku = String(typed || "").trim();
@@ -438,12 +456,8 @@ export default function ItemEditPage() {
     if (confirmSku.toUpperCase() !== expectedSku.toUpperCase()) {
       return setStatus(`Delete cancelled: SKU mismatch (expected ${expectedSku}).`);
     }
-
-    const confirmed = window.confirm(
-      `Permanently delete ${expectedSku} (${item.name || "item"})?\nThis cannot be undone.`
-    );
+    const confirmed = window.confirm(`Permanently delete ${expectedSku} (${item.name || "item"})?\nThis cannot be undone.`);
     if (!confirmed) return;
-
     setSaving(true);
     setStatus("Deleting item permanently...");
     try {
@@ -465,18 +479,14 @@ export default function ItemEditPage() {
     setPriceBusy(true);
     setStatus("Applying suggested price...");
     try {
-      const usd = priceSuggest?.suggested?.price_usd
-        ? Number(priceSuggest.suggested.price_usd)
-        : Number(priceSuggest?.current?.price_usd || 0);
-      const lbp = priceSuggest?.suggested?.price_lbp
-        ? Number(priceSuggest.suggested.price_lbp)
-        : Number(priceSuggest?.current?.price_lbp || 0);
+      const usd = priceSuggest?.suggested?.price_usd ? Number(priceSuggest.suggested.price_usd) : Number(priceSuggest?.current?.price_usd || 0);
+      const lbp = priceSuggest?.suggested?.price_lbp ? Number(priceSuggest.suggested.price_lbp) : Number(priceSuggest?.current?.price_lbp || 0);
       const today = new Date().toISOString().slice(0, 10);
       await apiPost(`/items/${encodeURIComponent(item.id)}/prices`, {
         price_usd: usd,
         price_lbp: lbp,
         effective_from: today,
-        effective_to: null
+        effective_to: null,
       });
       await load();
       setStatus("");
@@ -532,7 +542,6 @@ export default function ItemEditPage() {
     const factorRes = parseNumberInput(newFactor);
     if (!factorRes.ok) return setStatus("Invalid qty factor.");
     if (factorRes.value <= 0) return setStatus("qty factor must be > 0.");
-
     setStatus("Adding barcode...");
     try {
       await apiPost(`/items/${encodeURIComponent(item.id)}/barcodes`, {
@@ -575,9 +584,7 @@ export default function ItemEditPage() {
     }
   }
 
-  function generateDraftBarcode() {
-    setNewBarcode(generateEan13Barcode());
-  }
+  function generateDraftBarcode() { setNewBarcode(generateEan13Barcode()); }
 
   async function printLabelForBarcode(code: string, uom?: string | null) {
     const barcode = String(code || "").trim();
@@ -617,11 +624,9 @@ export default function ItemEditPage() {
 
   async function updateConversion(uomCode: string, patch: any) {
     if (!item) return;
-    const u = (uomCode || "").trim().toUpperCase();
-    if (!u) return;
     setStatus("Updating conversion...");
     try {
-      await apiPatch(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(u)}`, patch);
+      await apiPatch(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(uomCode.trim().toUpperCase())}`, patch);
       await load();
       setStatus("");
     } catch (e) {
@@ -631,11 +636,9 @@ export default function ItemEditPage() {
 
   async function deleteConversion(uomCode: string) {
     if (!item) return;
-    const u = (uomCode || "").trim().toUpperCase();
-    if (!u) return;
     setStatus("Deleting conversion...");
     try {
-      await apiDelete(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(u)}`);
+      await apiDelete(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(uomCode.trim().toUpperCase())}`);
       await load();
       setStatus("");
     } catch (e) {
@@ -654,7 +657,6 @@ export default function ItemEditPage() {
     const lbpRes = parseNumberInput(addLastCostLbp);
     if (!usdRes.ok) return setStatus("Invalid last cost USD.");
     if (!lbpRes.ok) return setStatus("Invalid last cost LL.");
-
     setStatus("Linking supplier...");
     try {
       await apiPost(`/suppliers/${encodeURIComponent(addSupplierId)}/items`, {
@@ -700,732 +702,562 @@ export default function ItemEditPage() {
     }
   }
 
+  /* ---- Error ---- */
   if (err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Edit Item</h1>
-            <p className="text-sm text-fg-muted">{id}</p>
-          </div>
-          <Button type="button" variant="outline" onClick={() => router.push(`/catalog/items/${encodeURIComponent(id)}`)}>
-            Back
-          </Button>
-        </div>
-        <ErrorBanner error={err} onRetry={load} />
+      <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <PageHeader title="Edit Item" description={id} backHref={`/catalog/items/${encodeURIComponent(id)}`} />
+        <Card>
+          <CardContent className="py-8">
+            <EmptyState
+              title="Failed to load item"
+              description={err}
+              action={{ label: "Retry", onClick: load }}
+            />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (!loading && !item) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <EmptyState title="Item not found" description="This item may have been deleted or you may not have access." actionLabel="Back" onAction={() => router.push("/catalog/items/list")} />
+      <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <PageHeader title="Item not found" backHref="/catalog/items/list" />
+        <Card>
+          <CardContent className="py-8">
+            <EmptyState icon={Package} title="Item not found" description="This item may have been deleted." action={{ label: "Back", onClick: () => router.push("/catalog/items/list") }} />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          <p className="text-sm text-fg-muted">
-            <span className="font-mono text-xs">{id}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push(`/catalog/items/${encodeURIComponent(id)}`)} disabled={saving}>
-            Back
-          </Button>
-          <Button type="button" variant="outline" onClick={load} disabled={saving || loading}>
-            Refresh
-          </Button>
-          <DocumentUtilitiesDrawer entityType="item" entityId={id} allowUploadAttachments={true} className="ml-1" />
-        </div>
+  if (loading && !item) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-6 p-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-96 rounded-lg" />
       </div>
+    );
+  }
 
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+  if (!item) return null;
 
-      {item ? (
-        <>
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <CardTitle>Pricing</CardTitle>
-                  <CardDescription>Current margin and a safe suggested sell price (v1).</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" onClick={load} disabled={priceBusy || saving || loading}>
-                    Refresh
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={applySuggestedPrice}
-                    disabled={priceBusy || saving || !(priceSuggest?.suggested?.price_usd || priceSuggest?.suggested?.price_lbp)}
-                  >
-                    Apply Suggested
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-4 text-sm md:grid-cols-3">
-              <InlineMetric
-                label="Current Price"
-                value={priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " · " }) : "-"}
-                hint={`Target margin: ${priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}`}
-                mono
-              />
-              <InlineMetric
-                label="Average Cost"
-                value={priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " · " }) : "-"}
-                hint={
-                  <>
-                    Current margin (USD):{" "}
-                    {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
-                  </>
-                }
-                mono
-              />
-              <InlineMetric
-                label="Suggested Price"
-                value={priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " · " }) : "-"}
-                hint={
-                  <>
-                    Rounding: USD step {priceSuggest?.rounding?.usd_step || "-"} · LBP step {priceSuggest?.rounding?.lbp_step || "-"}
-                  </>
-                }
-                mono
-              />
-            </CardContent>
-          </Card>
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 p-6">
+      {/* Header */}
+      <PageHeader
+        title={`Edit ${item.sku}`}
+        backHref={`/catalog/items/${encodeURIComponent(id)}`}
+        badge={<StatusBadge status={item.is_active === false ? "inactive" : "active"} />}
+        actions={
+          <>
+            <Button variant="outline" onClick={load} disabled={saving || loading}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+            <DocumentUtilitiesDrawer entityType="item" entityId={id} allowUploadAttachments={true} />
+          </>
+        }
+      >
+        <p className="font-mono text-xs text-muted-foreground">{id}</p>
+      </PageHeader>
 
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <CardTitle>Price List Override</CardTitle>
-                  <CardDescription>Set WHOLESALE/RETAIL price for this item without leaving the Item page.</CardDescription>
-                </div>
-                {selectedPriceListId ? (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => router.push(`/catalog/price-lists?open=${encodeURIComponent(selectedPriceListId)}`)}
-                      disabled={saving || plBusy}
-                    >
-                      Open Price List
-                    </Button>
-                    <Button type="button" variant="outline" onClick={loadPriceListRows} disabled={saving || plBusy}>
-                      Refresh
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2 md:col-span-1">
-                <label className="text-xs font-medium text-fg-muted">Price List</label>
-                <select
-                  className="ui-select w-full"
-                  value={selectedPriceListId}
-                  onChange={(e) => setSelectedPriceListId(e.target.value)}
-                  disabled={plBusy}
-                >
-                  <option value="">(pick)</option>
-                  {priceLists.map((pl) => (
-                    <option key={pl.id} value={pl.id}>
-                      {pl.code} · {pl.name}
-                      {defaultPriceListId && pl.id === defaultPriceListId ? " (default)" : ""}
-                    </option>
-                  ))}
-                </select>
-
-                <InlineMetric
-                  label="Current Effective (This List)"
-                  value={plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " · " }) : "-"}
-                  hint={
-                    <>
-                      From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}
-                      {plBusy ? " · loading..." : ""}
-                    </>
-                  }
-                  mono
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <form onSubmit={addPriceListOverride} className="grid gap-3 border-t border-border-subtle pt-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Effective From</label>
-                      <Input value={plEffectiveFrom} onChange={(e) => setPlEffectiveFrom(e.target.value)} type="date" disabled={plBusy} />
-                    </div>
-                    <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Price USD</label>
-                      <Input value={plPriceUsd} onChange={(e) => setPlPriceUsd(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
-                    </div>
-                    <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Price LL</label>
-                      <Input value={plPriceLbp} onChange={(e) => setPlPriceLbp(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs text-fg-subtle">
-                      {selectedPriceList ? (
-                        <>
-                          Writing into <span className="data-mono">{selectedPriceList.code}</span>. Most recent effective row wins.
-                        </>
-                      ) : (
-                        "Pick a list to set a price."
-                      )}
-                    </div>
-                    <Button type="submit" disabled={plBusy || !selectedPriceListId}>
-                      {plBusy ? "..." : "Add Price Row"}
-                    </Button>
-                  </div>
-
-                  <div className="text-xs text-fg-subtle">
-                    Recent rows: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=${Number(r.price_usd || 0).toFixed(2)}`).join(" · ") || "-"}
-                  </div>
-                </form>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Item</CardTitle>
-              <CardDescription>Core fields used by Sales, Purchasing, and Inventory.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">SKU</label>
-                  <Input value={editSku} onChange={(e) => setEditSku(e.target.value)} disabled={saving} />
-                </div>
-                <div className="space-y-1 md:col-span-4">
-                  <label className="text-xs font-medium text-fg-muted">Name</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} disabled={saving} />
-                </div>
-
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Type</label>
-                  <select className="ui-select" value={editType} onChange={(e) => setEditType(e.target.value as any)} disabled={saving}>
-                    <option value="stocked">stocked</option>
-                    <option value="service">service</option>
-                    <option value="bundle">bundle</option>
-                  </select>
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">UOM</label>
-                  <SearchableSelect
-                    value={editUom}
-                    onChange={setEditUom}
-                    disabled={saving}
-                    placeholder="Select UOM..."
-                    searchPlaceholder="Search UOMs..."
-                    options={uomOptions}
-                  />
-                  <div className="mt-1 text-xs text-fg-subtle">
-                    Missing a UOM? Add it in{" "}
-                    <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">
-                      System &rarr; UOMs
-                    </Link>
-                    .
-                  </div>
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Tags</label>
-                  <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="comma-separated" disabled={saving} />
-                </div>
-
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Tax Code</label>
-                  <SearchableSelect
-                    value={editTaxCodeId}
-                    onChange={setEditTaxCodeId}
-                    disabled={saving}
-                    searchPlaceholder="Search tax codes..."
-                    options={[
-                      { value: "", label: "(none)" },
-                      ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") })),
-                    ]}
-                  />
-                </div>
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Category</label>
-                  <SearchableSelect
-                    value={editCategoryId}
-                    onChange={setEditCategoryId}
-                    disabled={saving}
-                    searchPlaceholder="Search categories..."
-                    options={[
-                      { value: "", label: "(none)" },
-                      ...categories.map((c) => ({ value: c.id, label: c.name })),
-                    ]}
-                  />
-                </div>
-
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Brand</label>
-                  <Input value={editBrand} onChange={(e) => setEditBrand(e.target.value)} disabled={saving} />
-                </div>
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Short Name</label>
-                  <Input value={editShortName} onChange={(e) => setEditShortName(e.target.value)} disabled={saving} />
-                </div>
-
-                <div className="space-y-1 md:col-span-6">
-                  <label className="text-xs font-medium text-fg-muted">Description</label>
-                  <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} disabled={saving} />
-                </div>
-
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Reorder Point</label>
-                  <Input value={editReorderPoint} onChange={(e) => setEditReorderPoint(e.target.value)} disabled={saving} inputMode="decimal" />
-                </div>
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Reorder Qty</label>
-                  <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} disabled={saving} inputMode="decimal" />
-                </div>
-
-                <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={editTrackBatches} onChange={(e) => setEditTrackBatches(e.target.checked)} disabled={saving} />
-                  Track batches
-                </label>
-                <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={editTrackExpiry} onChange={(e) => setEditTrackExpiry(e.target.checked)} disabled={saving} />
-                  Track expiry
-                </label>
-
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Default Shelf Life (days)</label>
-                  <Input value={editDefaultShelfLifeDays} onChange={(e) => setEditDefaultShelfLifeDays(e.target.value)} disabled={saving} inputMode="numeric" />
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Min Shelf Life For Sale (days)</label>
-                  <Input value={editMinShelfLifeDaysForSale} onChange={(e) => setEditMinShelfLifeDaysForSale(e.target.value)} disabled={saving} inputMode="numeric" />
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-fg-muted">Expiry Warning (days)</label>
-                  <Input value={editExpiryWarningDays} onChange={(e) => setEditExpiryWarningDays(e.target.value)} disabled={saving} inputMode="numeric" />
-                </div>
-
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Allow Negative Stock</label>
-                  <select
-                    className="ui-select"
-                    value={editAllowNegativeStock === null ? "" : editAllowNegativeStock ? "true" : "false"}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (!v) setEditAllowNegativeStock(null);
-                      else setEditAllowNegativeStock(v === "true");
-                    }}
-                    disabled={saving}
-                  >
-                    <option value="">(inherit)</option>
-                    <option value="false">No</option>
-                    <option value="true">Yes</option>
-                  </select>
-                </div>
-
-                <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} disabled={saving} />
-                  Active
-                </label>
-
-                <div className="md:col-span-6 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs text-fg-subtle">
-                    Hard delete is allowed only when the item has no transactional usage.
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="destructive" onClick={hardDeleteItem} disabled={saving}>
-                      Hard Delete
-                    </Button>
-                    <Button type="submit" disabled={saving}>
-                      {saving ? "..." : "Save"}
-                    </Button>
-                  </div>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Image</CardTitle>
-              <CardDescription>Upload an item image (stored as an attachment).</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Alt text</label>
-                <Input value={editImageAlt} onChange={(e) => setEditImageAlt(e.target.value)} disabled={imageUploading || saving} />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <FileInput
-                  accept="image/*"
-                  disabled={imageUploading || saving}
-                  buttonLabel="Choose image"
-                  clearAfterSelect
-                  onChange={(e) => {
-                    const f = e.currentTarget.files?.[0];
-                    if (f) uploadImage(f);
-                  }}
-                />
-                <Button type="button" variant="outline" disabled={imageUploading || saving || !editImageAttachmentId} onClick={removeImage}>
-                  Remove
-                </Button>
-              </div>
-              {editImageAttachmentId ? (
-                <div className="text-xs text-fg-muted">
-                  Current image attachment: <span className="font-mono">{editImageAttachmentId}</span>
-                </div>
-              ) : (
-                <div className="text-xs text-fg-subtle">No image.</div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Barcodes</CardTitle>
-              <CardDescription>Add alternate barcodes and set the primary barcode.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <form onSubmit={addBarcode} className="grid grid-cols-1 gap-2 md:grid-cols-12">
-                <div className="md:col-span-4">
-                  <div className="relative">
-                    <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="barcode" className="pr-20 data-mono" />
-                    <div className="absolute right-1 top-1 flex items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 px-0"
-                        title="Generate barcode"
-                        aria-label="Generate barcode"
-                        onClick={generateDraftBarcode}
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 px-0"
-                        title="Print sticker label"
-                        aria-label="Print sticker label"
-                        onClick={() => printLabelForBarcode(newBarcode, newBarcodeUom || editUom)}
-                        disabled={!newBarcode.trim()}
-                      >
-                        <Printer className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <div className="md:col-span-2">
-                  <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="UOM..." options={uomOptions} />
-                </div>
-                <div className="md:col-span-2">
-                  <Input value={newFactor} onChange={(e) => setNewFactor(e.target.value)} placeholder="factor" inputMode="decimal" />
-                </div>
-                <div className="md:col-span-2">
-                  <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="label (optional)" />
-                </div>
-                <label className="md:col-span-1 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={newPrimary} onChange={(e) => setNewPrimary(e.target.checked)} /> Primary
-                </label>
-                <div className="md:col-span-1 flex justify-end">
-                  <Button type="submit" variant="outline">
-                    Add
-                  </Button>
-                </div>
-              </form>
-
-              <div className="ui-table-scroll">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Barcode</th>
-                      <th className="px-3 py-2">UOM</th>
-                      <th className="px-3 py-2 text-right">Factor</th>
-                      <th className="px-3 py-2">Label</th>
-                      <th className="px-3 py-2">Primary</th>
-                      <th className="px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {barcodes.map((b) => (
-                      <tr key={b.id} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs">{b.barcode}</td>
-                        <td className="px-3 py-2">
-                          <div className="min-w-[10rem]">
-                            <SearchableSelect
-                              value={String(b.uom_code || editUom || "").trim()}
-                              onChange={(v) => updateBarcode(b.id, { uom_code: String(v || "").trim().toUpperCase() || null })}
-                              searchPlaceholder="UOM..."
-                              options={uomOptions}
-                            />
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">
-                          <Input
-                            defaultValue={String(b.qty_factor || 1)}
-                            inputMode="decimal"
-                            onBlur={(e) => {
-                              const r = parseNumberInput(e.currentTarget.value);
-                              if (!r.ok) return;
-                              if (r.value <= 0) return;
-                              const prev = toNum(String(b.qty_factor || 1));
-                              if (Math.abs(prev - r.value) < 1e-12) return;
-                              updateBarcode(b.id, { qty_factor: r.value });
-                            }}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">
-                          <Input
-                            defaultValue={b.label || ""}
-                            placeholder=""
-                            onBlur={(e) => {
-                              const next = (e.currentTarget.value || "").trim() || null;
-                              const prev = (b.label || "").trim() || null;
-                              if (next === prev) return;
-                              updateBarcode(b.id, { label: next });
-                            }}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-xs">{b.is_primary ? "yes" : "no"}</td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 w-8 px-0"
-                              title="Print sticker label"
-                              aria-label="Print sticker label"
-                              onClick={() => printLabelForBarcode(b.barcode, b.uom_code)}
-                            >
-                              <Printer className="h-3.5 w-3.5" />
-                            </Button>
-                            {!b.is_primary ? (
-                              <Button type="button" size="sm" variant="outline" onClick={() => updateBarcode(b.id, { is_primary: true })}>
-                                Set Primary
-                              </Button>
-                            ) : null}
-                            <Button type="button" size="sm" variant="outline" onClick={() => deleteBarcode(b.id)}>
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {barcodes.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                          No barcodes.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>UOM Conversions</CardTitle>
-              <CardDescription>
-                Define alternate UOMs for this item. Factor means: <span className="font-mono">base_qty = entered_qty * factor</span>. Base UOM is{" "}
-                <span className="font-mono">{convBaseUom || editUom || "-"}</span>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <form onSubmit={addConversion} className="grid grid-cols-1 gap-2 md:grid-cols-12">
-                <div className="md:col-span-4">
-                  <SearchableSelect value={newConvUom} onChange={setNewConvUom} searchPlaceholder="UOM..." options={uomOptions} />
-                </div>
-                <div className="md:col-span-4">
-                  <Input value={newConvFactor} onChange={(e) => setNewConvFactor(e.target.value)} placeholder="factor to base" inputMode="decimal" />
-                </div>
-                <label className="md:col-span-2 flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={newConvActive} onChange={(e) => setNewConvActive(e.target.checked)} /> Active
-                </label>
-                <div className="md:col-span-2 flex justify-end">
-                  <Button type="submit" variant="outline">
-                    Add / Update
-                  </Button>
-                </div>
-              </form>
-
-              <div className="ui-table-scroll">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">UOM</th>
-                      <th className="px-3 py-2 text-right">Factor</th>
-                      <th className="px-3 py-2">Active</th>
-                      <th className="px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {conversions.map((c) => {
-                      const isBase = String(c.uom_code || "").trim().toUpperCase() === String(convBaseUom || editUom || "").trim().toUpperCase();
-                      return (
-                        <tr key={c.uom_code} className="ui-tr-hover">
-                          <td className="px-3 py-2 font-mono text-xs">{c.uom_code}</td>
-                          <td className="px-3 py-2 text-right font-mono text-xs">
-                            <Input
-                              defaultValue={String(c.to_base_factor || 1)}
-                              inputMode="decimal"
-                              disabled={isBase}
-                              onBlur={(e) => {
-                                const r = parseNumberInput(e.currentTarget.value);
-                                if (!r.ok) return;
-                                if (r.value <= 0) return;
-                                const prev = toNum(String(c.to_base_factor || 1));
-                                if (Math.abs(prev - r.value) < 1e-12) return;
-                                updateConversion(c.uom_code, { to_base_factor: r.value });
-                              }}
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            <label className="inline-flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(c.is_active)}
-                                disabled={isBase}
-                                onChange={(e) => updateConversion(c.uom_code, { is_active: e.target.checked })}
-                              />
-                              {c.is_active ? "yes" : "no"}
-                            </label>
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {!isBase ? (
-                              <Button type="button" size="sm" variant="outline" onClick={() => deleteConversion(c.uom_code)}>
-                                Delete
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-fg-subtle">Base</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {conversions.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                          No conversions yet.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Suppliers</CardTitle>
-              <CardDescription>Link suppliers to this item (primary supplier + last cost).</CardDescription>
-            </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={addSupplierLink} className="grid grid-cols-1 gap-2 md:grid-cols-12">
-              <div className="md:col-span-4">
-                <SearchableSelect
-                  value={addSupplierId}
-                  onChange={setAddSupplierId}
-                  searchPlaceholder="Search suppliers..."
-                  options={[
-                    { value: "", label: "Select supplier..." },
-                    ...suppliers.map((s) => ({
-                      value: s.id,
-                      label: s.name,
-                      keywords: `${s.phone || ""} ${s.email || ""}`.trim(),
-                    })),
-                  ]}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="lead days" inputMode="numeric" />
-              </div>
-                <div className="md:col-span-2">
-                  <Input value={addMinOrderQty} onChange={(e) => setAddMinOrderQty(e.target.value)} placeholder="min qty" inputMode="decimal" />
-                </div>
-                <div className="md:col-span-2">
-                  <Input value={addLastCostUsd} onChange={(e) => setAddLastCostUsd(e.target.value)} placeholder="USD" inputMode="decimal" />
-                </div>
-                <div className="md:col-span-2">
-                  <Input value={addLastCostLbp} onChange={(e) => setAddLastCostLbp(e.target.value)} placeholder="LL" inputMode="decimal" />
-                </div>
-                <label className="md:col-span-12 flex items-center justify-between gap-2 text-xs text-fg-muted">
-                  <span className="flex items-center gap-2">
-                    <input type="checkbox" checked={addIsPrimary} onChange={(e) => setAddIsPrimary(e.target.checked)} /> Set as primary supplier
-                  </span>
-                  <Button type="submit" variant="outline">
-                    Link Supplier
-                  </Button>
-                </label>
-              </form>
-
-              <div className="ui-table-scroll">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Supplier</th>
-                      <th className="px-3 py-2">Primary</th>
-                      <th className="px-3 py-2 text-right">Lead</th>
-                      <th className="px-3 py-2 text-right">Min Qty</th>
-                      <th className="px-3 py-2 text-right">USD</th>
-                      <th className="px-3 py-2 text-right">LL</th>
-                      <th className="px-3 py-2 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {itemLinks.map((l) => (
-                      <tr key={l.id} className="ui-tr-hover">
-                        <td className="px-3 py-2 text-sm">{l.name}</td>
-                        <td className="px-3 py-2 text-xs">{l.is_primary ? "yes" : "no"}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(l.lead_time_days || 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(l.min_order_qty || 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_usd || 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_lbp || 0)}</td>
-                        <td className="px-3 py-2 text-right">
-                          <div className="inline-flex items-center gap-2">
-                            {!l.is_primary ? (
-                              <Button type="button" size="sm" variant="outline" onClick={() => updateSupplierLink(l.id, { is_primary: true })}>
-                                Set Primary
-                              </Button>
-                            ) : null}
-                            <Button type="button" size="sm" variant="outline" onClick={() => deleteSupplierLink(l.id)}>
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {itemLinks.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                          No suppliers linked.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
-        </>
+      {status ? (
+        <Alert variant={status.startsWith("Saving") || status.startsWith("Deleting") || status.startsWith("Loading") || status.startsWith("Uploading") || status.startsWith("Adding") || status.startsWith("Updating") || status.startsWith("Linking") || status.startsWith("Removing") || status.startsWith("Applying") ? "default" : "destructive"}>
+          <AlertDescription>{status}</AlertDescription>
+        </Alert>
       ) : null}
+
+      {/* Pricing Card */}
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>Pricing</CardTitle>
+            <CardDescription>Current margin and suggested sell price</CardDescription>
+          </div>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={applySuggestedPrice}
+            disabled={priceBusy || saving || !(priceSuggest?.suggested?.price_usd || priceSuggest?.suggested?.price_lbp)}
+          >
+            {priceBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Apply Suggested
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Current Price</p>
+              <p className="font-mono text-sm font-semibold">
+                {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " / " }) : "-"}
+              </p>
+              <p className="text-xs text-muted-foreground">Target margin: {priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}</p>
+            </div>
+            <div className="space-y-1 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Average Cost</p>
+              <p className="font-mono text-sm font-semibold">
+                {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " / " }) : "-"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Margin: {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
+              </p>
+            </div>
+            <div className="space-y-1 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Suggested Price</p>
+              <p className="font-mono text-sm font-semibold">
+                {priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " / " }) : "-"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Rounding: USD {priceSuggest?.rounding?.usd_step || "-"} / LBP {priceSuggest?.rounding?.lbp_step || "-"}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Price List Override */}
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle>Price List Override</CardTitle>
+            <CardDescription>Set prices directly on a specific list</CardDescription>
+          </div>
+          {selectedPriceListId ? (
+            <Button variant="outline" size="sm" onClick={() => router.push(`/catalog/price-lists?open=${encodeURIComponent(selectedPriceListId)}`)}>
+              Open Price List
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Price List</Label>
+              <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={selectedPriceListId} onChange={(e) => setSelectedPriceListId(e.target.value)} disabled={plBusy}>
+                <option value="">(pick)</option>
+                {priceLists.map((pl) => (
+                  <option key={pl.id} value={pl.id}>{pl.code} - {pl.name}{defaultPriceListId && pl.id === defaultPriceListId ? " (default)" : ""}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Current Effective</p>
+              <p className="font-mono text-sm font-semibold">{plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " / " }) : "-"}</p>
+              <p className="text-xs text-muted-foreground">From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}{plBusy ? " loading..." : ""}</p>
+            </div>
+          </div>
+
+          <form onSubmit={addPriceListOverride} className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label>Effective From</Label>
+                <Input value={plEffectiveFrom} onChange={(e) => setPlEffectiveFrom(e.target.value)} type="date" disabled={plBusy} />
+              </div>
+              <div className="space-y-1">
+                <Label>Price USD</Label>
+                <Input value={plPriceUsd} onChange={(e) => setPlPriceUsd(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
+              </div>
+              <div className="space-y-1">
+                <Label>Price LBP</Label>
+                <Input value={plPriceLbp} onChange={(e) => setPlPriceLbp(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                {selectedPriceList ? <>Writing into <span className="font-mono">{selectedPriceList.code}</span>. Most recent effective row wins.</> : "Pick a list to set a price."}
+              </p>
+              <Button type="submit" size="sm" disabled={plBusy || !selectedPriceListId}>
+                {plBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Add Price Row
+              </Button>
+            </div>
+            {plItems.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Recent: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=$${Number(r.price_usd || 0).toFixed(2)}`).join(", ")}
+              </p>
+            ) : null}
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Core Item Fields */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Item Details</CardTitle>
+          <CardDescription>Core fields used by Sales, Purchasing, and Inventory</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={save} className="space-y-6">
+            {/* Identity */}
+            <div className="grid gap-4 sm:grid-cols-6">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>SKU <span className="text-destructive">*</span></Label>
+                <Input value={editSku} onChange={(e) => setEditSku(e.target.value)} disabled={saving} />
+              </div>
+              <div className="space-y-2 sm:col-span-4">
+                <Label>Name <span className="text-destructive">*</span></Label>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} disabled={saving} />
+              </div>
+            </div>
+
+            {/* Type, UOM, Tags */}
+            <div className="grid gap-4 sm:grid-cols-6">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Type</Label>
+                <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={editType} onChange={(e) => setEditType(e.target.value as any)} disabled={saving}>
+                  <option value="stocked">Stocked</option>
+                  <option value="service">Service</option>
+                  <option value="bundle">Bundle</option>
+                </select>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>UOM <span className="text-destructive">*</span></Label>
+                <SearchableSelect value={editUom} onChange={setEditUom} disabled={saving} placeholder="Select UOM..." searchPlaceholder="Search UOMs..." options={uomOptions} />
+                <p className="text-xs text-muted-foreground">Missing UOM? Add in <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">System &rarr; UOMs</Link></p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Tags</Label>
+                <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="comma-separated" disabled={saving} />
+              </div>
+            </div>
+
+            {/* Tax & Category */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tax Code</Label>
+                <SearchableSelect value={editTaxCodeId} onChange={setEditTaxCodeId} disabled={saving} searchPlaceholder="Search tax codes..." options={[{ value: "", label: "(none)" }, ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") }))]} />
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <SearchableSelect value={editCategoryId} onChange={setEditCategoryId} disabled={saving} searchPlaceholder="Search categories..." options={[{ value: "", label: "(none)" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+              </div>
+            </div>
+
+            {/* Brand, Short Name */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Brand</Label>
+                <Input value={editBrand} onChange={(e) => setEditBrand(e.target.value)} disabled={saving} />
+              </div>
+              <div className="space-y-2">
+                <Label>Short Name</Label>
+                <Input value={editShortName} onChange={(e) => setEditShortName(e.target.value)} disabled={saving} />
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} disabled={saving} rows={3} />
+            </div>
+
+            <Separator />
+
+            {/* Reorder */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Reorder Point</Label>
+                <Input value={editReorderPoint} onChange={(e) => setEditReorderPoint(e.target.value)} disabled={saving} inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Reorder Qty</Label>
+                <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} disabled={saving} inputMode="decimal" />
+              </div>
+            </div>
+
+            {/* Toggles */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="flex items-center gap-3">
+                <Switch checked={editTrackBatches} onCheckedChange={setEditTrackBatches} disabled={saving} />
+                <Label>Track Batches</Label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={editTrackExpiry} onCheckedChange={setEditTrackExpiry} disabled={saving} />
+                <Label>Track Expiry</Label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={editActive} onCheckedChange={setEditActive} disabled={saving} />
+                <Label>Active</Label>
+              </div>
+            </div>
+
+            {/* Shelf life */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Shelf Life (days)</Label>
+                <Input value={editDefaultShelfLifeDays} onChange={(e) => setEditDefaultShelfLifeDays(e.target.value)} disabled={saving} inputMode="numeric" />
+              </div>
+              <div className="space-y-2">
+                <Label>Min Shelf Life for Sale (days)</Label>
+                <Input value={editMinShelfLifeDaysForSale} onChange={(e) => setEditMinShelfLifeDaysForSale(e.target.value)} disabled={saving} inputMode="numeric" />
+              </div>
+              <div className="space-y-2">
+                <Label>Expiry Warning (days)</Label>
+                <Input value={editExpiryWarningDays} onChange={(e) => setEditExpiryWarningDays(e.target.value)} disabled={saving} inputMode="numeric" />
+              </div>
+            </div>
+
+            {/* Negative stock */}
+            <div className="space-y-2">
+              <Label>Allow Negative Stock</Label>
+              <select className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={editAllowNegativeStock === null ? "" : editAllowNegativeStock ? "true" : "false"} onChange={(e) => { const v = e.target.value; if (!v) setEditAllowNegativeStock(null); else setEditAllowNegativeStock(v === "true"); }} disabled={saving}>
+                <option value="">(inherit)</option>
+                <option value="false">No</option>
+                <option value="true">Yes</option>
+              </select>
+            </div>
+
+            <Separator />
+
+            {/* Actions */}
+            <div className="flex items-center justify-between">
+              <Button type="button" variant="destructive" size="sm" onClick={hardDeleteItem} disabled={saving}>
+                <Trash2 className="mr-2 h-4 w-4" /> Hard Delete
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Save
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Image */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Image</CardTitle>
+          <CardDescription>Upload an item image (stored as an attachment)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <Label>Alt text</Label>
+            <Input value={editImageAlt} onChange={(e) => setEditImageAlt(e.target.value)} disabled={imageUploading || saving} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <FileInput accept="image/*" disabled={imageUploading || saving} buttonLabel="Choose image" clearAfterSelect onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) uploadImage(f); }} />
+            <Button type="button" variant="outline" size="sm" disabled={imageUploading || saving || !editImageAttachmentId} onClick={removeImage}>Remove</Button>
+          </div>
+          {editImageAttachmentId ? (
+            <p className="text-xs text-muted-foreground">Current: <span className="font-mono">{editImageAttachmentId}</span></p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No image.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Barcodes */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Barcodes</CardTitle>
+          <CardDescription>Manage primary and alternate barcodes</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={addBarcode} className="grid gap-3 sm:grid-cols-12">
+            <div className="sm:col-span-4">
+              <div className="relative">
+                <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="Barcode" className="pr-20 font-mono" />
+                <div className="absolute right-1 top-1 flex items-center gap-0.5">
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Generate barcode" onClick={generateDraftBarcode}><RefreshCw className="h-3.5 w-3.5" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Print label" onClick={() => printLabelForBarcode(newBarcode, newBarcodeUom || editUom)} disabled={!newBarcode.trim()}><Printer className="h-3.5 w-3.5" /></Button>
+                </div>
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="UOM..." options={uomOptions} />
+            </div>
+            <div className="sm:col-span-2">
+              <Input value={newFactor} onChange={(e) => setNewFactor(e.target.value)} placeholder="Factor" inputMode="decimal" />
+            </div>
+            <div className="sm:col-span-2">
+              <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Label" />
+            </div>
+            <div className="flex items-center gap-2 sm:col-span-1">
+              <Switch checked={newPrimary} onCheckedChange={setNewPrimary} />
+              <span className="text-xs">Pri</span>
+            </div>
+            <div className="flex justify-end sm:col-span-1">
+              <Button type="submit" variant="outline" size="sm"><Plus className="h-4 w-4" /></Button>
+            </div>
+          </form>
+
+          {barcodes.length > 0 ? (
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Barcode</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">UOM</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Factor</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Label</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Primary</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>
+                </tr></thead>
+                <tbody>
+                  {barcodes.map((b) => (
+                    <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-3 py-2 font-mono text-xs">{b.barcode}</td>
+                      <td className="px-3 py-2">
+                        <div className="min-w-[8rem]">
+                          <SearchableSelect value={String(b.uom_code || editUom || "").trim()} onChange={(v) => updateBarcode(b.id, { uom_code: String(v || "").trim().toUpperCase() || null })} searchPlaceholder="UOM..." options={uomOptions} />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Input defaultValue={String(b.qty_factor || 1)} inputMode="decimal" className="w-20 text-right font-mono text-xs" onBlur={(e) => { const r = parseNumberInput(e.currentTarget.value); if (!r.ok || r.value <= 0) return; const prev = toNum(String(b.qty_factor || 1)); if (Math.abs(prev - r.value) < 1e-12) return; updateBarcode(b.id, { qty_factor: r.value }); }} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input defaultValue={b.label || ""} placeholder="" className="text-xs" onBlur={(e) => { const next = (e.currentTarget.value || "").trim() || null; const prev = (b.label || "").trim() || null; if (next === prev) return; updateBarcode(b.id, { label: next }); }} />
+                      </td>
+                      <td className="px-3 py-2">{b.is_primary ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Print" onClick={() => printLabelForBarcode(b.barcode, b.uom_code)}><Printer className="h-3.5 w-3.5" /></Button>
+                          {!b.is_primary ? <Button type="button" size="sm" variant="outline" onClick={() => updateBarcode(b.id, { is_primary: true })}>Set Primary</Button> : null}
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteBarcode(b.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted-foreground">No barcodes.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* UOM Conversions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>UOM Conversions</CardTitle>
+          <CardDescription>
+            Factor: <span className="font-mono">base_qty = entered_qty * factor</span>. Base UOM: <span className="font-mono">{convBaseUom || editUom || "-"}</span>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={addConversion} className="grid gap-3 sm:grid-cols-12">
+            <div className="sm:col-span-4">
+              <SearchableSelect value={newConvUom} onChange={setNewConvUom} searchPlaceholder="UOM..." options={uomOptions} />
+            </div>
+            <div className="sm:col-span-4">
+              <Input value={newConvFactor} onChange={(e) => setNewConvFactor(e.target.value)} placeholder="Factor" inputMode="decimal" />
+            </div>
+            <div className="flex items-center gap-2 sm:col-span-2">
+              <Switch checked={newConvActive} onCheckedChange={setNewConvActive} />
+              <span className="text-xs">Active</span>
+            </div>
+            <div className="flex justify-end sm:col-span-2">
+              <Button type="submit" variant="outline" size="sm">Add / Update</Button>
+            </div>
+          </form>
+
+          {conversions.length > 0 ? (
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">UOM</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Factor</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Active</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>
+                </tr></thead>
+                <tbody>
+                  {conversions.map((c) => {
+                    const isBase = String(c.uom_code || "").trim().toUpperCase() === String(convBaseUom || editUom || "").trim().toUpperCase();
+                    return (
+                      <tr key={c.uom_code} className="border-b last:border-0 hover:bg-muted/30">
+                        <td className="px-3 py-2 font-mono text-xs">{c.uom_code}</td>
+                        <td className="px-3 py-2 text-right">
+                          <Input defaultValue={String(c.to_base_factor || 1)} inputMode="decimal" disabled={isBase} className="w-24 text-right font-mono text-xs" onBlur={(e) => { const r = parseNumberInput(e.currentTarget.value); if (!r.ok || r.value <= 0) return; const prev = toNum(String(c.to_base_factor || 1)); if (Math.abs(prev - r.value) < 1e-12) return; updateConversion(c.uom_code, { to_base_factor: r.value }); }} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Switch checked={Boolean(c.is_active)} disabled={isBase} onCheckedChange={(v) => updateConversion(c.uom_code, { is_active: v })} />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {!isBase ? <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteConversion(c.uom_code)}><Trash2 className="h-3.5 w-3.5" /></Button> : <span className="text-xs text-muted-foreground">Base</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted-foreground">No conversions yet.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Suppliers */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Suppliers</CardTitle>
+          <CardDescription>Link suppliers to this item</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={addSupplierLink} className="grid gap-3 sm:grid-cols-12">
+            <div className="sm:col-span-4">
+              <SearchableSelect value={addSupplierId} onChange={setAddSupplierId} searchPlaceholder="Search suppliers..." options={[{ value: "", label: "Select supplier..." }, ...suppliers.map((s) => ({ value: s.id, label: s.name, keywords: `${s.phone || ""} ${s.email || ""}`.trim() }))]} />
+            </div>
+            <div className="sm:col-span-2">
+              <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="Lead days" inputMode="numeric" />
+            </div>
+            <div className="sm:col-span-2">
+              <Input value={addMinOrderQty} onChange={(e) => setAddMinOrderQty(e.target.value)} placeholder="Min qty" inputMode="decimal" />
+            </div>
+            <div className="sm:col-span-2">
+              <Input value={addLastCostUsd} onChange={(e) => setAddLastCostUsd(e.target.value)} placeholder="USD" inputMode="decimal" />
+            </div>
+            <div className="sm:col-span-2">
+              <Input value={addLastCostLbp} onChange={(e) => setAddLastCostLbp(e.target.value)} placeholder="LBP" inputMode="decimal" />
+            </div>
+            <div className="flex items-center justify-between sm:col-span-12">
+              <div className="flex items-center gap-2">
+                <Switch checked={addIsPrimary} onCheckedChange={setAddIsPrimary} />
+                <span className="text-xs text-muted-foreground">Set as primary</span>
+              </div>
+              <Button type="submit" variant="outline" size="sm">Link Supplier</Button>
+            </div>
+          </form>
+
+          {itemLinks.length > 0 ? (
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Supplier</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Primary</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Lead</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Min Qty</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">USD</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">LBP</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>
+                </tr></thead>
+                <tbody>
+                  {itemLinks.map((l) => (
+                    <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-3 py-2 font-medium">{l.name}</td>
+                      <td className="px-3 py-2">{l.is_primary ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{l.lead_time_days || 0}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{String(l.min_order_qty || 0)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_usd || 0)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_lbp || 0)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex justify-end gap-1">
+                          {!l.is_primary ? <Button type="button" size="sm" variant="outline" onClick={() => updateSupplierLink(l.id, { is_primary: true })}>Set Primary</Button> : null}
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteSupplierLink(l.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted-foreground">No suppliers linked.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

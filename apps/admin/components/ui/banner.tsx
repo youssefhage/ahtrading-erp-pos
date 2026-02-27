@@ -49,47 +49,47 @@ export function Banner(props: {
 
   const toneClasses =
     variant === "danger"
-      ? "border-danger/25 bg-danger/5"
+      ? "border-destructive/25 bg-destructive/5"
       : variant === "warning"
         ? "border-warning/25 bg-warning/5"
         : variant === "success"
           ? "border-success/25 bg-success/5"
           : variant === "info"
             ? "border-info/25 bg-info/5"
-            : "border-border-subtle bg-bg-elevated/70";
+            : "border-border bg-card/80";
 
   const stripeClasses =
     variant === "danger"
-      ? "bg-danger"
+      ? "bg-destructive"
       : variant === "warning"
         ? "bg-warning"
         : variant === "success"
           ? "bg-success"
           : variant === "info"
             ? "bg-info"
-            : "bg-border-strong";
+            : "bg-border";
 
   const iconClasses =
     variant === "danger"
-      ? "text-danger"
+      ? "text-destructive"
       : variant === "warning"
         ? "text-warning"
         : variant === "success"
           ? "text-success"
           : variant === "info"
             ? "text-info"
-            : "text-fg-muted";
+            : "text-muted-foreground";
 
   const iconWrapClasses =
     variant === "danger"
-      ? "bg-danger/10 border-danger/20"
+      ? "bg-destructive/10 border-destructive/20"
       : variant === "warning"
         ? "bg-warning/10 border-warning/20"
         : variant === "success"
           ? "bg-success/10 border-success/20"
           : variant === "info"
             ? "bg-info/10 border-info/20"
-            : "bg-bg-elevated/70 border-border-subtle";
+            : "bg-card/80 border-border";
 
   const rootPad = size === "sm" ? "px-3 py-2" : "px-3 py-3";
   const iconBox = size === "sm" ? "h-8 w-8" : "h-9 w-9";
@@ -139,7 +139,7 @@ export function Banner(props: {
                 ) : null}
               </div>
               {props.description ? (
-                <div className={cn("mt-0.5 text-fg-muted", descSize)}>
+                <div className={cn("mt-0.5 text-muted-foreground", descSize)}>
                   {props.description}
                 </div>
               ) : null}

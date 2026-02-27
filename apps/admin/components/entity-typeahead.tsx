@@ -417,7 +417,7 @@ function EntityTypeaheadInner<T extends { id: string }>(
             <div
               ref={menuRef}
               data-dialog-keepopen="true"
-              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
+              className="z-[70] overflow-hidden rounded-md border border-border bg-card shadow-lg"
               style={{
                 position: "fixed",
                 left: menuPos.left,
@@ -425,7 +425,7 @@ function EntityTypeaheadInner<T extends { id: string }>(
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
               }}
             >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
+              <div className="flex items-center justify-between border-b border px-3 py-2 text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <span className="ui-kbd">Enter</span>
                   <span>select</span>
@@ -435,7 +435,7 @@ function EntityTypeaheadInner<T extends { id: string }>(
                 {props.onClear ? (
                   <button
                     type="button"
-                    className="text-fg-muted hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setQ("");
@@ -449,14 +449,14 @@ function EntityTypeaheadInner<T extends { id: string }>(
               </div>
 
               {showRecent ? (
-                <div className="border-b border-border-subtle px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+                <div className="border-b border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   Recent
                 </div>
               ) : null}
 
               <div id={listboxId} role="listbox" className="max-h-72 overflow-auto">
                 {loading ? (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
+                  <div className="px-3 py-3 text-sm text-muted-foreground">Searching...</div>
                 ) : results.length ? (
                   results.map((item, idx) => {
                     const isActive = idx === active;
@@ -471,8 +471,8 @@ function EntityTypeaheadInner<T extends { id: string }>(
                         type="button"
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
-                          "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50",
+                          "border-b border last:border-b-0",
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-muted/50",
                         )}
                         onPointerDown={(e) => {
                           e.preventDefault();
@@ -486,7 +486,7 @@ function EntityTypeaheadInner<T extends { id: string }>(
                           <div className="min-w-0">
                             <div className="truncate">{config.renderItem(item)}</div>
                             {secondary ? (
-                              <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">
+                              <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                                 {secondary}
                               </div>
                             ) : null}
@@ -497,7 +497,7 @@ function EntityTypeaheadInner<T extends { id: string }>(
                     );
                   })
                 ) : (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">
+                  <div className="px-3 py-3 text-sm text-muted-foreground">
                     {showRecent ? emptyRecentText : "No matches."}
                   </div>
                 )}

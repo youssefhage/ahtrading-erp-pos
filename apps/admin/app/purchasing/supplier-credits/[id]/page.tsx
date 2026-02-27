@@ -243,7 +243,7 @@ export default function SupplierCreditDetailPage() {
       sortable: true,
       mono: true,
       accessor: (inv) => inv.invoice_date,
-      cell: (inv) => <span className="font-mono text-xs text-fg-muted">{inv.invoice_date}</span>,
+      cell: (inv) => <span className="font-mono text-xs text-muted-foreground">{inv.invoice_date}</span>,
     },
     {
       id: "balance",
@@ -255,7 +255,7 @@ export default function SupplierCreditDetailPage() {
       cell: (inv) => (
         <div className="text-right data-mono text-sm">
           {fmtUsd(inv.balance_usd)}
-          <div className="text-xs text-fg-muted">{fmtLbp(inv.balance_lbp)}</div>
+          <div className="text-xs text-muted-foreground">{fmtLbp(inv.balance_lbp)}</div>
         </div>
       ),
     },
@@ -293,7 +293,7 @@ export default function SupplierCreditDetailPage() {
           <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(a.supplier_invoice_id)}`} title="Open supplier invoice">
             {a.invoice_no}
           </ShortcutLink>
-          <div className="text-xs text-fg-muted">{a.invoice_date}</div>
+          <div className="text-xs text-muted-foreground">{a.invoice_date}</div>
         </div>
       ),
     },
@@ -307,7 +307,7 @@ export default function SupplierCreditDetailPage() {
       cell: (a) => (
         <div className="text-right data-mono text-sm">
           {fmtUsd(a.amount_usd)}
-          <div className="text-xs text-fg-muted">{fmtLbp(a.amount_lbp)}</div>
+          <div className="text-xs text-muted-foreground">{fmtLbp(a.amount_lbp)}</div>
         </div>
       ),
     },
@@ -317,7 +317,7 @@ export default function SupplierCreditDetailPage() {
       sortable: true,
       mono: true,
       accessor: (a) => a.created_at,
-      cell: (a) => <span className="font-mono text-xs text-fg-muted">{formatDateLike(a.created_at)}</span>,
+      cell: (a) => <span className="font-mono text-xs text-muted-foreground">{formatDateLike(a.created_at)}</span>,
     },
   ];
   const lineColumns: Array<DataTableColumn<LineRow>> = [
@@ -343,7 +343,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (l) => toNum(l.amount_usd),
-      cell: (l) => <span className="data-mono text-sm ui-tone-usd">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span>,
+      cell: (l) => <span className="data-mono text-sm text-emerald-600">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span>,
     },
     {
       id: "amount_lbp",
@@ -352,7 +352,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (l) => toNum(l.amount_lbp),
-      cell: (l) => <span className="data-mono text-sm ui-tone-lbp">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span>,
+      cell: (l) => <span className="data-mono text-sm text-sky-600">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span>,
     },
   ];
   const allocColumns: Array<DataTableColumn<AllocRow>> = [
@@ -370,7 +370,7 @@ export default function SupplierCreditDetailPage() {
       sortable: true,
       mono: true,
       accessor: (a) => a.batch_id || "",
-      cell: (a) => <span className="font-mono text-xs text-fg-muted">{a.batch_id || "-"}</span>,
+      cell: (a) => <span className="font-mono text-xs text-muted-foreground">{a.batch_id || "-"}</span>,
     },
     {
       id: "amount_usd",
@@ -379,7 +379,7 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (a) => toNum(a.amount_usd),
-      cell: (a) => <span className="data-mono text-sm ui-tone-usd">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</span>,
+      cell: (a) => <span className="data-mono text-sm text-emerald-600">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</span>,
     },
     {
       id: "amount_lbp",
@@ -388,12 +388,12 @@ export default function SupplierCreditDetailPage() {
       align: "right",
       mono: true,
       accessor: (a) => toNum(a.amount_lbp),
-      cell: (a) => <span className="data-mono text-sm ui-tone-lbp">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</span>,
+      cell: (a) => <span className="data-mono text-sm text-sky-600">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</span>,
     },
   ];
 
   return (
-    <div className="ui-detail-shell-wide">
+    <div className="mx-auto max-w-7xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
@@ -405,7 +405,7 @@ export default function SupplierCreditDetailPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm text-fg-muted space-y-2">
+          <div className="text-sm text-muted-foreground space-y-2">
             <div>
               Supplier:{" "}
               {credit?.supplier_id ? (
@@ -479,7 +479,7 @@ export default function SupplierCreditDetailPage() {
                     </DialogHeader>
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <div className="text-fg-muted">
+                        <div className="text-muted-foreground">
                           Remaining: <span className="data-mono">{fmtUsd(remaining.usd)}</span> /{" "}
                           <span className="data-mono">{fmtLbp(remaining.lbp)}</span>
                         </div>
@@ -529,11 +529,11 @@ export default function SupplierCreditDetailPage() {
                     </DialogHeader>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Cancel Date</label>
+                        <label className="text-xs font-medium text-muted-foreground">Cancel Date</label>
                         <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-fg-muted">Reason</label>
+                        <label className="text-xs font-medium text-muted-foreground">Reason</label>
                         <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Optional..." />
                       </div>
                       <div className="flex justify-end md:col-span-2">
@@ -562,12 +562,12 @@ export default function SupplierCreditDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <div className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-sm text-fg-subtle">Remaining USD</div>
+              <div className="rounded-md border border-border bg-card p-3">
+                <div className="text-sm text-muted-foreground">Remaining USD</div>
                 <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
               </div>
-              <div className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-sm text-fg-subtle">Remaining LL</div>
+              <div className="rounded-md border border-border bg-card p-3">
+                <div className="text-sm text-muted-foreground">Remaining LL</div>
                 <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
               </div>
             </CardContent>
@@ -578,7 +578,7 @@ export default function SupplierCreditDetailPage() {
               <CardTitle>Summary</CardTitle>
               <CardDescription>Quick status and application count.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-2 text-sm text-fg-muted md:grid-cols-2">
+            <CardContent className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
               <div>Status: <span className="font-mono">{credit?.status || "-"}</span></div>
               <div>Applications: <span className="font-mono">{data?.applications?.length || 0}</span></div>
               <div>Items: <span className="font-mono">{data?.lines?.length || 0}</span></div>
@@ -646,7 +646,7 @@ export default function SupplierCreditDetailPage() {
                 initialSort={{ columnId: "goods_receipt_line_id", dir: "asc" }}
               />
             ) : (
-              <p className="text-sm text-fg-subtle">No allocations yet.</p>
+              <p className="text-sm text-muted-foreground">No allocations yet.</p>
             )}
           </CardContent>
         </Card>

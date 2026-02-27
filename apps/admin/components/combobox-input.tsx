@@ -212,7 +212,7 @@ export function ComboboxInput(props: {
               id={listboxId}
               role="listbox"
               data-dialog-keepopen="true"
-              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
+              className="z-[70] overflow-hidden rounded-md border border-border bg-card shadow-lg"
               style={{
                 position: "fixed",
                 left: menuPos.left,
@@ -222,7 +222,7 @@ export function ComboboxInput(props: {
             >
               <div className="max-h-72 overflow-auto">
                 {loading ? (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
+                  <div className="px-3 py-3 text-sm text-muted-foreground">Searching...</div>
                 ) : suggestions.length ? (
                   suggestions.map((s, idx) => {
                     const isActive = idx === active;
@@ -235,8 +235,8 @@ export function ComboboxInput(props: {
                         aria-selected={isActive}
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
-                          "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
+                          "border-b border last:border-b-0",
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-muted/50"
                         )}
                         onPointerDown={(e) => {
                           e.preventDefault();
@@ -251,7 +251,7 @@ export function ComboboxInput(props: {
                     );
                   })
                 ) : (
-                  <div className="px-3 py-3 text-sm text-fg-subtle">No suggestions.</div>
+                  <div className="px-3 py-3 text-sm text-muted-foreground">No suggestions.</div>
                 )}
               </div>
             </div>,

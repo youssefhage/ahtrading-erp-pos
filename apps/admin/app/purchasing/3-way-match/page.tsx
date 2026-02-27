@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
+import { RefreshCw } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ErrorBanner } from "@/components/error-banner";
-import { ShortcutLink } from "@/components/shortcut-link";
+import { fmtUsd, fmtLbp } from "@/lib/money";
+import { formatDate } from "@/lib/datetime";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { CurrencyDisplay } from "@/components/business/currency-display";
+import { EmptyState } from "@/components/business/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
@@ -37,52 +42,38 @@ type ExceptionRow = {
   summary?: ExceptionSummary;
 };
 
-function fmtIso(iso?: string | null) {
-  return String(iso || "").slice(0, 10) || "-";
+function toNum(v: unknown, fb = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fb;
 }
 
 export default function ThreeWayMatchPage() {
   const router = useRouter();
-
-  const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const [q, setQ] = useState("");
   const [rows, setRows] = useState<ExceptionRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [unholdOpen, setUnholdOpen] = useState(false);
   const [unholdReason, setUnholdReason] = useState("");
-  const [unholdId, setUnholdId] = useState<string>("");
+  const [unholdId, setUnholdId] = useState("");
   const [unholding, setUnholding] = useState(false);
-
-  const query = useMemo(() => q.trim(), [q]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (query) params.set("q", query);
-      params.set("limit", "200");
-      const res = await apiGet<{ exceptions: ExceptionRow[] }>(`/purchases/invoices/exceptions?${params.toString()}`);
+      const res = await apiGet<{ exceptions: ExceptionRow[] }>("/purchases/invoices/exceptions?limit=200");
       setRows(res.exceptions || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+    } catch {
+      setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [query]);
+  }, []);
 
-  useEffect(() => {
-    const t = window.setTimeout(() => load(), 250);
-    return () => window.clearTimeout(t);
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const doUnhold = useCallback(async () => {
     if (!unholdId) return;
     setUnholding(true);
-    setStatus("Unholding...");
     try {
       await apiPost(`/purchases/invoices/${encodeURIComponent(unholdId)}/unhold`, {
         reason: unholdReason.trim() || null,
@@ -91,159 +82,106 @@ export default function ThreeWayMatchPage() {
       setUnholdReason("");
       setUnholdId("");
       await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
+    } catch { /* noop */ } finally {
       setUnholding(false);
     }
   }, [load, unholdId, unholdReason]);
 
-  const columns = useMemo((): Array<DataTableColumn<ExceptionRow>> => {
-    return [
-      {
-        id: "invoice",
-        header: "Invoice",
-        sortable: true,
-        accessor: (r) => r.invoice_no || r.id,
-        cell: (r) => (
+  const columns = useMemo<ColumnDef<ExceptionRow>[]>(() => [
+    {
+      accessorKey: "invoice_no",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />,
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
           <div>
-            <div className="data-mono text-xs">
-              <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(r.id)}`} title="Open supplier invoice">
-                {r.invoice_no || "(draft)"}
-              </ShortcutLink>
+            <span className="font-mono text-sm font-medium">{r.invoice_no || "(draft)"}</span>
+            <div className="mt-0.5">
+              <Badge variant="warning" className="text-xs">
+                HOLD{r.hold_reason ? `: ${r.hold_reason}` : ""}
+              </Badge>
             </div>
-            <div className="text-xs text-fg-subtle">
-              {r.hold_reason ? (
-                <span className="ui-chip ui-chip-warning">
-                  HOLD: {r.hold_reason}
-                </span>
-              ) : (
-                <span className="ui-chip ui-chip-warning">
-                  HOLD
-                </span>
-              )}
-            </div>
-            {r.supplier_ref ? <div className="data-mono text-xs text-fg-muted">Ref: {r.supplier_ref}</div> : null}
-          </div>
-        ),
-      },
-      {
-        id: "supplier",
-        header: "Supplier",
-        sortable: true,
-        accessor: (r) => `${r.supplier_name || ""} ${r.supplier_id || ""}`,
-        cell: (r) => (
-          <span className="text-xs text-fg-muted">
-            {r.supplier_id ? (
-              <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(r.supplier_id)}`} title="Open supplier">
-                {r.supplier_name || r.supplier_id}
-              </ShortcutLink>
-            ) : (
-              r.supplier_name || "-"
+            {r.supplier_ref && (
+              <div className="font-mono text-xs text-muted-foreground">Ref: {r.supplier_ref}</div>
             )}
-          </span>
-        ),
-      },
-      {
-        id: "receipt",
-        header: "Receipt",
-        sortable: true,
-        mono: true,
-        accessor: (r) => r.goods_receipt_no || r.goods_receipt_id || "",
-        cell: (r) =>
-          r.goods_receipt_id ? (
-            <ShortcutLink href={`/purchasing/goods-receipts/${encodeURIComponent(r.goods_receipt_id)}`} title="Open goods receipt">
-              {r.goods_receipt_no || r.goods_receipt_id.slice(0, 8)}
-            </ShortcutLink>
-          ) : (
-            <span className="data-mono text-xs">{r.goods_receipt_no || "-"}</span>
-          ),
-      },
-      {
-        id: "dates",
-        header: "Dates",
-        sortable: true,
-        accessor: (r) => `${r.invoice_date || ""} ${r.due_date || ""} ${r.held_at || ""}`,
-        cell: (r) => (
-          <div className="text-xs text-fg-muted">
-            <div>
-              Inv: <span className="data-mono">{fmtIso(r.invoice_date)}</span>
-            </div>
-            <div className="text-fg-subtle">
-              Due: <span className="data-mono">{fmtIso(r.due_date)}</span>
-            </div>
-            <div className="text-fg-subtle">
-              Held: <span className="data-mono">{fmtIso(r.held_at)}</span>
-            </div>
           </div>
-        ),
+        );
       },
-      {
-        id: "variance",
-        header: "Variance",
-        sortable: true,
-        accessor: (r) => Number(r.summary?.flags_total || 0),
-        cell: (r) => {
-          const s = r.summary;
-          return (
-            <div className="text-xs text-fg-muted">
-              {s ? (
-                <div className="flex flex-wrap gap-1.5">
-                  <span className="ui-chip ui-chip-default">
-                    total <span className="data-mono">{Number(s.flags_total || 0)}</span>
-                  </span>
-                  {s.unit_cost_flags ? (
-                    <span className="ui-chip ui-chip-warning">
-                      cost <span className="data-mono">{Number(s.unit_cost_flags || 0)}</span>
-                    </span>
-                  ) : null}
-                  {s.qty_flags ? (
-                    <span className="ui-chip ui-chip-warning">
-                      qty <span className="data-mono">{Number(s.qty_flags || 0)}</span>
-                    </span>
-                  ) : null}
-                  {s.tax_flags ? (
-                    <span className="ui-chip ui-chip-warning">
-                      tax <span className="data-mono">{Number(s.tax_flags || 0)}</span>
-                    </span>
-                  ) : null}
-                </div>
-              ) : (
-                <span className="text-fg-subtle">-</span>
-              )}
-            </div>
-          );
-        },
+    },
+    {
+      id: "supplier",
+      accessorFn: (r) => r.supplier_name || r.supplier_id || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Supplier" />,
+      cell: ({ row }) => row.original.supplier_name || row.original.supplier_id || "-",
+    },
+    {
+      id: "receipt",
+      accessorFn: (r) => r.goods_receipt_no || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Receipt" />,
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <span className="font-mono text-sm">
+            {r.goods_receipt_no || r.goods_receipt_id?.slice(0, 8) || "-"}
+          </span>
+        );
       },
-      {
-        id: "total_usd",
-        header: "Total USD",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.total_usd || 0),
-        cell: (r) => <span className="data-mono text-sm ui-tone-usd">{fmtUsd(r.total_usd)}</span>,
+    },
+    {
+      id: "dates",
+      accessorFn: (r) => r.invoice_date || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Dates" />,
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <div className="text-xs text-muted-foreground">
+            <div>Inv: {formatDate(r.invoice_date)}</div>
+            <div>Due: {formatDate(r.due_date)}</div>
+            <div>Held: {formatDate(r.held_at)}</div>
+          </div>
+        );
       },
-      {
-        id: "total_lbp",
-        header: "Total LL",
-        sortable: true,
-        align: "right",
-        mono: true,
-        accessor: (r) => Number(r.total_lbp || 0),
-        cell: (r) => <span className="data-mono text-sm ui-tone-lbp">{fmtLbp(r.total_lbp)}</span>,
+    },
+    {
+      id: "variance",
+      accessorFn: (r) => r.summary?.flags_total || 0,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Variance" />,
+      cell: ({ row }) => {
+        const s = row.original.summary;
+        if (!s) return <span className="text-muted-foreground">-</span>;
+        return (
+          <div className="flex flex-wrap gap-1">
+            <Badge variant="outline" className="text-xs">Total: {s.flags_total}</Badge>
+            {s.unit_cost_flags > 0 && <Badge variant="warning" className="text-xs">Cost: {s.unit_cost_flags}</Badge>}
+            {s.qty_flags > 0 && <Badge variant="warning" className="text-xs">Qty: {s.qty_flags}</Badge>}
+            {s.tax_flags > 0 && <Badge variant="warning" className="text-xs">Tax: {s.tax_flags}</Badge>}
+          </div>
+        );
       },
-      {
-        id: "actions",
-        header: "Actions",
-        sortable: false,
-        align: "right",
-        accessor: (r) => r.id,
-        cell: (r) => (
+    },
+    {
+      id: "total_usd",
+      accessorFn: (r) => toNum(r.total_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total USD" />,
+      cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.total_usd)} currency="USD" />,
+    },
+    {
+      id: "total_lbp",
+      accessorFn: (r) => toNum(r.total_lbp),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total LBP" />,
+      cell: ({ row }) => <CurrencyDisplay amount={toNum(row.original.total_lbp)} currency="LBP" />,
+    },
+    {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
           <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push(`/purchasing/supplier-invoices/${r.id}`)}>
+            <Button variant="outline" size="sm" onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/purchasing/supplier-invoices/${r.id}`);
+            }}>
               View
             </Button>
             <Dialog
@@ -251,16 +189,13 @@ export default function ThreeWayMatchPage() {
               onOpenChange={(v) => {
                 setUnholdOpen(v);
                 if (v) setUnholdId(r.id);
-                else {
-                  setUnholdId("");
-                  setUnholdReason("");
-                }
+                else { setUnholdId(""); setUnholdReason(""); }
               }}
             >
               <DialogTrigger asChild>
-                <Button size="sm">Unhold</Button>
+                <Button size="sm" onClick={(e) => e.stopPropagation()}>Unhold</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent onClick={(e) => e.stopPropagation()}>
                 <DialogHeader>
                   <DialogTitle>Unhold Supplier Invoice</DialogTitle>
                   <DialogDescription>
@@ -268,70 +203,53 @@ export default function ThreeWayMatchPage() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
-                  <Input value={unholdReason} onChange={(e) => setUnholdReason(e.target.value)} placeholder="Approved variance / verified receipt..." />
+                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
+                  <Input value={unholdReason} onChange={(e) => setUnholdReason(e.target.value)}
+                    placeholder="Approved variance / verified receipt..." />
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setUnholdOpen(false);
-                      setUnholdId("");
-                      setUnholdReason("");
-                    }}
-                  >
+                  <Button variant="outline" onClick={() => { setUnholdOpen(false); setUnholdId(""); setUnholdReason(""); }}>
                     Cancel
                   </Button>
                   <Button onClick={doUnhold} disabled={unholding}>
-                    {unholding ? "..." : "Unhold"}
+                    {unholding ? "Unholding..." : "Unhold"}
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
           </div>
-        ),
+        );
       },
-    ];
-  }, [doUnhold, router, unholdId, unholdOpen, unholdReason, unholding]);
+    },
+  ], [doUnhold, router, unholdId, unholdOpen, unholdReason, unholding]);
 
   return (
-    <div className="ui-module-shell-narrow">
-      <div className="ui-module-head">
-        <div className="ui-module-head-row">
-          <div>
-            <p className="ui-module-kicker">Purchasing</p>
-            <h1 className="ui-module-title">3-Way Match Exceptions</h1>
-            <p className="ui-module-subtitle">Held supplier invoices with quantity, cost, or tax variance signals.</p>
-          </div>
-        </div>
-      </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="3-Way Match Exceptions"
+        description="Held supplier invoices with quantity, cost, or tax variance signals"
+        actions={
+          <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>3-Way Match Exceptions</CardTitle>
-          <CardDescription>Draft supplier invoices placed on hold due to AP variance detection. Unhold to allow posting.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <DataTable<ExceptionRow>
-            tableId="purchasing.3way.exceptions"
-            rows={rows}
-            columns={columns}
-            getRowId={(r) => r.id}
-            isLoading={loading}
-            emptyText={loading ? "Loading..." : "No hold exceptions found."}
-            globalFilterValue={q}
-            onGlobalFilterValueChange={setQ}
-            globalFilterPlaceholder="Search invoice / supplier / receipt / ref..."
-            initialSort={{ columnId: "invoice", dir: "desc" }}
-            actions={
-              <Button variant="outline" onClick={load} disabled={loading}>
-                {loading ? "..." : "Refresh"}
-              </Button>
-            }
-          />
-        </CardContent>
-      </Card>
+      {!loading && rows.length === 0 ? (
+        <EmptyState
+          title="No hold exceptions"
+          description="All supplier invoices passed 3-way match validation."
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={rows}
+          isLoading={loading}
+          searchPlaceholder="Search invoice, supplier, receipt..."
+          onRowClick={(row) => router.push(`/purchasing/supplier-invoices/${row.id}`)}
+        />
+      )}
     </div>
   );
 }

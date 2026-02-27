@@ -69,7 +69,7 @@ export function ConfirmButton(
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
         {localError ? (
-          <div className="rounded-md border border-border-strong bg-bg-sunken/20 p-3 text-sm text-fg-subtle">
+          <div className="rounded-md border border bg-muted/20 p-3 text-sm text-muted-foreground">
             {localError}
           </div>
         ) : null}

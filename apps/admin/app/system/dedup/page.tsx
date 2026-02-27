@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GitMerge, RefreshCw, Users } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { ErrorBanner } from "@/components/error-banner";
+import { PageHeader } from "@/components/business/page-header";
 import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/customer-typeahead";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ type DupGroup<T> = { key: string; n: number; customers?: T[]; suppliers?: T[] };
 
 export default function DedupPage() {
   const [status, setStatus] = useState("");
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
   const [customerDupEmail, setCustomerDupEmail] = useState<Array<DupGroup<CustomerTypeaheadCustomer>>>([]);
@@ -36,7 +37,7 @@ export default function DedupPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setErr(null);
+    setErr("");
     setStatus("");
     try {
       const [c, s] = await Promise.all([
@@ -49,7 +50,7 @@ export default function DedupPage() {
       setSupplierDupPhone((s.by_phone || []) as any);
       setStatus("");
     } catch (e) {
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
       setStatus("");
     } finally {
       setLoading(false);
@@ -152,22 +153,22 @@ export default function DedupPage() {
   }
 
   function renderGroups<T extends { id: string; name: string }>(groups: Array<DupGroup<T>>, kind: "customers" | "suppliers") {
-    if (!groups?.length) return <div className="text-xs text-fg-subtle">No duplicates found.</div>;
+    if (!groups?.length) return <div className="text-xs text-muted-foreground">No duplicates found.</div>;
     return (
       <div className="space-y-2">
         {groups.slice(0, 30).map((g) => {
           const rows = (kind === "customers" ? (g.customers || []) : (g.suppliers || [])) as T[];
           return (
-            <details key={`${kind}:${g.key}`} className="rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
-              <summary className="cursor-pointer text-xs text-fg-muted">
-                <span className="font-mono">{g.key}</span> <span className="text-fg-subtle">({g.n})</span>
+            <details key={`${kind}:${g.key}`} className="rounded-md border bg-muted/30 p-2">
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                <span className="font-mono">{g.key}</span> <span className="text-muted-foreground">({g.n})</span>
               </summary>
               <div className="mt-2 grid grid-cols-1 gap-1">
                 {rows.map((r) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 text-xs">
                     <div className="truncate">
                       <span className="text-foreground">{r.name}</span>{" "}
-                      <span className="font-mono text-fg-subtle">{r.id}</span>
+                      <span className="font-mono text-muted-foreground">{r.id}</span>
                     </div>
                   </div>
                 ))}
@@ -181,33 +182,57 @@ export default function DedupPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Dedup / Merge</h1>
-          <p className="text-sm text-fg-muted">Merge duplicate customers and suppliers safely (with preview).</p>
-        </div>
-        <Button variant="outline" onClick={load} disabled={loading || customerBusy || supplierBusy}>
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="Dedup / Merge"
+        description="Merge duplicate customers and suppliers safely (with preview)."
+        actions={
+          <Button variant="outline" size="sm" onClick={load} disabled={loading || customerBusy || supplierBusy}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
+      />
 
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
+      {err && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{err}</p>
+            <Button variant="outline" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Customer section */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Customer Duplicates</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Customer Duplicates
+            </CardTitle>
             <CardDescription>{customerDupCount} duplicate groups (email/phone)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <div className="text-xs font-medium text-fg-muted">By Email</div>
+                <div className="text-xs font-medium text-muted-foreground">By Email</div>
                 {renderGroups(customerDupEmail as any, "customers")}
               </div>
               <div className="space-y-1">
-                <div className="text-xs font-medium text-fg-muted">By Phone</div>
+                <div className="text-xs font-medium text-muted-foreground">By Phone</div>
                 {renderGroups(customerDupPhone as any, "customers")}
               </div>
             </div>
@@ -216,32 +241,35 @@ export default function DedupPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Customer Merge Tool</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <GitMerge className="h-4 w-4" />
+              Customer Merge Tool
+            </CardTitle>
             <CardDescription>Pick the source to merge into the target.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-fg-muted">Source Customer</div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">Source Customer</div>
               <CustomerTypeahead
                 disabled={customerBusy}
                 placeholder="Search customer..."
                 onSelect={(c) => setSrcCustomer(c)}
                 onClear={() => setSrcCustomer(null)}
               />
-              {srcCustomer ? <div className="text-xs text-fg-subtle font-mono">{srcCustomer.id}</div> : null}
+              {srcCustomer ? <div className="text-xs text-muted-foreground font-mono">{srcCustomer.id}</div> : null}
             </div>
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-fg-muted">Target Customer</div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">Target Customer</div>
               <CustomerTypeahead
                 disabled={customerBusy}
                 placeholder="Search customer..."
                 onSelect={(c) => setTgtCustomer(c)}
                 onClear={() => setTgtCustomer(null)}
               />
-              {tgtCustomer ? <div className="text-xs text-fg-subtle font-mono">{tgtCustomer.id}</div> : null}
+              {tgtCustomer ? <div className="text-xs text-muted-foreground font-mono">{tgtCustomer.id}</div> : null}
             </div>
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-fg-muted">Reason (optional)</div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">Reason (optional)</div>
               <Input value={customerReason} onChange={(e) => setCustomerReason(e.target.value)} disabled={customerBusy} placeholder="e.g. duplicate import" />
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -253,7 +281,7 @@ export default function DedupPage() {
               </Button>
             </div>
             {customerPreview ? (
-              <pre className="max-h-80 overflow-auto rounded-md border border-border-subtle bg-bg-sunken p-3 text-[11px] text-fg-muted">
+              <pre className="max-h-80 overflow-auto rounded-md border bg-muted/30 p-3 text-[11px] text-muted-foreground">
                 {JSON.stringify(customerPreview, null, 2)}
               </pre>
             ) : null}
@@ -261,20 +289,24 @@ export default function DedupPage() {
         </Card>
       </div>
 
+      {/* Supplier section */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Supplier Duplicates</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Supplier Duplicates
+            </CardTitle>
             <CardDescription>{supplierDupCount} duplicate groups (email/phone)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <div className="text-xs font-medium text-fg-muted">By Email</div>
+                <div className="text-xs font-medium text-muted-foreground">By Email</div>
                 {renderGroups(supplierDupEmail as any, "suppliers")}
               </div>
               <div className="space-y-1">
-                <div className="text-xs font-medium text-fg-muted">By Phone</div>
+                <div className="text-xs font-medium text-muted-foreground">By Phone</div>
                 {renderGroups(supplierDupPhone as any, "suppliers")}
               </div>
             </div>
@@ -283,32 +315,35 @@ export default function DedupPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Supplier Merge Tool</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <GitMerge className="h-4 w-4" />
+              Supplier Merge Tool
+            </CardTitle>
             <CardDescription>Pick the source to merge into the target.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-fg-muted">Source Supplier</div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">Source Supplier</div>
               <SupplierTypeahead
                 disabled={supplierBusy}
                 placeholder="Search supplier..."
                 onSelect={(s) => setSrcSupplier(s)}
                 onClear={() => setSrcSupplier(null)}
               />
-              {srcSupplier ? <div className="text-xs text-fg-subtle font-mono">{srcSupplier.id}</div> : null}
+              {srcSupplier ? <div className="text-xs text-muted-foreground font-mono">{srcSupplier.id}</div> : null}
             </div>
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-fg-muted">Target Supplier</div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">Target Supplier</div>
               <SupplierTypeahead
                 disabled={supplierBusy}
                 placeholder="Search supplier..."
                 onSelect={(s) => setTgtSupplier(s)}
                 onClear={() => setTgtSupplier(null)}
               />
-              {tgtSupplier ? <div className="text-xs text-fg-subtle font-mono">{tgtSupplier.id}</div> : null}
+              {tgtSupplier ? <div className="text-xs text-muted-foreground font-mono">{tgtSupplier.id}</div> : null}
             </div>
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-fg-muted">Reason (optional)</div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">Reason (optional)</div>
               <Input value={supplierReason} onChange={(e) => setSupplierReason(e.target.value)} disabled={supplierBusy} placeholder="e.g. same vendor, two records" />
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -320,7 +355,7 @@ export default function DedupPage() {
               </Button>
             </div>
             {supplierPreview ? (
-              <pre className="max-h-80 overflow-auto rounded-md border border-border-subtle bg-bg-sunken p-3 text-[11px] text-fg-muted">
+              <pre className="max-h-80 overflow-auto rounded-md border bg-muted/30 p-3 text-[11px] text-muted-foreground">
                 {JSON.stringify(supplierPreview, null, 2)}
               </pre>
             ) : null}

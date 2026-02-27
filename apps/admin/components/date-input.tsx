@@ -42,7 +42,7 @@ export function DateInput(props: Props) {
         disabled={disabled}
         className={cn(
           "absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 transition-colors",
-          "text-fg-subtle hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/30",
+          "text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/30",
           disabled ? "opacity-50" : "opacity-80"
         )}
         aria-label="Open calendar"

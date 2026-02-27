@@ -67,7 +67,7 @@ export default function GoodsReceiptViewPage() {
   const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
 
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<unknown>(null);
+  const [err, setErr] = useState<string>("");
   const [detail, setDetail] = useState<ReceiptDetail | null>(null);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -91,14 +91,14 @@ export default function GoodsReceiptViewPage() {
         cell: (l) =>
           itemById.get(l.item_id) ? (
             <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-              <span className="font-mono text-xs text-fg-muted">{itemById.get(l.item_id)?.sku}</span>{" "}
+              <span className="font-mono text-xs text-muted-foreground">{itemById.get(l.item_id)?.sku}</span>{" "}
               <span className="text-foreground">· {itemById.get(l.item_id)?.name}</span>
             </ShortcutLink>
           ) : (
             <ShortcutLink
               href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
               title="Open item"
-              className="font-mono text-xs text-fg-muted"
+              className="font-mono text-xs text-muted-foreground"
             >
               {l.item_id}
             </ShortcutLink>
@@ -120,7 +120,7 @@ export default function GoodsReceiptViewPage() {
         mono: true,
         accessor: (l) => `${l.batch_no || ""} ${l.expiry_date || ""}`,
         cell: (l) => (
-          <span className="text-sm text-fg-muted">
+          <span className="text-sm text-muted-foreground">
             {l.batch_no || l.expiry_date ? (
               <span className="font-mono text-xs">
                 {l.batch_no ? `#${l.batch_no}` : ""} {l.expiry_date ? `exp ${String(l.expiry_date).slice(0, 10)}` : ""}
@@ -173,7 +173,7 @@ export default function GoodsReceiptViewPage() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setErr(null);
+    setErr("");
     try {
       const [d, s, i, w, tc] = await Promise.all([
         apiGet<ReceiptDetail>(`/purchases/receipts/${encodeURIComponent(id)}`),
@@ -189,7 +189,7 @@ export default function GoodsReceiptViewPage() {
       setTaxCodes(tc.tax_codes || []);
     } catch (e) {
       setDetail(null);
-      setErr(e);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -209,7 +209,7 @@ export default function GoodsReceiptViewPage() {
     if (!detail) return;
     if (detail.receipt.status !== "draft") return;
     if (!(detail.lines || []).length) {
-      setErr(new Error("Cannot post: add at least one item to this draft first."));
+      setErr("Cannot post: add at least one item to this draft first.");
       return;
     }
     setPostingDate(todayIso());
@@ -229,7 +229,7 @@ export default function GoodsReceiptViewPage() {
     e.preventDefault();
     if (!detail) return;
     setCreateInvSubmitting(true);
-    setErr(null);
+    setErr("");
     try {
       const res = await apiPost<{ id: string; invoice_no: string }>(`/purchases/invoices/drafts/from-receipt/${encodeURIComponent(detail.receipt.id)}`, {
         invoice_no: createInvInvoiceNo.trim() || undefined,
@@ -239,7 +239,7 @@ export default function GoodsReceiptViewPage() {
       setCreateInvOpen(false);
       router.push(`/purchasing/supplier-invoices/${encodeURIComponent(res.id)}`);
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setCreateInvSubmitting(false);
     }
@@ -249,17 +249,17 @@ export default function GoodsReceiptViewPage() {
     e.preventDefault();
     if (!detail) return;
     if (!(detail.lines || []).length) {
-      setErr(new Error("Cannot post: add at least one item to this draft first."));
+      setErr("Cannot post: add at least one item to this draft first.");
       return;
     }
     setPosting(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/purchases/receipts/${encodeURIComponent(detail.receipt.id)}/post`, { posting_date: postingDate || undefined });
       setPostOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setPosting(false);
     }
@@ -270,7 +270,7 @@ export default function GoodsReceiptViewPage() {
     if (!detail) return;
     if (detail.receipt.status !== "posted") return;
     setCanceling(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/purchases/receipts/${encodeURIComponent(detail.receipt.id)}/cancel`, {
         cancel_date: cancelDate || undefined,
@@ -279,7 +279,7 @@ export default function GoodsReceiptViewPage() {
       setCancelOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setCanceling(false);
     }
@@ -290,13 +290,13 @@ export default function GoodsReceiptViewPage() {
     if (!detail) return;
     if (detail.receipt.status !== "draft") return;
     setCancelDrafting(true);
-    setErr(null);
+    setErr("");
     try {
       await apiPost(`/purchases/receipts/${encodeURIComponent(detail.receipt.id)}/cancel-draft`, { reason: cancelDraftReason || undefined });
       setCancelDraftOpen(false);
       await load();
     } catch (e2) {
-      setErr(e2);
+      setErr(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setCancelDrafting(false);
     }
@@ -304,24 +304,24 @@ export default function GoodsReceiptViewPage() {
 
   if (!loading && !detail && !err) {
     return (
-      <div className="ui-detail-shell">
+      <div className="mx-auto max-w-6xl space-y-6">
         <EmptyState title="Goods receipt not found" description="This goods receipt may not exist or you may not have access." actionLabel="Back" onAction={() => router.push("/purchasing/goods-receipts")} />
       </div>
     );
   }
 
   return (
-    <div className="ui-detail-shell">
-      <div className="ui-detail-header">
-        <div className="ui-detail-header-row">
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-4">
           <div>
-            <h1 className="ui-detail-title">{detail?.receipt?.receipt_no || (loading ? "Loading..." : "Goods Receipt")}</h1>
-            <p className="ui-detail-meta">
-              <span className="ui-detail-meta-id">{id}</span>
+            <h1 className="text-2xl font-semibold tracking-tight">{detail?.receipt?.receipt_no || (loading ? "Loading..." : "Goods Receipt")}</h1>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono text-xs">{id}</span>
               {detail?.receipt ? <StatusChip value={detail.receipt.status} /> : null}
             </p>
           </div>
-          <div className="ui-detail-actions">
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" onClick={() => router.push("/purchasing/goods-receipts")}>
               Back
             </Button>
@@ -405,10 +405,11 @@ export default function GoodsReceiptViewPage() {
           <TabBar tabs={receiptTabs} />
           {activeTab === "overview" ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-              <div className="ui-panel p-5 md:col-span-8">
+              <Card className="md:col-span-8">
+                <CardContent className="p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-[220px]">
-                    <p className="ui-panel-title">Supplier</p>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Supplier</p>
                     <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
                       {detail.receipt.supplier_id ? (
                         <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.receipt.supplier_id)}`} title="Open supplier">
@@ -418,54 +419,54 @@ export default function GoodsReceiptViewPage() {
                         "-"
                       )}
                     </p>
-                    <p className="mt-1 text-sm text-fg-muted">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       Created{" "}
                       <span className="data-mono">{formatDateLike(detail.receipt.created_at)}</span>
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <span className="ui-chip ui-chip-default">
-                      <span className="text-fg-subtle">Warehouse</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Warehouse</span>
                       <span className="data-mono text-foreground">{whById.get(detail.receipt.warehouse_id || "")?.name || "-"}</span>
                     </span>
-                    <span className="ui-chip ui-chip-default">
-                      <span className="text-fg-subtle">Exchange</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Exchange</span>
                       <span className="data-mono text-foreground">{Number(detail.receipt.exchange_rate || 0).toFixed(0)}</span>
                     </span>
-                    <span className="ui-chip ui-chip-default">
-                      <span className="text-fg-subtle">Status</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Status</span>
                       <span className="data-mono text-foreground">{detail.receipt.status}</span>
                     </span>
                   </div>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                    <p className="ui-panel-title">Dates</p>
+                  <div className="rounded-lg border bg-muted/25 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Dates</p>
                     <div className="mt-2 space-y-1">
-                      <div className="ui-kv">
-                        <span className="ui-kv-label">Received At</span>
-                        <span className="ui-kv-value">{(detail.receipt.received_at as string) || "-"}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-muted-foreground">Received At</span>
+                        <span className="text-sm font-medium">{(detail.receipt.received_at as string) || "-"}</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                    <p className="ui-panel-title">Document</p>
+                  <div className="rounded-lg border bg-muted/25 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Document</p>
                     <div className="mt-2 space-y-1">
-                      <div className="ui-kv">
-                        <span className="ui-kv-label">Receipt No</span>
-                        <span className="ui-kv-value">{detail.receipt.receipt_no || "(draft)"}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-muted-foreground">Receipt No</span>
+                        <span className="text-sm font-medium">{detail.receipt.receipt_no || "(draft)"}</span>
                       </div>
-                      <div className="ui-kv">
-                        <span className="ui-kv-label">Supplier Ref</span>
-                        <span className="ui-kv-value">{(detail.receipt as any).supplier_ref || "-"}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-muted-foreground">Supplier Ref</span>
+                        <span className="text-sm font-medium">{(detail.receipt as any).supplier_ref || "-"}</span>
                       </div>
                       {detail.receipt.purchase_order_id ? (
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">PO</span>
-                          <span className="ui-kv-value">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-muted-foreground">PO</span>
+                          <span className="text-sm font-medium">
                             <ShortcutLink
                               href={`/purchasing/purchase-orders/${encodeURIComponent(detail.receipt.purchase_order_id)}`}
                               title="Open purchase order"
@@ -479,28 +480,31 @@ export default function GoodsReceiptViewPage() {
                     </div>
                   </div>
                 </div>
-              </div>
+                </CardContent>
+              </Card>
 
-              <div className="ui-panel p-5 md:col-span-4">
-                <p className="ui-panel-title">Totals</p>
+              <Card className="md:col-span-4">
+                <CardContent className="p-5">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Totals</p>
 
                 <div className="mt-3">
-                  <div className="text-sm text-fg-muted">Total</div>
-                  <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{fmtUsd(detail.receipt.total_usd)}</div>
-                  <div className="data-mono mt-1 text-sm text-fg-muted">{fmtLbp(detail.receipt.total_lbp)}</div>
+                  <div className="text-sm text-muted-foreground">Total</div>
+                  <div className="data-mono mt-1 text-3xl font-semibold leading-none text-emerald-600">{fmtUsd(detail.receipt.total_usd)}</div>
+                  <div className="data-mono mt-1 text-sm text-muted-foreground">{fmtLbp(detail.receipt.total_lbp)}</div>
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <div className="ui-kv ui-kv-strong">
-                    <span className="ui-kv-label">Total USD</span>
-                    <span className="ui-kv-value">{fmtUsd(detail.receipt.total_usd)}</span>
+                  <div className="flex items-center justify-between gap-2 font-medium">
+                    <span className="text-sm text-muted-foreground">Total USD</span>
+                    <span className="text-sm font-medium">{fmtUsd(detail.receipt.total_usd)}</span>
                   </div>
-                  <div className="ui-kv ui-kv-sub">
-                    <span className="ui-kv-label">Total LL</span>
-                    <span className="ui-kv-value">{fmtLbp(detail.receipt.total_lbp)}</span>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-sm text-muted-foreground">Total LL</span>
+                    <span className="text-sm font-medium">{fmtLbp(detail.receipt.total_lbp)}</span>
                   </div>
                 </div>
-              </div>
+                </CardContent>
+              </Card>
             </div>
           ) : null}
 
@@ -532,7 +536,7 @@ export default function GoodsReceiptViewPage() {
               </DialogHeader>
               <form onSubmit={postReceipt} className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Posting Date</label>
+                  <label className="text-xs font-medium text-muted-foreground">Posting Date</label>
                   <Input type="date" value={postingDate} onChange={(e) => setPostingDate(e.target.value)} />
                 </div>
                 <div className="flex justify-end gap-2">
@@ -555,11 +559,11 @@ export default function GoodsReceiptViewPage() {
               </DialogHeader>
               <form onSubmit={cancelReceipt} className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Void Date</label>
+                  <label className="text-xs font-medium text-muted-foreground">Void Date</label>
                   <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                   <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
                 </div>
                 <div className="flex justify-end gap-2">
@@ -582,7 +586,7 @@ export default function GoodsReceiptViewPage() {
               </DialogHeader>
               <form onSubmit={cancelDraftReceipt} className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                   <Input value={cancelDraftReason} onChange={(e) => setCancelDraftReason(e.target.value)} />
                 </div>
                 <div className="flex justify-end gap-2">
@@ -605,16 +609,16 @@ export default function GoodsReceiptViewPage() {
               </DialogHeader>
               <form onSubmit={createInvoiceFromReceipt} className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Invoice No (optional)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Invoice No (optional)</label>
                   <Input value={createInvInvoiceNo} onChange={(e) => setCreateInvInvoiceNo(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Invoice Date</label>
+                  <label className="text-xs font-medium text-muted-foreground">Invoice Date</label>
                   <Input type="date" value={createInvInvoiceDate} onChange={(e) => setCreateInvInvoiceDate(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Tax Code (optional)</label>
-                  <select className="ui-select" value={createInvTaxCodeId} onChange={(e) => setCreateInvTaxCodeId(e.target.value)}>
+                  <label className="text-xs font-medium text-muted-foreground">Tax Code (optional)</label>
+                  <select value={createInvTaxCodeId} onChange={(e) => setCreateInvTaxCodeId(e.target.value)}>
                     <option value="">No tax</option>
                     {taxCodes.map((t) => (
                       <option key={t.id} value={t.id}>

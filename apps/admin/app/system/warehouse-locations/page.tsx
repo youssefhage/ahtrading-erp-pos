@@ -1,15 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { MapPin, Plus, RefreshCw } from "lucide-react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { Page, PageHeader, Section } from "@/components/page";
+import { PageHeader } from "@/components/business/page-header";
+import { DataTable } from "@/components/business/data-table";
+import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
+import { StatusBadge } from "@/components/business/status-badge";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ErrorBanner } from "@/components/error-banner";
-import { SearchableSelect } from "@/components/searchable-select";
 
 type WarehouseRow = { id: string; name: string };
 type LocationRow = {
@@ -44,7 +49,6 @@ export default function WarehouseLocationsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // Ensure we have a valid selection after warehouses load.
     if (!warehouses.length) return;
     setWarehouseId((cur) => {
       if (cur && warehouses.some((w) => w.id === cur)) return cur;
@@ -128,7 +132,7 @@ export default function WarehouseLocationsPage() {
       await apiPost(`/warehouses/${encodeURIComponent(warehouseId)}/locations`, {
         code: code.trim(),
         name: name.trim() || undefined,
-        is_active: Boolean(isActive)
+        is_active: Boolean(isActive),
       });
       setCode("");
       setName("");
@@ -162,7 +166,7 @@ export default function WarehouseLocationsPage() {
       await apiPatch(`/warehouses/locations/${encodeURIComponent(editId)}`, {
         code: editCode.trim(),
         name: editName.trim() || null,
-        is_active: Boolean(editActive)
+        is_active: Boolean(editActive),
       });
       setEditOpen(false);
       await refreshLocations(warehouseId);
@@ -175,149 +179,176 @@ export default function WarehouseLocationsPage() {
     }
   }
 
-  return (
-    <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={loadAll} /> : null}
+  const columns = useMemo<ColumnDef<LocationRow>[]>(
+    () => [
+      {
+        accessorKey: "code",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+        cell: ({ row }) => <span className="font-mono text-sm">{row.original.code}</span>,
+      },
+      {
+        id: "name",
+        accessorFn: (r) => r.name || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.name || "-"}</span>,
+      },
+      {
+        id: "status",
+        accessorFn: (r) => (r.is_active ? "active" : "inactive"),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => <StatusBadge status={row.original.is_active ? "active" : "inactive"} />,
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => openEdit(row.original)} disabled={loading || creating || saving}>
+              Edit
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [loading, creating, saving],
+  );
 
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Warehouse Locations"
         description="Bin/location master data per warehouse."
         actions={
-          <Button variant="outline" onClick={loadAll} disabled={loading || creating || saving}>
-            {loadingWarehouses ? "Loading..." : "Refresh Warehouses"}
+          <Button variant="outline" size="sm" onClick={loadAll} disabled={loading || creating || saving}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loadingWarehouses ? "animate-spin" : ""}`} />
+            Refresh Warehouses
           </Button>
         }
       />
 
-      <Section
-        title="Warehouse"
-        description="Select a warehouse to manage its locations."
-        actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => refreshLocations(warehouseId)} disabled={!warehouseId || loading || creating || saving}>
-              Refresh Locations
+      {status && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3">
+            <p className="text-sm text-destructive">{status}</p>
+            <Button variant="outline" size="sm" onClick={loadAll}>
+              Retry
             </Button>
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger asChild>
-                <Button disabled={!warehouseId || loading || creating || saving}>New Location</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create Location</DialogTitle>
-                  <DialogDescription>
-                    Warehouse: <span className="font-mono text-xs">{whById.get(warehouseId)?.name || warehouseId}</span>
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={createLocation} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Code</label>
-                    <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="A1" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Name (optional)</label>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Front shelf" />
-                  </div>
-                  <label className="flex items-center gap-2 text-xs text-fg-muted">
-                    <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-                    Active
-                  </label>
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={creating || loading}>
-                      {creating ? "..." : "Save"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Warehouse Picker */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <MapPin className="h-4 w-4" />
+                Warehouse
+              </CardTitle>
+              <CardDescription>Select a warehouse to manage its locations.</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => refreshLocations(warehouseId)} disabled={!warehouseId || loading || creating || saving}>
+                Refresh Locations
+              </Button>
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" disabled={!warehouseId || loading || creating || saving}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Location
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create Location</DialogTitle>
+                    <DialogDescription>
+                      Warehouse: <span className="font-mono text-sm">{whById.get(warehouseId)?.name || warehouseId}</span>
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={createLocation} className="grid grid-cols-1 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Code</label>
+                      <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="A1" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Name (optional)</label>
+                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Front shelf" />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Checkbox checked={isActive} onCheckedChange={(v) => setIsActive(v === true)} />
+                      Active
+                    </label>
+                    <div className="flex justify-end">
+                      <Button type="submit" disabled={creating || loading}>
+                        {creating ? "Creating..." : "Save"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
-        }
-      >
-        <div className="w-full md:w-96 space-y-1">
-          <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-          <SearchableSelect
-            value={warehouseId}
-            onChange={setWarehouseId}
-            searchPlaceholder="Search warehouses..."
-            options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+        </CardHeader>
+        <CardContent>
+          <div className="w-full md:w-96">
+            <SearchableSelect
+              value={warehouseId}
+              onChange={setWarehouseId}
+              searchPlaceholder="Search warehouses..."
+              options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Location</DialogTitle>
+            <DialogDescription>Update code/name/status.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Code</label>
+              <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name (optional)</label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox checked={editActive} onCheckedChange={(v) => setEditActive(v === true)} />
+              Active
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving || loading}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving || loading}>
+                {saving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Locations Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Locations</CardTitle>
+          <CardDescription>{locations.length} location(s)</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={locations}
+            isLoading={loadingLocations}
+            searchPlaceholder="Search code / name..."
           />
-        </div>
-      </Section>
-
-      <Section title="Locations" description={`${locations.length} location(s)`}>
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Location</DialogTitle>
-                <DialogDescription>Update code/name/status.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Code</label>
-                  <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Name (optional)</label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                </div>
-                <label className="flex items-center gap-2 text-xs text-fg-muted">
-                  <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
-                  Active
-                </label>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving || loading}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={saving || loading}>
-                    {saving ? "..." : "Save"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-
-          {(() => {
-            const columns: Array<DataTableColumn<LocationRow>> = [
-              { id: "code", header: "Code", accessor: (l) => l.code, sortable: true, mono: true, cell: (l) => <span className="text-xs">{l.code}</span> },
-              { id: "name", header: "Name", accessor: (l) => l.name || "", sortable: true, cell: (l) => <span className="text-fg-muted">{l.name || "-"}</span> },
-              {
-                id: "status",
-                header: "Status",
-                accessor: (l) => (l.is_active ? "active" : "inactive"),
-                sortable: true,
-                cell: (l) => (
-                  <span className={l.is_active ? "text-xs text-success" : "text-xs text-fg-muted"}>
-                    {l.is_active ? "active" : "inactive"}
-                  </span>
-                ),
-              },
-              { id: "id", header: "Location ID", accessor: (l) => l.id, mono: true, defaultHidden: true, cell: (l) => <span className="text-xs text-fg-subtle">{l.id}</span> },
-              {
-                id: "actions",
-                header: "Actions",
-                accessor: () => "",
-                globalSearch: false,
-                align: "right",
-                cell: (l) => (
-                  <Button variant="outline" size="sm" onClick={() => openEdit(l)} disabled={loading || creating || saving}>
-                    Edit
-                  </Button>
-                ),
-              },
-            ];
-
-            return (
-              <DataTable<LocationRow>
-                tableId={`system.warehouseLocations.${warehouseId || "none"}`}
-                rows={locations}
-                columns={columns}
-                isLoading={loadingLocations}
-                emptyText={loadingLocations ? "Loading locations..." : "No locations."}
-                globalFilterPlaceholder="Search code / name..."
-                initialSort={{ columnId: "code", dir: "asc" }}
-              />
-            );
-          })()}
-      </Section>
-    </Page>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

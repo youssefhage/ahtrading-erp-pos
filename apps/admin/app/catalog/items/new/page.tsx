@@ -3,16 +3,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Printer, RefreshCw } from "lucide-react";
+import { Printer, RefreshCw, Loader2, Plus, ArrowLeft } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { generateEan13Barcode, printBarcodeStickerLabel } from "@/lib/barcode-label";
-import { ErrorBanner } from "@/components/error-banner";
+import { PageHeader } from "@/components/business/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
 import { useToast } from "@/components/toast-provider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
 
 type TaxCode = { id: string; name: string; rate: string | number };
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
@@ -27,6 +41,10 @@ type RequiredField = "sku" | "name" | "uom";
 type RequiredErrors = Partial<Record<RequiredField, string>>;
 type CreateMode = "open" | "addAnother";
 
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
+
 function normalizeToken(value: string | null | undefined): string {
   return String(value || "").trim().toLowerCase();
 }
@@ -39,6 +57,10 @@ function rowHasBarcode(row: ItemLookupRow | null | undefined, token: string): bo
   }
   return false;
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Component                                                                 */
+/* -------------------------------------------------------------------------- */
 
 export default function NewItemPage() {
   const router = useRouter();
@@ -85,29 +107,27 @@ export default function NewItemPage() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const validateRequired = useCallback((candidate?: { sku?: string; name?: string; uom?: string }): RequiredErrors => {
-    const nextSku = (candidate?.sku ?? sku).trim();
-    const nextName = (candidate?.name ?? name).trim();
-    const nextUom = (candidate?.uom ?? uom).trim();
-    const errs: RequiredErrors = {};
-    if (!nextSku) errs.sku = "SKU is required.";
-    if (!nextName) errs.name = "Name is required.";
-    if (!nextUom) errs.uom = "Unit of measure is required.";
-    return errs;
-  }, [sku, name, uom]);
+  const validateRequired = useCallback(
+    (candidate?: { sku?: string; name?: string; uom?: string }): RequiredErrors => {
+      const nextSku = (candidate?.sku ?? sku).trim();
+      const nextName = (candidate?.name ?? name).trim();
+      const nextUom = (candidate?.uom ?? uom).trim();
+      const errs: RequiredErrors = {};
+      if (!nextSku) errs.sku = "SKU is required.";
+      if (!nextName) errs.name = "Name is required.";
+      if (!nextUom) errs.uom = "Unit of measure is required.";
+      return errs;
+    },
+    [sku, name, uom]
+  );
 
   const findExactDuplicates = useCallback(async (candidate: { sku?: string; barcode?: string }) => {
     const skuToken = normalizeToken(candidate.sku);
     const barcodeToken = normalizeToken(candidate.barcode);
     const queryTokens = Array.from(new Set([skuToken, barcodeToken].filter(Boolean)));
-
-    if (!queryTokens.length) {
-      return { skuMatch: null as ItemLookupRow | null, barcodeMatch: null as ItemLookupRow | null };
-    }
+    if (!queryTokens.length) return { skuMatch: null as ItemLookupRow | null, barcodeMatch: null as ItemLookupRow | null };
 
     const batches = await Promise.all(
       queryTokens.map(async (token) => {
@@ -131,12 +151,10 @@ export default function NewItemPage() {
     return { skuMatch, barcodeMatch };
   }, []);
 
+  // Debounced dupe checks
   useEffect(() => {
     const token = sku.trim();
-    if (!token) {
-      setSkuDuplicate(null);
-      return;
-    }
+    if (!token) { setSkuDuplicate(null); return; }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setCheckingDupes((prev) => ({ ...prev, sku: true }));
@@ -148,19 +166,12 @@ export default function NewItemPage() {
         if (!cancelled) setCheckingDupes((prev) => ({ ...prev, sku: false }));
       }
     }, 280);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [sku, findExactDuplicates]);
 
   useEffect(() => {
     const token = barcode.trim();
-    if (!token) {
-      setBarcodeDuplicate(null);
-      return;
-    }
+    if (!token) { setBarcodeDuplicate(null); return; }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setCheckingDupes((prev) => ({ ...prev, barcode: true }));
@@ -172,11 +183,7 @@ export default function NewItemPage() {
         if (!cancelled) setCheckingDupes((prev) => ({ ...prev, barcode: false }));
       }
     }, 280);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [barcode, findExactDuplicates]);
 
   async function submitCreate(mode: CreateMode) {
@@ -199,7 +206,6 @@ export default function NewItemPage() {
       const { skuMatch, barcodeMatch } = await findExactDuplicates({ sku: nextSku, barcode: nextBarcode });
       setSkuDuplicate(skuMatch);
       setBarcodeDuplicate(barcodeMatch);
-
       if (skuMatch || (nextBarcode && barcodeMatch)) {
         setStatus("SKU or barcode already exists. Open the existing item from the field hints.");
         return;
@@ -238,9 +244,7 @@ export default function NewItemPage() {
     }
   }
 
-  function generateBarcode() {
-    setBarcode(generateEan13Barcode());
-  }
+  function generateBarcode() { setBarcode(generateEan13Barcode()); }
 
   async function printBarcodeLabel() {
     const code = barcode.trim();
@@ -266,226 +270,203 @@ export default function NewItemPage() {
   const hasPendingChecks = checkingDupes.sku || checkingDupes.barcode;
   const submitDisabled = creating || loading || !requiredFilled || hasErrors || hasPendingChecks;
 
-  const skuInputClassName = skuError ? "border-danger/40 focus-visible:border-danger focus-visible:ring-danger/30" : "";
-  const nameInputClassName = nameError ? "border-danger/40 focus-visible:border-danger focus-visible:ring-danger/30" : "";
-  const barcodeInputClassName = barcodeError ? "border-danger/40 focus-visible:border-danger focus-visible:ring-danger/30" : "";
-
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">New Item</h1>
-          <p className="text-sm text-fg-muted">Create a catalog item.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")}>
-            Back
-          </Button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-2xl space-y-6 p-6">
+      <PageHeader
+        title="New Item"
+        description="Create a catalog item"
+        backHref="/catalog/items/list"
+      />
 
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status ? (
+        <Alert variant="destructive">
+          <AlertDescription>{status}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Item</CardTitle>
-          <CardDescription>SKU, naming, and tax/category defaults.</CardDescription>
+          <CardTitle>Item Details</CardTitle>
+          <CardDescription>SKU, naming, and tax/category defaults</CardDescription>
         </CardHeader>
         <CardContent>
           <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submitCreate("open");
-            }}
-            className="grid grid-cols-1 gap-3 md:grid-cols-6"
+            onSubmit={(e) => { e.preventDefault(); void submitCreate("open"); }}
+            className="space-y-6"
           >
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">SKU <span className="text-danger">*</span></label>
-              <Input
-                ref={skuInputRef}
-                value={sku}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSku(v);
-                  if (!submitAttempted) return;
-                  setRequiredErrors((prev) => {
-                    const next = { ...prev };
-                    if (v.trim()) delete next.sku;
-                    else next.sku = "SKU is required.";
-                    return next;
-                  });
-                }}
-                onBlur={() => {
-                  setSubmitAttempted(true);
-                  setRequiredErrors((prev) => {
-                    const next = { ...prev };
-                    if (sku.trim()) delete next.sku;
-                    else next.sku = "SKU is required.";
-                    return next;
-                  });
-                }}
-                placeholder="SKU-001"
-                disabled={creating || loading}
-                className={skuInputClassName}
-                aria-invalid={skuError ? true : undefined}
-              />
-              {checkingDupes.sku && !skuError ? <div className="text-xs text-fg-subtle">Checking SKU...</div> : null}
-              {skuError ? (
-                <div className="text-xs text-danger">
-                  {skuError}{" "}
-                  {skuDuplicate ? (
-                    <Link href={`/catalog/items/${encodeURIComponent(skuDuplicate.id)}`} className="underline underline-offset-2">
-                      Open existing item
-                    </Link>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <div className="space-y-1 md:col-span-4">
-              <label className="text-xs font-medium text-fg-muted">Name <span className="text-danger">*</span></label>
-              <Input
-                value={name}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setName(v);
-                  if (!submitAttempted) return;
-                  setRequiredErrors((prev) => {
-                    const next = { ...prev };
-                    if (v.trim()) delete next.name;
-                    else next.name = "Name is required.";
-                    return next;
-                  });
-                }}
-                onBlur={() => {
-                  setSubmitAttempted(true);
-                  setRequiredErrors((prev) => {
-                    const next = { ...prev };
-                    if (name.trim()) delete next.name;
-                    else next.name = "Name is required.";
-                    return next;
-                  });
-                }}
-                placeholder="Item name"
-                disabled={creating || loading}
-                className={nameInputClassName}
-                aria-invalid={nameError ? true : undefined}
-              />
-              {nameError ? <div className="text-xs text-danger">{nameError}</div> : null}
-            </div>
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-fg-muted">UOM <span className="text-danger">*</span></label>
-              <SearchableSelect
-                value={uom}
-                onChange={(value) => {
-                  setUom(value);
-                  if (!submitAttempted) return;
-                  setRequiredErrors((prev) => {
-                    const next = { ...prev };
-                    if (String(value || "").trim()) delete next.uom;
-                    else next.uom = "Unit of measure is required.";
-                    return next;
-                  });
-                }}
-                disabled={creating || loading}
-                placeholder="Select UOM..."
-                searchPlaceholder="Search UOMs..."
-                options={(uoms || []).map((x) => ({ value: x, label: x }))}
-              />
-              {uomError ? <div className="text-xs text-danger">{uomError}</div> : null}
-              <div className="mt-1 text-xs text-fg-subtle">
-                Missing a UOM? Add it in{" "}
-                <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">
-                  System &rarr; UOMs
-                </Link>
-                .
-              </div>
-            </div>
-            <div className="space-y-1 md:col-span-4">
-              <label className="text-xs font-medium text-fg-muted">Primary Barcode (optional)</label>
-              <div className="flex items-center gap-1">
+            {/* SKU & Name */}
+            <div className="grid gap-4 sm:grid-cols-6">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>SKU <span className="text-destructive">*</span></Label>
                 <Input
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="barcode"
+                  ref={skuInputRef}
+                  value={sku}
+                  onChange={(e) => {
+                    setSku(e.target.value);
+                    if (!submitAttempted) return;
+                    setRequiredErrors((prev) => {
+                      const next = { ...prev };
+                      if (e.target.value.trim()) delete next.sku; else next.sku = "SKU is required.";
+                      return next;
+                    });
+                  }}
+                  onBlur={() => {
+                    setSubmitAttempted(true);
+                    setRequiredErrors((prev) => {
+                      const next = { ...prev };
+                      if (sku.trim()) delete next.sku; else next.sku = "SKU is required.";
+                      return next;
+                    });
+                  }}
+                  placeholder="SKU-001"
                   disabled={creating || loading}
-                  className={`data-mono ${barcodeInputClassName}`}
-                  aria-invalid={barcodeError ? true : undefined}
+                  className={skuError ? "border-destructive focus-visible:ring-destructive" : ""}
+                  aria-invalid={skuError ? true : undefined}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-10 w-10 px-0"
-                  title="Generate barcode"
-                  aria-label="Generate barcode"
-                  onClick={generateBarcode}
-                  disabled={creating || loading}
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-10 w-10 px-0"
-                  title="Print sticker label"
-                  aria-label="Print sticker label"
-                  onClick={printBarcodeLabel}
-                  disabled={creating || loading || !barcode.trim()}
-                >
-                  <Printer className="h-4 w-4" />
-                </Button>
+                {checkingDupes.sku && !skuError ? <p className="text-xs text-muted-foreground">Checking SKU...</p> : null}
+                {skuError ? (
+                  <p className="text-xs text-destructive">
+                    {skuError}{" "}
+                    {skuDuplicate ? (
+                      <Link href={`/catalog/items/${encodeURIComponent(skuDuplicate.id)}`} className="underline underline-offset-2">Open existing</Link>
+                    ) : null}
+                  </p>
+                ) : null}
               </div>
-              {checkingDupes.barcode && !barcodeError ? <div className="text-xs text-fg-subtle">Checking barcode...</div> : null}
-              {barcodeError ? (
-                <div className="text-xs text-danger">
-                  {barcodeError}{" "}
-                  {barcodeDuplicate ? (
-                    <Link href={`/catalog/items/${encodeURIComponent(barcodeDuplicate.id)}`} className="underline underline-offset-2">
-                      Open existing item
-                    </Link>
-                  ) : null}
+              <div className="space-y-2 sm:col-span-4">
+                <Label>Name <span className="text-destructive">*</span></Label>
+                <Input
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (!submitAttempted) return;
+                    setRequiredErrors((prev) => {
+                      const next = { ...prev };
+                      if (e.target.value.trim()) delete next.name; else next.name = "Name is required.";
+                      return next;
+                    });
+                  }}
+                  onBlur={() => {
+                    setSubmitAttempted(true);
+                    setRequiredErrors((prev) => {
+                      const next = { ...prev };
+                      if (name.trim()) delete next.name; else next.name = "Name is required.";
+                      return next;
+                    });
+                  }}
+                  placeholder="Item name"
+                  disabled={creating || loading}
+                  className={nameError ? "border-destructive focus-visible:ring-destructive" : ""}
+                  aria-invalid={nameError ? true : undefined}
+                />
+                {nameError ? <p className="text-xs text-destructive">{nameError}</p> : null}
+              </div>
+            </div>
+
+            {/* UOM & Barcode */}
+            <div className="grid gap-4 sm:grid-cols-6">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>UOM <span className="text-destructive">*</span></Label>
+                <SearchableSelect
+                  value={uom}
+                  onChange={(value) => {
+                    setUom(value);
+                    if (!submitAttempted) return;
+                    setRequiredErrors((prev) => {
+                      const next = { ...prev };
+                      if (String(value || "").trim()) delete next.uom; else next.uom = "Unit of measure is required.";
+                      return next;
+                    });
+                  }}
+                  disabled={creating || loading}
+                  placeholder="Select UOM..."
+                  searchPlaceholder="Search UOMs..."
+                  options={(uoms || []).map((x) => ({ value: x, label: x }))}
+                />
+                {uomError ? <p className="text-xs text-destructive">{uomError}</p> : null}
+                <p className="text-xs text-muted-foreground">
+                  Missing a UOM? Add it in{" "}
+                  <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">System &rarr; UOMs</Link>.
+                </p>
+              </div>
+              <div className="space-y-2 sm:col-span-4">
+                <Label>Primary Barcode (optional)</Label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    placeholder="Barcode"
+                    disabled={creating || loading}
+                    className={`font-mono ${barcodeError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                    aria-invalid={barcodeError ? true : undefined}
+                  />
+                  <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Generate barcode" onClick={generateBarcode} disabled={creating || loading}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Print sticker" onClick={printBarcodeLabel} disabled={creating || loading || !barcode.trim()}>
+                    <Printer className="h-4 w-4" />
+                  </Button>
                 </div>
-              ) : null}
+                {checkingDupes.barcode && !barcodeError ? <p className="text-xs text-muted-foreground">Checking barcode...</p> : null}
+                {barcodeError ? (
+                  <p className="text-xs text-destructive">
+                    {barcodeError}{" "}
+                    {barcodeDuplicate ? (
+                      <Link href={`/catalog/items/${encodeURIComponent(barcodeDuplicate.id)}`} className="underline underline-offset-2">Open existing</Link>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
             </div>
-            <div className="space-y-1 md:col-span-3">
-              <label className="text-xs font-medium text-fg-muted">Tax Code</label>
-              <SearchableSelect
-                value={taxCodeId}
-                onChange={setTaxCodeId}
-                disabled={creating || loading}
-                searchPlaceholder="Search tax codes..."
-                options={[
-                  { value: "", label: "(none)" },
-                  ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") })),
-                ]}
-              />
+
+            {/* Tax & Category */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tax Code</Label>
+                <SearchableSelect
+                  value={taxCodeId}
+                  onChange={setTaxCodeId}
+                  disabled={creating || loading}
+                  searchPlaceholder="Search tax codes..."
+                  options={[
+                    { value: "", label: "(none)" },
+                    ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") })),
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <SearchableSelect
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  disabled={creating || loading}
+                  searchPlaceholder="Search categories..."
+                  options={[
+                    { value: "", label: "(none)" },
+                    ...categories.map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                />
+              </div>
             </div>
-            <div className="space-y-1 md:col-span-3">
-              <label className="text-xs font-medium text-fg-muted">Category</label>
-              <SearchableSelect
-                value={categoryId}
-                onChange={setCategoryId}
-                disabled={creating || loading}
-                searchPlaceholder="Search categories..."
-                options={[
-                  { value: "", label: "(none)" },
-                  ...categories.map((c) => ({ value: c.id, label: c.name })),
-                ]}
-              />
+
+            {/* Active */}
+            <div className="flex items-center gap-3">
+              <Switch checked={active} onCheckedChange={setActive} disabled={creating || loading} />
+              <Label>Active</Label>
             </div>
-            <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
-              <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} disabled={creating || loading} /> Active
-            </label>
-            <div className="md:col-span-6 flex justify-end gap-2">
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")} disabled={creating}>
                 Cancel
               </Button>
               <Button type="button" variant="outline" onClick={() => void submitCreate("addAnother")} disabled={submitDisabled}>
-                {creating ? "..." : "Create & Add Another"}
+                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                Create &amp; Add Another
               </Button>
               <Button type="submit" disabled={submitDisabled}>
-                {creating ? "..." : "Create"}
+                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Create
               </Button>
             </div>
           </form>
