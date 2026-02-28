@@ -461,24 +461,28 @@ def _ensure_role_from_template(cur, company_id: str, template: RoleTemplateOut) 
             role_id = row["id"]
             if has_template_code:
                 # Best effort: mark existing role as template-backed.
-                try:
+                # Guard with NOT EXISTS to avoid UniqueViolation (which
+                # leaves psycopg3 transactions in an error state).
+                cur.execute(
+                    """
+                    UPDATE roles
+                    SET template_code = %s
+                    WHERE id = %s
+                      AND company_id = %s
+                      AND template_code IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM roles
+                          WHERE company_id = %s AND template_code = %s
+                      )
+                    """,
+                    (template.code, role_id, company_id, company_id, template.code),
+                )
+                if cur.rowcount == 0:
+                    # Another role already owns this template_code — use it.
                     cur.execute(
                         """
-                        UPDATE roles
-                        SET template_code = %s
-                        WHERE id = %s
-                          AND company_id = %s
-                          AND template_code IS NULL
-                        """,
-                        (template.code, role_id, company_id),
-                    )
-                except UniqueViolation:
-                    cur.execute(
-                        """
-                        SELECT id
-                        FROM roles
-                        WHERE company_id = %s
-                          AND template_code = %s
+                        SELECT id FROM roles
+                        WHERE company_id = %s AND template_code = %s
                         LIMIT 1
                         """,
                         (company_id, template.code),
@@ -489,29 +493,34 @@ def _ensure_role_from_template(cur, company_id: str, template: RoleTemplateOut) 
 
     if not role_id:
         if has_template_code:
-            try:
+            # Use ON CONFLICT to avoid UniqueViolation which leaves
+            # psycopg3 transactions in an error state.
+            cur.execute(
+                """
+                INSERT INTO roles (id, company_id, name, template_code)
+                VALUES (gen_random_uuid(), %s, %s, %s)
+                ON CONFLICT (company_id, template_code)
+                    WHERE template_code IS NOT NULL
+                DO NOTHING
+                RETURNING id
+                """,
+                (company_id, role_name, template.code),
+            )
+            row = cur.fetchone()
+            if row:
+                role_id = row["id"]
+            else:
                 cur.execute(
                     """
-                    INSERT INTO roles (id, company_id, name, template_code)
-                    VALUES (gen_random_uuid(), %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (company_id, role_name, template.code),
-                )
-            except UniqueViolation:
-                cur.execute(
-                    """
-                    SELECT id
-                    FROM roles
-                    WHERE company_id = %s
-                      AND template_code = %s
+                    SELECT id FROM roles
+                    WHERE company_id = %s AND template_code = %s
                     LIMIT 1
                     """,
                     (company_id, template.code),
                 )
                 existing = cur.fetchone()
                 if not existing:
-                    raise
+                    raise HTTPException(status_code=500, detail="failed to create or find role for template")
                 role_id = existing["id"]
         else:
             cur.execute(
@@ -641,27 +650,28 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            created = True
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO users (id, email, hashed_password)
-                    VALUES (gen_random_uuid(), %s, %s)
-                    RETURNING id
-                    """,
-                    (email, hash_password(password)),
-                )
-                uid = cur.fetchone()["id"]
-            except UniqueViolation:
+            # Use ON CONFLICT to avoid UniqueViolation which leaves psycopg3
+            # transactions in an error state (subsequent queries would fail).
+            cur.execute(
+                """
+                INSERT INTO users (id, email, hashed_password)
+                VALUES (gen_random_uuid(), %s, %s)
+                ON CONFLICT (email) DO NOTHING
+                RETURNING id
+                """,
+                (email, hash_password(password)),
+            )
+            row = cur.fetchone()
+            if row:
+                created = True
+                uid = row["id"]
+            else:
                 created = False
                 cur.execute("SELECT id FROM users WHERE email = %s", (email,))
                 row = cur.fetchone()
                 if not row:
-                    # Provide a clean API error for the UI.
                     raise HTTPException(status_code=409, detail="email already exists")
                 uid = row["id"]
-                # If the user already exists and no role/template was provided, keep the
-                # old behavior (409) so callers don't assume password was updated.
                 if not (selected_template_code or data.role_id):
                     raise HTTPException(status_code=409, detail="email already exists")
 
