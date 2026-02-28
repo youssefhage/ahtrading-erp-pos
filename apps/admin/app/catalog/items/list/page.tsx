@@ -17,8 +17,22 @@ type ItemRow = {
   id: string; sku: string; name: string; barcode: string | null;
   barcode_count?: number; unit_of_measure: string;
   category_id?: string | null; is_active?: boolean; updated_at?: string | null;
+  item_type?: "stocked" | "service" | "bundle" | null;
+  brand?: string | null;
 };
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
+
+function itemTypeLabel(t?: string | null) {
+  if (t === "service") return "Service";
+  if (t === "bundle") return "Bundle";
+  return "Stocked";
+}
+
+function itemTypeBadgeVariant(t?: string | null): "default" | "outline" | "secondary" {
+  if (t === "service") return "outline";
+  if (t === "bundle") return "secondary";
+  return "default";
+}
 
 export default function ItemsListPage() {
   const router = useRouter();
@@ -67,7 +81,24 @@ export default function ItemsListPage() {
     {
       accessorKey: "name",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Name" />,
-      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      cell: ({ row }) => (
+        <div>
+          <span className="font-medium">{row.original.name}</span>
+          {row.original.brand ? (
+            <span className="ml-2 text-xs text-muted-foreground">{row.original.brand}</span>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      id: "item_type",
+      accessorFn: (row) => row.item_type || "stocked",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+      cell: ({ row }) => {
+        const t = row.original.item_type || "stocked";
+        return <Badge variant={itemTypeBadgeVariant(t)} className="text-xs">{itemTypeLabel(t)}</Badge>;
+      },
+      filterFn: (row, id, value) => value.includes(row.getValue(id)),
     },
     {
       id: "category",
@@ -140,6 +171,15 @@ export default function ItemsListPage() {
             options: [
               { label: "Active", value: "active" },
               { label: "Inactive", value: "inactive" },
+            ],
+          },
+          {
+            id: "item_type",
+            title: "Type",
+            options: [
+              { label: "Stocked", value: "stocked" },
+              { label: "Service", value: "service" },
+              { label: "Bundle", value: "bundle" },
             ],
           },
         ]}

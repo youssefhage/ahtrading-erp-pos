@@ -177,7 +177,14 @@ export default function SalesInvoicesPage() {
       <Tabs value={statusFilter} onValueChange={setStatusFilter}>
         <TabsList>
           {STATUS_TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
+            <TabsTrigger key={t.value} value={t.value}>
+              {t.label}
+              {t.value === statusFilter && total != null ? (
+                <span className="ml-1.5 rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-[10px] font-medium">
+                  {total.toLocaleString("en-US")}
+                </span>
+              ) : null}
+            </TabsTrigger>
           ))}
         </TabsList>
         {STATUS_TABS.map((t) => (

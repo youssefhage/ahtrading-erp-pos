@@ -411,6 +411,7 @@ def list_items_list(
             sql = """
                 SELECT i.id, i.sku, i.name, i.barcode,
                        i.unit_of_measure, i.category_id,
+                       i.item_type, i.brand,
                        i.is_active, i.updated_at,
                        COALESCE(bc.cnt, 0) AS barcode_count
                 FROM items i

@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Printer, RefreshCw, Loader2, Plus, ArrowLeft } from "lucide-react";
+import { Printer, RefreshCw, Loader2, Plus } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { generateEan13Barcode, printBarcodeStickerLabel } from "@/lib/barcode-label";
 import { PageHeader } from "@/components/business/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
+import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { useToast } from "@/components/toast-provider";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,6 +22,20 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 /* -------------------------------------------------------------------------- */
@@ -69,10 +83,12 @@ export default function NewItemPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
 
+  /* ---- Reference data ---- */
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [uoms, setUoms] = useState<string[]>([]);
 
+  /* ---- Essential fields ---- */
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [uom, setUom] = useState("EA");
@@ -80,6 +96,46 @@ export default function NewItemPage() {
   const [taxCodeId, setTaxCodeId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [active, setActive] = useState(true);
+
+  /* ---- Classification & Identity ---- */
+  const [itemType, setItemType] = useState<"stocked" | "service" | "bundle">("stocked");
+  const [brand, setBrand] = useState("");
+  const [shortName, setShortName] = useState("");
+  const [tags, setTags] = useState("");
+  const [description, setDescription] = useState("");
+
+  /* ---- Tax & Compliance ---- */
+  const [taxCategory, setTaxCategory] = useState("none");
+  const [isExcise, setIsExcise] = useState(false);
+
+  /* ---- UOM & Packaging ---- */
+  const [purchaseUomCode, setPurchaseUomCode] = useState("");
+  const [salesUomCode, setSalesUomCode] = useState("");
+  const [casePackQty, setCasePackQty] = useState("");
+  const [innerPackQty, setInnerPackQty] = useState("");
+
+  /* ---- Costing & Margins ---- */
+  const [standardCostUsd, setStandardCostUsd] = useState("");
+  const [standardCostLbp, setStandardCostLbp] = useState("");
+  const [minMarginPct, setMinMarginPct] = useState("");
+  const [costingMethod, setCostingMethod] = useState("default");
+
+  /* ---- Inventory & Shelf Life ---- */
+  const [trackBatches, setTrackBatches] = useState(false);
+  const [trackExpiry, setTrackExpiry] = useState(false);
+  const [allowNegativeStock, setAllowNegativeStock] = useState("inherit");
+  const [defaultShelfLifeDays, setDefaultShelfLifeDays] = useState("");
+  const [minShelfLifeDaysForSale, setMinShelfLifeDaysForSale] = useState("");
+  const [expiryWarningDays, setExpiryWarningDays] = useState("");
+  const [reorderPoint, setReorderPoint] = useState("");
+  const [reorderQty, setReorderQty] = useState("");
+
+  /* ---- Logistics & Supplier ---- */
+  const [weight, setWeight] = useState("");
+  const [volume, setVolume] = useState("");
+  const [preferredSupplier, setPreferredSupplier] = useState<SupplierTypeaheadSupplier | null>(null);
+
+  /* ---- Form state ---- */
   const [creating, setCreating] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [requiredErrors, setRequiredErrors] = useState<RequiredErrors>({});
@@ -186,6 +242,35 @@ export default function NewItemPage() {
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [barcode, findExactDuplicates]);
 
+  function resetOptionalFields() {
+    setItemType("stocked");
+    setBrand("");
+    setShortName("");
+    setTags("");
+    setDescription("");
+    setTaxCategory("none");
+    setIsExcise(false);
+    setPurchaseUomCode("");
+    setSalesUomCode("");
+    setCasePackQty("");
+    setInnerPackQty("");
+    setStandardCostUsd("");
+    setStandardCostLbp("");
+    setMinMarginPct("");
+    setCostingMethod("default");
+    setTrackBatches(false);
+    setTrackExpiry(false);
+    setAllowNegativeStock("inherit");
+    setDefaultShelfLifeDays("");
+    setMinShelfLifeDaysForSale("");
+    setExpiryWarningDays("");
+    setReorderPoint("");
+    setReorderQty("");
+    setWeight("");
+    setVolume("");
+    setPreferredSupplier(null);
+  }
+
   async function submitCreate(mode: CreateMode) {
     const nextSku = sku.trim();
     const nextName = name.trim();
@@ -211,6 +296,10 @@ export default function NewItemPage() {
         return;
       }
 
+      const parsedTags = tags.trim()
+        ? Array.from(new Set(tags.split(",").map((t) => t.trim()).filter(Boolean)))
+        : null;
+
       const res = await apiPost<{ id: string }>("/items", {
         sku: nextSku,
         name: nextName,
@@ -219,6 +308,38 @@ export default function NewItemPage() {
         tax_code_id: taxCodeId || null,
         category_id: categoryId || null,
         is_active: active,
+        // Classification & Identity
+        item_type: itemType,
+        brand: brand.trim() || null,
+        short_name: shortName.trim() || null,
+        tags: parsedTags,
+        description: description.trim() || null,
+        // Tax & Compliance
+        tax_category: taxCategory && taxCategory !== "none" ? taxCategory : null,
+        is_excise: isExcise,
+        // UOM & Packaging
+        purchase_uom_code: purchaseUomCode || null,
+        sales_uom_code: salesUomCode || null,
+        case_pack_qty: casePackQty ? Number(casePackQty) : null,
+        inner_pack_qty: innerPackQty ? Number(innerPackQty) : null,
+        // Costing & Margins
+        standard_cost_usd: standardCostUsd ? Number(standardCostUsd) : null,
+        standard_cost_lbp: standardCostLbp ? Number(standardCostLbp) : null,
+        min_margin_pct: minMarginPct ? Number(minMarginPct) / 100 : null,
+        costing_method: costingMethod && costingMethod !== "default" ? costingMethod : null,
+        // Inventory & Shelf Life
+        track_batches: trackBatches,
+        track_expiry: trackExpiry,
+        allow_negative_stock: allowNegativeStock === "inherit" ? null : allowNegativeStock === "allowed",
+        default_shelf_life_days: defaultShelfLifeDays ? Number(defaultShelfLifeDays) : null,
+        min_shelf_life_days_for_sale: minShelfLifeDaysForSale ? Number(minShelfLifeDaysForSale) : null,
+        expiry_warning_days: expiryWarningDays ? Number(expiryWarningDays) : null,
+        reorder_point: reorderPoint ? Number(reorderPoint) : null,
+        reorder_qty: reorderQty ? Number(reorderQty) : null,
+        // Logistics & Supplier
+        weight: weight ? Number(weight) : null,
+        volume: volume ? Number(volume) : null,
+        preferred_supplier_id: preferredSupplier?.id || null,
       });
 
       if (mode === "addAnother") {
@@ -230,6 +351,7 @@ export default function NewItemPage() {
         setSkuDuplicate(null);
         setBarcodeDuplicate(null);
         setStatus("");
+        resetOptionalFields();
         toast.success("Item created", "Ready for the next item.");
         window.requestAnimationFrame(() => skuInputRef.current?.focus());
         return;
@@ -271,7 +393,7 @@ export default function NewItemPage() {
   const submitDisabled = creating || loading || !requiredFilled || hasErrors || hasPendingChecks;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto max-w-3xl space-y-6 p-6">
       <PageHeader
         title="New Item"
         description="Create a catalog item"
@@ -284,16 +406,19 @@ export default function NewItemPage() {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Item Details</CardTitle>
-          <CardDescription>SKU, naming, and tax/category defaults</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={(e) => { e.preventDefault(); void submitCreate("open"); }}
-            className="space-y-6"
-          >
+      <form
+        onSubmit={(e) => { e.preventDefault(); void submitCreate("open"); }}
+        className="space-y-6"
+      >
+        {/* ================================================================ */}
+        {/* ESSENTIALS CARD - Always visible                                  */}
+        {/* ================================================================ */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Item Details</CardTitle>
+            <CardDescription>SKU, naming, and tax/category defaults</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
             {/* SKU & Name */}
             <div className="grid gap-4 sm:grid-cols-6">
               <div className="space-y-2 sm:col-span-2">
@@ -454,24 +579,282 @@ export default function NewItemPage() {
               <Switch checked={active} onCheckedChange={setActive} disabled={creating || loading} />
               <Label>Active</Label>
             </div>
+          </CardContent>
+        </Card>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")} disabled={creating}>
-                Cancel
-              </Button>
-              <Button type="button" variant="outline" onClick={() => void submitCreate("addAnother")} disabled={submitDisabled}>
-                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                Create &amp; Add Another
-              </Button>
-              <Button type="submit" disabled={submitDisabled}>
-                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Create
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+        {/* ================================================================ */}
+        {/* OPTIONAL SECTIONS - Collapsible accordion                        */}
+        {/* ================================================================ */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Additional Options</CardTitle>
+            <CardDescription>Expand sections below to configure more details</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Accordion type="multiple" className="w-full">
+
+              {/* ---- Classification & Identity ---- */}
+              <AccordionItem value="classification">
+                <AccordionTrigger>Classification &amp; Identity</AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Item Type</Label>
+                      <Select value={itemType} onValueChange={(v) => setItemType(v as typeof itemType)} disabled={creating || loading}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="stocked">Stocked</SelectItem>
+                          <SelectItem value="service">Service</SelectItem>
+                          <SelectItem value="bundle">Bundle</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Brand</Label>
+                      <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand name" disabled={creating || loading} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Short Name</Label>
+                      <Input value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Short display name" disabled={creating || loading} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tags</Label>
+                    <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="tag1, tag2, tag3" disabled={creating || loading} />
+                    <p className="text-xs text-muted-foreground">Comma-separated list of tags</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Description</Label>
+                    <Textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Item description..."
+                      rows={3}
+                      disabled={creating || loading}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* ---- Tax & Compliance ---- */}
+              <AccordionItem value="tax">
+                <AccordionTrigger>Tax &amp; Compliance</AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Tax Category</Label>
+                      <Select value={taxCategory} onValueChange={setTaxCategory} disabled={creating || loading}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="(none)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">(none)</SelectItem>
+                          <SelectItem value="standard">Standard</SelectItem>
+                          <SelectItem value="zero">Zero-rated</SelectItem>
+                          <SelectItem value="exempt">Exempt</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-end gap-3 pb-1">
+                      <div className="flex items-center gap-3">
+                        <Switch checked={isExcise} onCheckedChange={setIsExcise} disabled={creating || loading} />
+                        <Label>Subject to Excise</Label>
+                      </div>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* ---- UOM & Packaging ---- */}
+              <AccordionItem value="packaging">
+                <AccordionTrigger>UOM &amp; Packaging</AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Purchase UOM</Label>
+                      <SearchableSelect
+                        value={purchaseUomCode}
+                        onChange={setPurchaseUomCode}
+                        disabled={creating || loading}
+                        placeholder="Same as base UOM"
+                        searchPlaceholder="Search UOMs..."
+                        options={[
+                          { value: "", label: "(same as base)" },
+                          ...uoms.map((x) => ({ value: x, label: x })),
+                        ]}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Sales UOM</Label>
+                      <SearchableSelect
+                        value={salesUomCode}
+                        onChange={setSalesUomCode}
+                        disabled={creating || loading}
+                        placeholder="Same as base UOM"
+                        searchPlaceholder="Search UOMs..."
+                        options={[
+                          { value: "", label: "(same as base)" },
+                          ...uoms.map((x) => ({ value: x, label: x })),
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Case Pack Qty</Label>
+                      <Input type="number" min="0" step="any" value={casePackQty} onChange={(e) => setCasePackQty(e.target.value)} placeholder="e.g. 24" disabled={creating || loading} />
+                      <p className="text-xs text-muted-foreground">Units per outer case</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Inner Pack Qty</Label>
+                      <Input type="number" min="0" step="any" value={innerPackQty} onChange={(e) => setInnerPackQty(e.target.value)} placeholder="e.g. 6" disabled={creating || loading} />
+                      <p className="text-xs text-muted-foreground">Units per inner pack</p>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* ---- Costing & Margins ---- */}
+              <AccordionItem value="costing">
+                <AccordionTrigger>Costing &amp; Margins</AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Standard Cost (USD)</Label>
+                      <Input type="number" min="0" step="any" value={standardCostUsd} onChange={(e) => setStandardCostUsd(e.target.value)} placeholder="0.00" disabled={creating || loading} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Standard Cost (LBP)</Label>
+                      <Input type="number" min="0" step="any" value={standardCostLbp} onChange={(e) => setStandardCostLbp(e.target.value)} placeholder="0" disabled={creating || loading} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Min Margin %</Label>
+                      <Input type="number" min="0" max="100" step="0.1" value={minMarginPct} onChange={(e) => setMinMarginPct(e.target.value)} placeholder="e.g. 20" disabled={creating || loading} />
+                      <p className="text-xs text-muted-foreground">Minimum margin percentage</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Costing Method</Label>
+                    <Select value={costingMethod} onValueChange={setCostingMethod} disabled={creating || loading}>
+                      <SelectTrigger className="w-full sm:w-[200px]">
+                        <SelectValue placeholder="(company default)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">(company default)</SelectItem>
+                        <SelectItem value="avg">Weighted Average</SelectItem>
+                        <SelectItem value="fifo">FIFO</SelectItem>
+                        <SelectItem value="standard">Standard Cost</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* ---- Inventory & Shelf Life ---- */}
+              <AccordionItem value="inventory">
+                <AccordionTrigger>Inventory &amp; Shelf Life</AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="flex items-center gap-3">
+                      <Switch checked={trackBatches} onCheckedChange={setTrackBatches} disabled={creating || loading} />
+                      <Label>Track Batches</Label>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Switch checked={trackExpiry} onCheckedChange={setTrackExpiry} disabled={creating || loading} />
+                      <Label>Track Expiry</Label>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Negative Stock</Label>
+                      <Select value={allowNegativeStock} onValueChange={setAllowNegativeStock} disabled={creating || loading}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit">Inherit (company default)</SelectItem>
+                          <SelectItem value="allowed">Allowed</SelectItem>
+                          <SelectItem value="blocked">Blocked</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Default Shelf Life (days)</Label>
+                      <Input type="number" min="0" value={defaultShelfLifeDays} onChange={(e) => setDefaultShelfLifeDays(e.target.value)} placeholder="e.g. 365" disabled={creating || loading} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Min Shelf Life for Sale (days)</Label>
+                      <Input type="number" min="0" value={minShelfLifeDaysForSale} onChange={(e) => setMinShelfLifeDaysForSale(e.target.value)} placeholder="e.g. 30" disabled={creating || loading} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Expiry Warning (days)</Label>
+                      <Input type="number" min="0" value={expiryWarningDays} onChange={(e) => setExpiryWarningDays(e.target.value)} placeholder="e.g. 14" disabled={creating || loading} />
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Reorder Point</Label>
+                      <Input type="number" min="0" step="any" value={reorderPoint} onChange={(e) => setReorderPoint(e.target.value)} placeholder="0" disabled={creating || loading} />
+                      <p className="text-xs text-muted-foreground">Trigger reorder when stock falls below this level</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Reorder Qty</Label>
+                      <Input type="number" min="0" step="any" value={reorderQty} onChange={(e) => setReorderQty(e.target.value)} placeholder="0" disabled={creating || loading} />
+                      <p className="text-xs text-muted-foreground">Default quantity to reorder</p>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              {/* ---- Logistics & Supplier ---- */}
+              <AccordionItem value="logistics">
+                <AccordionTrigger>Logistics &amp; Supplier</AccordionTrigger>
+                <AccordionContent className="space-y-4 px-1 pt-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Weight</Label>
+                      <Input type="number" min="0" step="any" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0.00" disabled={creating || loading} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Volume</Label>
+                      <Input type="number" min="0" step="any" value={volume} onChange={(e) => setVolume(e.target.value)} placeholder="0.00" disabled={creating || loading} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Preferred Supplier</Label>
+                    <SupplierTypeahead
+                      value={preferredSupplier}
+                      onSelect={setPreferredSupplier}
+                      onClear={() => setPreferredSupplier(null)}
+                      disabled={creating || loading}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+            </Accordion>
+          </CardContent>
+        </Card>
+
+        {/* ================================================================ */}
+        {/* ACTION BUTTONS                                                    */}
+        {/* ================================================================ */}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")} disabled={creating}>
+            Cancel
+          </Button>
+          <Button type="button" variant="outline" onClick={() => void submitCreate("addAnother")} disabled={submitDisabled}>
+            {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+            Create &amp; Add Another
+          </Button>
+          <Button type="submit" disabled={submitDisabled}>
+            {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Create
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }
