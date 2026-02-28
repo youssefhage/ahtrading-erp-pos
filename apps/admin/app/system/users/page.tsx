@@ -529,10 +529,10 @@ export default function UsersPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Profile Type (Recommended)</label>
-                    <Select value={templateCode} onValueChange={setTemplateCode}>
+                    <Select value={templateCode || "__none__"} onValueChange={(v) => setTemplateCode(v === "__none__" ? "" : v)}>
                       <SelectTrigger><SelectValue placeholder="No profile type" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No profile type</SelectItem>
+                        <SelectItem value="__none__">No profile type</SelectItem>
                         {profileTypes.map((t) => (
                           <SelectItem key={t.code} value={t.code}>{t.name}</SelectItem>
                         ))}
@@ -546,10 +546,10 @@ export default function UsersPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Or Assign Existing Role</label>
-                    <Select value={createRoleId} onValueChange={setCreateRoleId} disabled={Boolean(templateCode)}>
+                    <Select value={createRoleId || "__none__"} onValueChange={(v) => setCreateRoleId(v === "__none__" ? "" : v)} disabled={Boolean(templateCode)}>
                       <SelectTrigger><SelectValue placeholder="No role" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No role</SelectItem>
+                        <SelectItem value="__none__">No role</SelectItem>
                         {roles.map((r) => (
                           <SelectItem key={r.id} value={r.id}>
                             {r.name}{r.template_code ? " (Standard)" : ""}
