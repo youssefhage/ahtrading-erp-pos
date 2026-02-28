@@ -238,7 +238,7 @@ export default function DashboardPage() {
       {/* 1. Greeting Hero */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
-          <GreetingHero version={health?.version} />
+          <GreetingHero />
         </div>
         <Button
           variant="outline"
