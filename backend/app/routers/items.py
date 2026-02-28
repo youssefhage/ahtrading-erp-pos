@@ -48,20 +48,6 @@ def _norm_sku(value: Optional[str]) -> str:
     return str(value or "").strip()
 
 
-def _is_unofficial_sku(sku: Optional[str]) -> bool:
-    return _norm_sku(sku).upper().startswith("UN")
-
-
-def _company_name(cur, company_id: str) -> str:
-    cur.execute("SELECT name FROM companies WHERE id = %s", (company_id,))
-    row = cur.fetchone() or {}
-    return str(row.get("name") or "").strip()
-
-
-def _is_official_company_name(name: str) -> bool:
-    n = str(name or "").strip().lower()
-    return ("official" in n) and ("unofficial" not in n)
-
 
 def _is_owner_admin_user(cur, company_id: str, user_id: str) -> bool:
     """
@@ -1149,9 +1135,6 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                 sku = _norm_sku(data.sku)
                 if not sku:
                     raise HTTPException(status_code=400, detail="sku is required")
-                if _is_official_company_name(_company_name(cur, company_id)) and _is_unofficial_sku(sku):
-                    raise HTTPException(status_code=409, detail=f"UN* item cannot be created in Official company: {sku}")
-
                 barcode = data.barcode.strip() if data.barcode else None
                 tags = [t.strip() for t in (data.tags or []) if (t or "").strip()] or None
                 uom = _norm_uom(data.unit_of_measure)
@@ -1273,7 +1256,6 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                 # Preload tax codes by name for this company (optional mapping).
                 cur.execute("SELECT id, name FROM tax_codes WHERE company_id = %s", (company_id,))
                 tax_by_name = {(r["name"] or "").strip().lower(): r["id"] for r in cur.fetchall()}
-                is_official_company = _is_official_company_name(_company_name(cur, company_id))
 
                 upserted = 0
                 for it in items:
@@ -1282,8 +1264,6 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                     uom = _norm_uom((it.unit_of_measure or "").strip() or "EA")
                     if not sku or not name:
                         raise HTTPException(status_code=400, detail="each item requires sku and name")
-                    if is_official_company and _is_unofficial_sku(sku):
-                        raise HTTPException(status_code=409, detail=f"UN* item cannot be created/updated in Official company: {sku}")
 
                     _ensure_uom_exists(cur, company_id, uom)
 
@@ -1451,7 +1431,6 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                is_official_company = _is_official_company_name(_company_name(cur, company_id))
                 # Lock the item row so base-UOM changes can be validated safely.
                 cur.execute(
                     "SELECT unit_of_measure, sku FROM items WHERE company_id=%s AND id=%s FOR UPDATE",
@@ -1462,12 +1441,6 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     raise HTTPException(status_code=404, detail="item not found")
                 existing_base_uom = _norm_uom(existing.get("unit_of_measure"))
                 existing_sku = _norm_sku(existing.get("sku"))
-
-                if patch.get("is_active") is True and is_official_company and _is_unofficial_sku(existing_sku):
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"UN* item cannot be activated in Official company: {existing_sku}",
-                    )
 
                 if uom_to_ensure:
                     # Base UOM is effectively the "stock UOM". Changing it after any document/stock history
