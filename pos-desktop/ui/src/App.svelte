@@ -3066,36 +3066,36 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${_escapeHtml(title)}</title>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{max-width:80mm;margin:0 auto;padding:8px 8px 16px;color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.4;font-weight:700;-webkit-print-color-adjust:exact}
+    *{margin:0;padding:0;box-sizing:border-box;color:#000}
+    body{max-width:80mm;margin:0 auto;padding:8px 8px 16px;color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.4;font-weight:900;-webkit-print-color-adjust:exact}
     .mono{font-variant-numeric:tabular-nums}
-    .bold{font-weight:600}
+    .bold{font-weight:900}
     header{text-align:center;margin-bottom:12px}
-    h1{font-size:16px;font-weight:600;letter-spacing:-0.025em}
-    .doc-no{margin-top:4px;font-size:10px;color:rgba(0,0,0,.7)}
-    .doc-date{margin-top:4px;font-size:10px;color:rgba(0,0,0,.6)}
-    .meta{color:rgba(0,0,0,.7);margin-bottom:12px}
+    h1{font-size:16px;font-weight:900;letter-spacing:-0.025em}
+    .doc-no{margin-top:4px;font-size:10px;color:#000}
+    .doc-date{margin-top:4px;font-size:10px;color:#000}
+    .meta{color:#000;margin-bottom:12px}
     .mr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:1px 0}
     .mr .val{text-align:right}
-    .sep{border-top:1px dashed rgba(0,0,0,.3);margin:12px 0}
-    .bal-sep{border-top:1px solid rgba(0,0,0,.1);margin:8px 0}
+    .sep{border-top:1px dashed #000;margin:12px 0}
+    .bal-sep{border-top:1px solid #000;margin:8px 0}
     table.items{width:100%;border-collapse:collapse}
-    table.items thead th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:rgba(0,0,0,.6);padding:4px 0;font-weight:400}
+    table.items thead th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#000;padding:4px 0;font-weight:900}
     table.items thead th:first-child{text-align:left}
     table.items thead th:not(:first-child){text-align:right}
-    table.items tbody tr{border-top:1px solid rgba(0,0,0,.1)}
+    table.items tbody tr{border-top:1px solid #000}
     .td-item{padding:4px 8px 4px 0;vertical-align:top}
-    .td-r{padding:4px 0;vertical-align:top;text-align:right;font-size:10px;color:rgba(0,0,0,.7);white-space:nowrap}
+    .td-r{padding:4px 0;vertical-align:top;text-align:right;font-size:10px;color:#000;white-space:nowrap}
     .iname{font-size:11px;word-break:break-word}
-    .sku{font-size:10px;color:rgba(0,0,0,.6)}
-    .uom{margin-left:3px;color:rgba(0,0,0,.5)}
-    .totals{color:rgba(0,0,0,.7)}
+    .sku{font-size:10px;color:#000}
+    .uom{margin-left:3px;color:#000}
+    .totals{color:#000}
     .tr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}
     .total-main{padding-top:4px}
-    .total-main span:first-child{font-weight:500}
-    .total-lbp{color:rgba(0,0,0,.6)}
-    .custom-footer{margin-top:8px;font-size:10px;color:rgba(0,0,0,.6);text-align:center}
-    .doc-footer{margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.1);font-size:10px;color:rgba(0,0,0,.5)}
+    .total-main span:first-child{font-weight:900}
+    .total-lbp{color:#000}
+    .custom-footer{margin-top:8px;font-size:10px;color:#000;text-align:center}
+    .doc-footer{margin-top:8px;padding-top:8px;border-top:1px solid #000;font-size:10px;color:#000}
     @media print{@page{margin:0}body{width:100%;padding:0 4px}.no-print{display:none}}
   </style>
 </head>
