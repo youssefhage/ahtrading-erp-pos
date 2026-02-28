@@ -6,7 +6,7 @@ const DEFAULT_PROXY_TIMEOUT_MS = 12000;
 
 function upstreamBase(): string {
   // Local dev default (backend exposed on host). Docker/CI should override via API_PROXY_TARGET.
-  const raw = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8000").trim();
+  const raw = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8001").trim();
   return raw.replace(/\/+$/, "");
 }
 
