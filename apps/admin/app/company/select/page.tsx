@@ -32,6 +32,8 @@ export default function CompanySelectPage() {
 
   async function selectCompany(id: string) {
     window.localStorage.setItem("ahtrading.companyId", id);
+    const match = companies.find((c) => c.id === id);
+    if (match) window.localStorage.setItem("ahtrading.companyName", match.name);
     try {
       await apiPost("/auth/select-company", { company_id: id });
     } catch {
@@ -88,7 +90,7 @@ export default function CompanySelectPage() {
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{c.name}</div>
-                        {c.legal_name && <div className="truncate text-xs text-muted-foreground">{c.legal_name}</div>}
+                        {c.legal_name && c.legal_name !== c.name && <div className="truncate text-xs text-muted-foreground">{c.legal_name}</div>}
                       </div>
                       <Button variant="secondary" size="sm" onClick={() => selectCompany(c.id)}>
                         Select
