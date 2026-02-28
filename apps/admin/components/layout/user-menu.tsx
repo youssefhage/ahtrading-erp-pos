@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LogOut, Settings, User } from "lucide-react";
 
-import { clearSession, apiPost, getCompanies } from "@/lib/api";
+import { clearSession, apiPost, getCompanyId, apiGet } from "@/lib/api";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,11 +21,23 @@ export function UserMenu() {
   const [companyName, setCompanyName] = useState<string>("");
 
   useEffect(() => {
-    const companies = getCompanies();
-    if (companies?.length) {
-      // getCompanies returns string[] — company names directly
-      setCompanyName(companies[0] || "");
+    // Try cached name first, then resolve from API
+    const cached = window.localStorage.getItem("ahtrading.companyName");
+    if (cached) {
+      setCompanyName(cached);
+      return;
     }
+    const id = getCompanyId();
+    if (!id) return;
+    apiGet<{ companies: Array<{ id: string; name: string }> }>("/companies")
+      .then((res) => {
+        const match = res.companies?.find((c) => c.id === id);
+        if (match) {
+          setCompanyName(match.name);
+          window.localStorage.setItem("ahtrading.companyName", match.name);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleLogout = async () => {
