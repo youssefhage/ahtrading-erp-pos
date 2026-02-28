@@ -47,6 +47,7 @@ import {
   AlertDescription,
 } from "@/components/ui/alert";
 import { FileInput } from "@/components/file-input";
+import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -74,6 +75,19 @@ type Item = {
   min_shelf_life_days_for_sale?: number | null;
   expiry_warning_days?: number | null;
   allow_negative_stock?: boolean | null;
+  purchase_uom_code?: string | null;
+  sales_uom_code?: string | null;
+  case_pack_qty?: string | number | null;
+  inner_pack_qty?: string | number | null;
+  standard_cost_usd?: string | number | null;
+  standard_cost_lbp?: string | number | null;
+  min_margin_pct?: string | number | null;
+  costing_method?: string | null;
+  tax_category?: string | null;
+  is_excise?: boolean;
+  preferred_supplier_id?: string | null;
+  weight?: string | number | null;
+  volume?: string | number | null;
   image_attachment_id?: string | null;
   image_alt?: string | null;
 };
@@ -243,6 +257,19 @@ export default function ItemEditPage() {
   const [editActive, setEditActive] = useState(true);
   const [editImageAttachmentId, setEditImageAttachmentId] = useState("");
   const [editImageAlt, setEditImageAlt] = useState("");
+  const [editPurchaseUomCode, setEditPurchaseUomCode] = useState("");
+  const [editSalesUomCode, setEditSalesUomCode] = useState("");
+  const [editCasePackQty, setEditCasePackQty] = useState("");
+  const [editInnerPackQty, setEditInnerPackQty] = useState("");
+  const [editStandardCostUsd, setEditStandardCostUsd] = useState("");
+  const [editStandardCostLbp, setEditStandardCostLbp] = useState("");
+  const [editMinMarginPct, setEditMinMarginPct] = useState("");
+  const [editCostingMethod, setEditCostingMethod] = useState("");
+  const [editTaxCategory, setEditTaxCategory] = useState("");
+  const [editIsExcise, setEditIsExcise] = useState(false);
+  const [editWeight, setEditWeight] = useState("");
+  const [editVolume, setEditVolume] = useState("");
+  const [editPreferredSupplier, setEditPreferredSupplier] = useState<SupplierTypeaheadSupplier | null>(null);
 
   /* ---- Data Loading ---- */
   const load = useCallback(async () => {
@@ -312,6 +339,24 @@ export default function ItemEditPage() {
         setEditActive(row.is_active !== false);
         setEditImageAttachmentId((row.image_attachment_id as any) || "");
         setEditImageAlt((row.image_alt as any) || "");
+        setEditPurchaseUomCode((row.purchase_uom_code as any) || "");
+        setEditSalesUomCode((row.sales_uom_code as any) || "");
+        setEditCasePackQty(row.case_pack_qty != null ? String(row.case_pack_qty) : "");
+        setEditInnerPackQty(row.inner_pack_qty != null ? String(row.inner_pack_qty) : "");
+        setEditStandardCostUsd(row.standard_cost_usd != null ? String(row.standard_cost_usd) : "");
+        setEditStandardCostLbp(row.standard_cost_lbp != null ? String(row.standard_cost_lbp) : "");
+        setEditMinMarginPct(row.min_margin_pct != null ? String(Number(row.min_margin_pct) * 100) : "");
+        setEditCostingMethod((row.costing_method as any) || "");
+        setEditTaxCategory((row.tax_category as any) || "");
+        setEditIsExcise(Boolean(row.is_excise));
+        setEditWeight(row.weight != null ? String(row.weight) : "");
+        setEditVolume(row.volume != null ? String(row.volume) : "");
+        if (row.preferred_supplier_id) {
+          const match = (sup.suppliers || []).find((s) => s.id === row.preferred_supplier_id);
+          setEditPreferredSupplier(match ? { id: match.id, code: (match as any).code, name: match.name } : { id: row.preferred_supplier_id, name: "(unknown)" });
+        } else {
+          setEditPreferredSupplier(null);
+        }
       }
 
       try {
@@ -406,7 +451,6 @@ export default function ItemEditPage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!item) return;
-    if (!editSku.trim()) return setStatus("SKU is required.");
     if (!editName.trim()) return setStatus("Name is required.");
     if (!editUom.trim()) return setStatus("UOM is required.");
 
@@ -414,7 +458,6 @@ export default function ItemEditPage() {
     setStatus("Saving...");
     try {
       await apiPatch(`/items/${encodeURIComponent(item.id)}`, {
-        sku: editSku.trim(),
         name: editName.trim(),
         item_type: editType,
         tags: parseTags(editTags),
@@ -435,6 +478,19 @@ export default function ItemEditPage() {
         is_active: Boolean(editActive),
         image_attachment_id: editImageAttachmentId || null,
         image_alt: editImageAlt.trim() || null,
+        purchase_uom_code: editPurchaseUomCode || null,
+        sales_uom_code: editSalesUomCode || null,
+        case_pack_qty: editCasePackQty ? Number(editCasePackQty) : null,
+        inner_pack_qty: editInnerPackQty ? Number(editInnerPackQty) : null,
+        standard_cost_usd: editStandardCostUsd ? Number(editStandardCostUsd) : null,
+        standard_cost_lbp: editStandardCostLbp ? Number(editStandardCostLbp) : null,
+        min_margin_pct: editMinMarginPct ? Number(editMinMarginPct) / 100 : null,
+        costing_method: editCostingMethod || null,
+        tax_category: editTaxCategory || null,
+        is_excise: editIsExcise,
+        preferred_supplier_id: editPreferredSupplier?.id || null,
+        weight: editWeight ? Number(editWeight) : null,
+        volume: editVolume ? Number(editVolume) : null,
       });
       await load();
       setStatus("");
@@ -892,8 +948,8 @@ export default function ItemEditPage() {
             {/* Identity */}
             <div className="grid gap-4 sm:grid-cols-6">
               <div className="space-y-2 sm:col-span-2">
-                <Label>SKU <span className="text-destructive">*</span></Label>
-                <Input value={editSku} onChange={(e) => setEditSku(e.target.value)} disabled={saving} />
+                <Label>SKU</Label>
+                <Input value={editSku} readOnly disabled className="bg-muted cursor-not-allowed" />
               </div>
               <div className="space-y-2 sm:col-span-4">
                 <Label>Name <span className="text-destructive">*</span></Label>
@@ -905,11 +961,14 @@ export default function ItemEditPage() {
             <div className="grid gap-4 sm:grid-cols-6">
               <div className="space-y-2 sm:col-span-2">
                 <Label>Type</Label>
-                <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={editType} onChange={(e) => setEditType(e.target.value as any)} disabled={saving}>
-                  <option value="stocked">Stocked</option>
-                  <option value="service">Service</option>
-                  <option value="bundle">Bundle</option>
-                </select>
+                <Select value={editType} onValueChange={(v) => setEditType(v as any)} disabled={saving}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stocked">Stocked</SelectItem>
+                    <SelectItem value="service">Service</SelectItem>
+                    <SelectItem value="bundle">Bundle</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>UOM <span className="text-destructive">*</span></Label>
@@ -1001,11 +1060,115 @@ export default function ItemEditPage() {
             {/* Negative stock */}
             <div className="space-y-2">
               <Label>Allow Negative Stock</Label>
-              <select className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={editAllowNegativeStock === null ? "" : editAllowNegativeStock ? "true" : "false"} onChange={(e) => { const v = e.target.value; if (!v) setEditAllowNegativeStock(null); else setEditAllowNegativeStock(v === "true"); }} disabled={saving}>
-                <option value="">(inherit)</option>
-                <option value="false">No</option>
-                <option value="true">Yes</option>
-              </select>
+              <Select value={editAllowNegativeStock === null ? "inherit" : editAllowNegativeStock ? "true" : "false"} onValueChange={(v) => { if (v === "inherit") setEditAllowNegativeStock(null); else setEditAllowNegativeStock(v === "true"); }} disabled={saving}>
+                <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="inherit">(inherit)</SelectItem>
+                  <SelectItem value="false">No</SelectItem>
+                  <SelectItem value="true">Yes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator />
+
+            {/* Tax & Compliance */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tax Category</Label>
+                <Select value={editTaxCategory || "none"} onValueChange={(v) => setEditTaxCategory(v === "none" ? "" : v)} disabled={saving}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">(none)</SelectItem>
+                    <SelectItem value="standard">Standard</SelectItem>
+                    <SelectItem value="zero">Zero-rated</SelectItem>
+                    <SelectItem value="exempt">Exempt</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-3 pb-1">
+                <div className="flex items-center gap-3">
+                  <Switch checked={editIsExcise} onCheckedChange={setEditIsExcise} disabled={saving} />
+                  <Label>Subject to Excise</Label>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* UOM & Packaging */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Purchase UOM</Label>
+                <SearchableSelect value={editPurchaseUomCode} onChange={setEditPurchaseUomCode} disabled={saving} placeholder="Same as base UOM" searchPlaceholder="Search UOMs..." options={[{ value: "", label: "(same as base)" }, ...uomOptions]} />
+              </div>
+              <div className="space-y-2">
+                <Label>Sales UOM</Label>
+                <SearchableSelect value={editSalesUomCode} onChange={setEditSalesUomCode} disabled={saving} placeholder="Same as base UOM" searchPlaceholder="Search UOMs..." options={[{ value: "", label: "(same as base)" }, ...uomOptions]} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Case Pack Qty</Label>
+                <Input type="number" min="0" step="any" value={editCasePackQty} onChange={(e) => setEditCasePackQty(e.target.value)} placeholder="Units per case" disabled={saving} />
+              </div>
+              <div className="space-y-2">
+                <Label>Inner Pack Qty</Label>
+                <Input type="number" min="0" step="any" value={editInnerPackQty} onChange={(e) => setEditInnerPackQty(e.target.value)} placeholder="Units per inner pack" disabled={saving} />
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Costing & Margins */}
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Standard Cost (USD)</Label>
+                <Input type="number" min="0" step="any" value={editStandardCostUsd} onChange={(e) => setEditStandardCostUsd(e.target.value)} placeholder="0.00" disabled={saving} />
+              </div>
+              <div className="space-y-2">
+                <Label>Standard Cost (LBP)</Label>
+                <Input type="number" min="0" step="any" value={editStandardCostLbp} onChange={(e) => setEditStandardCostLbp(e.target.value)} placeholder="0" disabled={saving} />
+              </div>
+              <div className="space-y-2">
+                <Label>Min Margin %</Label>
+                <Input type="number" min="0" max="100" step="0.1" value={editMinMarginPct} onChange={(e) => setEditMinMarginPct(e.target.value)} placeholder="e.g. 20" disabled={saving} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Costing Method</Label>
+              <Select value={editCostingMethod || "default"} onValueChange={(v) => setEditCostingMethod(v === "default" ? "" : v)} disabled={saving}>
+                <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">(company default)</SelectItem>
+                  <SelectItem value="avg">Weighted Average</SelectItem>
+                  <SelectItem value="fifo">FIFO</SelectItem>
+                  <SelectItem value="standard">Standard Cost</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator />
+
+            {/* Logistics & Supplier */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Weight</Label>
+                <Input type="number" min="0" step="any" value={editWeight} onChange={(e) => setEditWeight(e.target.value)} placeholder="0.00" disabled={saving} />
+              </div>
+              <div className="space-y-2">
+                <Label>Volume</Label>
+                <Input type="number" min="0" step="any" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} placeholder="0.00" disabled={saving} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Preferred Supplier</Label>
+              <SupplierTypeahead
+                value={editPreferredSupplier}
+                onSelect={(s) => setEditPreferredSupplier(s)}
+                onClear={() => setEditPreferredSupplier(null)}
+                disabled={saving}
+              />
             </div>
 
             <Separator />

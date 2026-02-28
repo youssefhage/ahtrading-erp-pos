@@ -939,6 +939,20 @@ export default function ItemViewPage() {
                       }
                     />
                     <DetailField label="Brand" value={item.brand || "-"} />
+                    <DetailField
+                      label="Tax Category"
+                      value={item.tax_category ? item.tax_category.charAt(0).toUpperCase() + item.tax_category.slice(1) : "-"}
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* UOM & Packaging */}
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <DetailField label="Purchase UOM" value={item.purchase_uom_code || "-"} mono />
+                    <DetailField label="Sales UOM" value={item.sales_uom_code || "-"} mono />
+                    <DetailField label="Case Pack Qty" value={item.case_pack_qty != null ? String(item.case_pack_qty) : "-"} mono />
+                    <DetailField label="Inner Pack Qty" value={item.inner_pack_qty != null ? String(item.inner_pack_qty) : "-"} mono />
                   </div>
 
                   <Separator />
@@ -991,18 +1005,36 @@ export default function ItemViewPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Operations</CardTitle>
-                  <CardDescription>Reorder and shelf-life parameters</CardDescription>
+                  <CardDescription>Reorder, shelf-life, costing, and logistics</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-6">
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <DetailField label="Reorder Point" value={String(item.reorder_point ?? "-")} mono />
                     <DetailField label="Reorder Qty" value={String(item.reorder_qty ?? "-")} mono />
-                    <DetailField label="Shelf Life" value={`${item.default_shelf_life_days ?? "-"} days`} />
-                    <DetailField label="Min for Sale" value={`${item.min_shelf_life_days_for_sale ?? "-"} days`} />
-                    <DetailField label="Expiry Warning" value={`${item.expiry_warning_days ?? "-"} days`} />
+                    <DetailField label="Shelf Life" value={item.default_shelf_life_days != null ? `${item.default_shelf_life_days} days` : "-"} />
+                    <DetailField label="Min for Sale" value={item.min_shelf_life_days_for_sale != null ? `${item.min_shelf_life_days_for_sale} days` : "-"} />
+                    <DetailField label="Expiry Warning" value={item.expiry_warning_days != null ? `${item.expiry_warning_days} days` : "-"} />
                     <DetailField label="Excise" value={item.is_excise ? "Yes" : "No"} />
                     {item.short_name ? <DetailField label="Short Name" value={item.short_name} /> : null}
                     {preferredSupplierName ? <DetailField label="Preferred Supplier" value={preferredSupplierName} /> : null}
+                  </div>
+
+                  <Separator />
+
+                  {/* Costing */}
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <DetailField label="Standard Cost USD" value={fmtUsdMaybe(item.standard_cost_usd)} mono />
+                    <DetailField label="Standard Cost LBP" value={fmtLbpMaybe(item.standard_cost_lbp)} mono />
+                    <DetailField label="Min Margin" value={item.min_margin_pct != null ? `${(Number(item.min_margin_pct) * 100).toFixed(1)}%` : "-"} />
+                    <DetailField label="Costing Method" value={item.costing_method === "avg" ? "Weighted Average" : item.costing_method === "fifo" ? "FIFO" : item.costing_method === "standard" ? "Standard Cost" : "-"} />
+                  </div>
+
+                  <Separator />
+
+                  {/* Logistics */}
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <DetailField label="Weight" value={item.weight != null ? String(item.weight) : "-"} mono />
+                    <DetailField label="Volume" value={item.volume != null ? String(item.volume) : "-"} mono />
                   </div>
                 </CardContent>
               </Card>
