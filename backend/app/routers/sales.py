@@ -601,7 +601,7 @@ def list_sales_invoices(
                       COALESCE(i.total_lbp, 0)
                       - COALESCE(pay.paid_lbp, 0)
                       - COALESCE(cred.credited_lbp, 0)
-                    ) > 0.005
+                    ) > 100
                   )
                 """
 
@@ -619,13 +619,13 @@ def list_sales_invoices(
                          WHEN i.status <> 'posted' THEN 'not_posted'
                          WHEN (
                            GREATEST(COALESCE(i.total_usd, 0) - COALESCE(pay.paid_usd, 0) - COALESCE(cred.credited_usd, 0), 0) <= 0.00005
-                           AND GREATEST(COALESCE(i.total_lbp, 0) - COALESCE(pay.paid_lbp, 0) - COALESCE(cred.credited_lbp, 0), 0) <= 0.005
+                           AND GREATEST(COALESCE(i.total_lbp, 0) - COALESCE(pay.paid_lbp, 0) - COALESCE(cred.credited_lbp, 0), 0) <= 100
                          ) THEN 'paid'
                          WHEN (
                            COALESCE(pay.paid_usd, 0) > 0.00005
-                           OR COALESCE(pay.paid_lbp, 0) > 0.005
+                           OR COALESCE(pay.paid_lbp, 0) > 100
                            OR COALESCE(cred.credited_usd, 0) > 0.00005
-                           OR COALESCE(cred.credited_lbp, 0) > 0.005
+                           OR COALESCE(cred.credited_lbp, 0) > 100
                          ) THEN 'partially_paid'
                          ELSE 'unpaid'
                        END AS payment_status,
@@ -2221,13 +2221,24 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 outstanding_usd = total_usd - paid_usd - credited_usd
                 outstanding_lbp = total_lbp - paid_lbp - credited_lbp
                 eps_usd = USD_Q
-                eps_lbp = LBP_Q
+                eps_lbp = Decimal("100")  # ~$0.001 — covers FX rounding residuals
                 if outstanding_usd < eps_usd:
                     outstanding_usd = Decimal("0")
                 if outstanding_lbp < eps_lbp:
                     outstanding_lbp = Decimal("0")
                 if outstanding_usd == 0 and outstanding_lbp == 0:
                     raise HTTPException(status_code=409, detail="invoice has no outstanding balance")
+
+                # Auto-snap: when this payment fully settles the settlement currency,
+                # absorb any small FX rounding residual in the other currency so the
+                # invoice closes cleanly instead of leaving e.g. LL 2 outstanding.
+                remaining_usd = outstanding_usd - applied_usd
+                remaining_lbp = outstanding_lbp - applied_lbp
+                if settle == "USD" and remaining_usd <= eps_usd and Decimal("0") < remaining_lbp <= eps_lbp:
+                    applied_lbp = outstanding_lbp
+                elif settle == "LBP" and remaining_lbp <= eps_lbp and Decimal("0") < remaining_usd <= eps_usd:
+                    applied_usd = outstanding_usd
+
                 if applied_usd > (outstanding_usd + eps_usd) or applied_lbp > (outstanding_lbp + eps_lbp):
                     raise HTTPException(status_code=409, detail="payment exceeds invoice outstanding balance")
 

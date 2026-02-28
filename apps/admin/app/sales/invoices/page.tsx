@@ -48,9 +48,9 @@ function derivePaymentStatus(inv: InvoiceRow): string {
   const doc = inv.status?.toLowerCase();
   if (doc === "canceled") return "canceled";
   if (doc !== "posted") return "not_posted";
-  if (toNum(inv.outstanding_usd) <= 0.00005 && toNum(inv.outstanding_lbp) <= 0.005) return "paid";
-  const hasPayment = toNum(inv.paid_usd) > 0.00005 || toNum(inv.paid_lbp) > 0.005
-    || toNum(inv.credited_usd) > 0.00005 || toNum(inv.credited_lbp) > 0.005;
+  if (toNum(inv.outstanding_usd) <= 0.00005 && toNum(inv.outstanding_lbp) <= 100) return "paid";
+  const hasPayment = toNum(inv.paid_usd) > 0.00005 || toNum(inv.paid_lbp) > 100
+    || toNum(inv.credited_usd) > 0.00005 || toNum(inv.credited_lbp) > 100;
   return hasPayment ? "partially_paid" : "unpaid";
 }
 
