@@ -9048,7 +9048,7 @@
         {/if}
       </button>
       {#if showTopMoreActions}
-        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-xl border border-ink/10 bg-surface shadow-2xl p-2 min-w-[240px]" style={topMoreMenuStyle}>
+        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-xl border border-ink/10 bg-surface shadow-2xl p-2 min-w-[240px] overflow-y-auto" style="{topMoreMenuStyle} max-height: calc(100vh - 70px);">
 
           <!-- ── Primary actions: 2×2 icon grid ── -->
           <div class="grid grid-cols-2 gap-1.5 mb-2">
