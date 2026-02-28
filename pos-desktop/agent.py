@@ -1789,6 +1789,7 @@ def get_last_receipt():
 
 
 def _receipt_html(receipt_row, cfg: Optional[dict] = None):
+    """Render a standalone HTML receipt matching the admin web receipt layout."""
     if not receipt_row:
         return """<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Receipt</title></head><body><p>No receipt yet.</p></body></html>"""
 
@@ -1798,6 +1799,8 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     footer_text = profile["footer_text"]
     hide_company_name = bool(profile.get("hide_company_name"))
     hide_vat_reference = bool(profile.get("hide_vat_reference"))
+    is_compact = template_id == "compact"
+    is_detailed = template_id == "detailed"
 
     r = receipt_row.get("receipt") or {}
     lines = r.get("lines") or []
@@ -1808,7 +1811,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
 
     def fmt_usd(x):
         try:
-            return f"{float(x or 0):.2f}"
+            return f"{float(x or 0):,.2f}"
         except Exception:
             return "0.00"
 
@@ -1818,130 +1821,206 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
         except Exception:
             return "0"
 
+    def fmt_qty(x):
+        try:
+            v = float(x or 0)
+        except Exception:
+            return "0"
+        if abs(v - round(v)) < 1e-9:
+            return f"{int(round(v)):,}"
+        return f"{v:,.3f}".rstrip("0").rstrip(".")
+
+    def fmt_date(x):
+        return str(x or "")[:10] or "-"
+
     title = "Sale Receipt" if receipt_row.get("receipt_type") == "sale" else "Return Receipt"
+    receipt_no = str(r.get("receipt_no") or r.get("invoice_no") or "").strip()
+    date_str = fmt_date(r.get("created_at"))
+
     cashier = r.get("cashier") or {}
-    cashier_name = cashier.get("name") or cashier.get("id") or "-"
+    cashier_name = (cashier.get("name") or cashier.get("id") or "").strip()
     customer_name = str(r.get("customer_name") or "").strip()
     customer_id = str(r.get("customer_id") or "").strip()
-    customer_label = customer_name or customer_id or "-"
+    customer_label = customer_name or customer_id or "Walk-in"
+    payment_method = str(r.get("payment_method") or "").strip()
     customer_balance = r.get("customer_balance") if isinstance(r.get("customer_balance"), dict) else None
 
+    # --- Meta rows ---
     meta_rows = []
-    meta_rows.append(f'<div class="muted">Time: <span class="mono">{e(r.get("created_at") or "-")}</span></div>')
-    if template_id != "compact":
-        meta_rows.append(f'<div class="muted">Event: <span class="mono">{e(r.get("event_id") or "-")}</span></div>')
-        meta_rows.append(f'<div class="muted">Shift: <span class="mono">{e(r.get("shift_id") or "-")}</span></div>')
-    meta_rows.append(f'<div class="muted">Customer: <span class="mono">{e(customer_label)}</span></div>')
-    meta_rows.append(f'<div class="muted">Cashier: <span>{e(cashier_name)}</span></div>')
-    meta_rows.append(f'<div class="muted">Payment: <span>{e(r.get("payment_method") or "-")}</span></div>')
+    meta_rows.append(f'<div class="mr"><span>Customer</span><span class="mono val">{e(customer_label)}</span></div>')
+    if cashier_name:
+        meta_rows.append(f'<div class="mr"><span>Cashier</span><span class="val">{e(cashier_name)}</span></div>')
+    if payment_method:
+        meta_rows.append(f'<div class="mr"><span>Payment</span><span class="mono val">{e(payment_method.upper())}</span></div>')
+    if is_detailed:
+        event_id = str(r.get("event_id") or "").strip()
+        shift_id = str(r.get("shift_id") or "").strip()
+        if event_id:
+            short = event_id if len(event_id) <= 13 else f"{event_id[:6]}...{event_id[-6:]}"
+            meta_rows.append(f'<div class="mr"><span>Event</span><span class="mono val">{e(short)}</span></div>')
+        if shift_id:
+            short = shift_id if len(shift_id) <= 13 else f"{shift_id[:6]}...{shift_id[-6:]}"
+            meta_rows.append(f'<div class="mr"><span>Shift</span><span class="mono val">{e(short)}</span></div>')
 
-    line_rows = []
+    # --- Line item rows ---
+    item_rows = []
     for ln in lines:
         name = (ln.get("name") or "").strip() or (ln.get("sku") or "").strip() or ln.get("item_id") or ""
+        sku = (ln.get("sku") or "").strip() or (ln.get("item_id") or "")
         qty_entered = ln.get("qty_entered")
         qty = qty_entered if qty_entered is not None else (ln.get("qty") or 0)
         uom = (ln.get("uom") or "").strip()
-        qty_label = f"{qty} {uom}".strip()
-        unit_usd = fmt_usd(ln.get("unit_price_usd"))
-        sku = (ln.get("sku") or "").strip() or (ln.get("item_id") or "")
+        uom_html = f'<span class="uom">{e(uom)}</span>' if uom else ""
         amt = fmt_usd(ln.get("line_total_usd"))
+        sku_html = "" if is_compact else f'<div class="sku">{e(sku)}</div>'
         detail_html = ""
-        if template_id == "detailed":
-            detail_html = f'<div class="ldetail">{e(sku)} @ {e(unit_usd)} USD</div>'
-        line_rows.append(
-            f'<div class="line"><div class="lname">{e(name)}</div>{detail_html}'
-            f'<div class="lmeta"><span>{e(qty_label)}</span><span class="mono">{e(amt)}</span></div></div>'
+        if is_detailed:
+            unit_usd = fmt_usd(ln.get("unit_price_usd"))
+            detail_html = f'<div class="detail">{e(sku)} @ {e(unit_usd)}/ea</div>'
+            sku_html = ""  # detail line replaces sku sub-line
+        item_rows.append(
+            f'<tr><td class="td-item">'
+            f'<div class="iname">{e(name)}</div>{sku_html}{detail_html}'
+            f'</td>'
+            f'<td class="td-r mono">{e(fmt_qty(qty))}{uom_html}</td>'
+            f'<td class="td-r mono">{e(amt)}</td></tr>'
         )
+    if not item_rows:
+        item_rows.append('<tr><td colspan="3" class="empty">No items.</td></tr>')
 
-    footer_html = f'<div class="footer">{e(footer_text)}</div>' if footer_text else ""
-    company_html = f"<h1>{e(company_name)}</h1>" if (company_name and not hide_company_name) else ""
-    vat_row_html = (
-        f'<div class="row"><span class="muted">VAT USD</span><strong class="mono">{e(fmt_usd(totals.get("tax_usd")))}</strong></div>'
-        if not hide_vat_reference
-        else ""
-    )
-    balance_rows_html = ""
-    if customer_balance:
-        balance_rows_html = (
-            f'<div class="row"><span class="muted">Prev Bal USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("previous_usd")))}</strong></div>'
-            f'<div class="row"><span class="muted">Prev Bal LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("previous_lbp")))}</strong></div>'
-            f'<div class="row"><span class="muted">After Sale USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("after_usd")))}</strong></div>'
-            f'<div class="row"><span class="muted">After Sale LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("after_lbp")))}</strong></div>'
-        )
+    # --- Totals ---
+    total_rows = []
+    if not is_compact:
+        total_rows.append(f'<div class="tr"><span>Subtotal</span><span class="mono">{e(fmt_usd(totals.get("base_usd")))}</span></div>')
+        if not hide_vat_reference:
+            total_rows.append(f'<div class="tr"><span>VAT</span><span class="mono">{e(fmt_usd(totals.get("tax_usd")))}</span></div>')
+    total_rows.append(f'<div class="tr total-main"><span>Total</span><span class="mono bold">{e(fmt_usd(totals.get("total_usd")))}</span></div>')
+    total_rows.append(f'<div class="tr total-lbp"><span>Total LBP</span><span class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</span></div>')
+
+    # Customer balance (skip for compact)
+    if customer_balance and not is_compact:
+        total_rows.append('<div class="bal-sep"></div>')
+        total_rows.append(f'<div class="tr"><span>Prev Bal USD</span><span class="mono">{e(fmt_usd(customer_balance.get("previous_usd")))}</span></div>')
+        total_rows.append(f'<div class="tr"><span>Prev Bal LBP</span><span class="mono">{e(fmt_lbp(customer_balance.get("previous_lbp")))}</span></div>')
+        total_rows.append(f'<div class="tr"><span>After Bal USD</span><span class="mono">{e(fmt_usd(customer_balance.get("after_usd")))}</span></div>')
+        total_rows.append(f'<div class="tr"><span>After Bal LBP</span><span class="mono">{e(fmt_lbp(customer_balance.get("after_lbp")))}</span></div>')
+
+    # --- Optional sections ---
+    company_html = f'<div class="company">{e(company_name)}</div>' if (company_name and not hide_company_name and not is_compact) else ""
+    receipt_no_html = f'<div class="doc-no mono">{e(receipt_no)}</div>' if receipt_no else ""
+    footer_html = f'<div class="custom-footer">{e(footer_text)}</div>' if (footer_text and not is_compact) else ""
+
     return f"""<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>{e(title)}</title>
-    <style>
-      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-      body {{
-        color: #000;
-        font-family: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", sans-serif;
-        font-size: 10px;
-        font-weight: 700;
-        overflow-x: hidden;
-        padding: 0 15px;
-        -webkit-print-color-adjust: exact;
-      }}
-      .mono {{ font-variant-numeric: tabular-nums; }}
-      .muted {{ color: #000; }}
-      h1 {{ font-size: 13px; margin-bottom: 1px; font-weight: 900; }}
-      h2 {{ font-size: 11px; font-weight: 900; margin-bottom: 4px; }}
-      .meta {{ font-size: 9px; line-height: 1.3; margin-bottom: 6px; }}
-      .hdr {{ display: flex; justify-content: space-between; border-bottom: 1px solid #000; padding-bottom: 2px; margin-bottom: 2px; font-size: 9px; font-weight: 900; }}
-      .line {{ border-bottom: 1px dashed #666; padding: 2px 0 3px; }}
-      .lname {{ font-weight: 700; word-break: break-word; }}
-      .ldetail {{ font-size: 8px; color: #000; }}
-      .lmeta {{ display: flex; justify-content: space-between; font-size: 9px; color: #000; }}
-      .totals {{ margin-top: 6px; font-size: 10px; }}
-      .row {{ display: flex; justify-content: space-between; padding: 1px 0; }}
-      .footer {{ margin-top: 6px; font-size: 8px; color: #000; text-align: center; }}
-      .actions {{ margin-top: 8px; display: flex; gap: 6px; }}
-      button {{
-        border: 1px solid #ddd;
-        background: white;
-        padding: 6px 8px;
-        border-radius: 8px;
-        font-size: 10px;
-        cursor: pointer;
-      }}
-      @media print {{
-        @page {{ margin: 0; }}
-        body {{ width: 100%; }}
-        .actions {{ display: none; }}
-      }}
-    </style>
-  </head>
-  <body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{e(title)}</title>
+  <style>
+    *{{margin:0;padding:0;box-sizing:border-box}}
+    body{{
+      max-width:80mm;margin:0 auto;padding:8px 8px 16px;
+      color:#000;
+      font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;
+      font-size:11px;line-height:1.4;font-weight:700;
+      -webkit-print-color-adjust:exact;
+    }}
+    .mono{{font-variant-numeric:tabular-nums}}
+    .bold{{font-weight:600}}
+    /* Header */
+    header{{text-align:center;margin-bottom:12px}}
+    .company{{font-size:13px;font-weight:700;margin-bottom:2px}}
+    h1{{font-size:16px;font-weight:600;letter-spacing:-0.025em}}
+    .doc-no{{margin-top:4px;font-size:10px;color:rgba(0,0,0,.7)}}
+    .doc-date{{margin-top:4px;font-size:10px;color:rgba(0,0,0,.6)}}
+    /* Meta */
+    .meta{{color:rgba(0,0,0,.7);margin-bottom:12px}}
+    .mr{{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:1px 0}}
+    .mr .val{{text-align:right}}
+    /* Separators */
+    .sep{{border-top:1px dashed rgba(0,0,0,.3);margin:12px 0}}
+    .bal-sep{{border-top:1px solid rgba(0,0,0,.1);margin:8px 0}}
+    /* Items table */
+    table.items{{width:100%;border-collapse:collapse}}
+    table.items thead th{{
+      font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+      color:rgba(0,0,0,.6);padding:4px 0;font-weight:400;
+    }}
+    table.items thead th:first-child{{text-align:left}}
+    table.items thead th:not(:first-child){{text-align:right}}
+    table.items tbody tr{{border-top:1px solid rgba(0,0,0,.1)}}
+    .td-item{{padding:4px 8px 4px 0;vertical-align:top}}
+    .td-r{{padding:4px 0;vertical-align:top;text-align:right;font-size:10px;color:rgba(0,0,0,.7);white-space:nowrap}}
+    .iname{{font-size:11px;word-break:break-word}}
+    .sku{{font-size:10px;color:rgba(0,0,0,.6)}}
+    .detail{{font-size:9px;color:rgba(0,0,0,.5)}}
+    .uom{{margin-left:3px;color:rgba(0,0,0,.5)}}
+    .empty{{padding:12px;text-align:center;color:rgba(0,0,0,.6)}}
+    /* Totals */
+    .totals{{color:rgba(0,0,0,.7)}}
+    .tr{{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}}
+    .total-main{{padding-top:4px}}
+    .total-main span:first-child{{font-weight:500}}
+    .total-lbp{{color:rgba(0,0,0,.6)}}
+    /* Footer */
+    .custom-footer{{margin-top:8px;font-size:10px;color:rgba(0,0,0,.6);text-align:center}}
+    .doc-footer{{margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.1);font-size:10px;color:rgba(0,0,0,.5)}}
+    /* Actions */
+    .actions{{margin-top:12px;display:flex;gap:8px}}
+    .actions button{{
+      border:1px solid #ddd;background:#fff;padding:6px 12px;
+      border-radius:6px;font-size:10px;cursor:pointer;
+    }}
+    @media print{{
+      @page{{margin:0}}
+      body{{width:100%;padding:0 4px}}
+      .actions{{display:none}}
+    }}
+  </style>
+</head>
+<body>
+  <header>
     {company_html}
-    <h2>{e(title)}</h2>
-    <div class="meta">
-      {''.join(meta_rows)}
-    </div>
+    <h1>{e(title)}</h1>
+    {receipt_no_html}
+    <div class="doc-date">{e(date_str)}</div>
+  </header>
 
-    <div class="hdr"><span>Item</span><span>Qty / USD</span></div>
-    {''.join(line_rows)}
+  <div class="meta">
+    {''.join(meta_rows)}
+  </div>
 
-    <div class="totals">
-      <div class="row"><span class="muted">Subtotal</span><strong class="mono">{e(fmt_usd(totals.get("base_usd")))}</strong></div>
-      {vat_row_html}
-      <div class="row"><span class="muted">Total USD</span><strong class="mono">{e(fmt_usd(totals.get("total_usd")))}</strong></div>
-      <div class="row"><span class="muted">Total LBP</span><strong class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</strong></div>
-      {balance_rows_html}
-    </div>
-    {footer_html}
+  <div class="sep"></div>
 
-    <div class="actions">
-      <button onclick="window.print()">Print</button>
-      <button onclick="window.close()">Close</button>
-    </div>
-    <script>
-      // Kiosk-friendly: auto-open print dialog shortly after load.
-      window.addEventListener('load', () => setTimeout(() => window.print(), 250));
-    </script>
-  </body>
+  <table class="items">
+    <thead><tr>
+      <th>Item</th>
+      <th>Qty</th>
+      <th>USD</th>
+    </tr></thead>
+    <tbody>
+      {''.join(item_rows)}
+    </tbody>
+  </table>
+
+  <div class="sep"></div>
+
+  <section class="totals">
+    {''.join(total_rows)}
+  </section>
+
+  {footer_html}
+
+  <div class="doc-footer mono">Document ID: {e(receipt_row.get("id") or r.get("event_id") or "-")}</div>
+
+  <div class="actions">
+    <button onclick="window.print()">Print</button>
+    <button onclick="window.close()">Close</button>
+  </div>
+  <script>
+    window.addEventListener('load', () => setTimeout(() => window.print(), 250));
+  </script>
+</body>
 </html>"""
 
 

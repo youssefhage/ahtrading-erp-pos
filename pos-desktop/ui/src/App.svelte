@@ -2856,7 +2856,7 @@
             <td class="br mono">${_escapeHtml(_lineSkuForPrint(ln))}</td>
             <td class="br">${_escapeHtml(_lineNameForPrint(ln))}</td>
             <td class="br r mono">${fmtPlainQty(ln?.qty_entered ?? ln?.qty)}</td>
-            <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
+            <td class="br c"><span class="uom-badge">${_escapeHtml(String(ln?.uom || "").trim().toUpperCase() || "-")}</span></td>
             <td class="br r mono">${fmtPlainMoney(unitPriceWithVatUsd)}</td>
             ${officialHasDiscount ? `<td class="br c mono">${_escapeHtml(pctText)}</td>` : ""}
             ${officialHasDiscount ? `<td class="br r mono">${fmtPlainMoney(ln?.discount_amount_usd || 0)}</td>` : ""}
@@ -2865,52 +2865,68 @@
         `;
       }).join("");
 
+      // Official A4 invoice — unified layout matching admin (print/page.tsx)
+      const customerNo = String(inv?.customer_id || "-").trim();
+      const customerNoShort = customerNo.length > 12 ? customerNo.slice(0, 12) : customerNo;
+
       return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${_escapeHtml(docNo)}</title>
   <style>
-    @page { size: A4; margin: 8mm; }
-    body { margin: 0; color: #111; font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-size: 11px; line-height: 1.25; }
-    .page { padding: 2mm; }
-    .top { display: grid; grid-template-columns: 1fr 260px; gap: 18px; margin-bottom: 12px; }
-    .company h1 { margin: 0 0 6px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
-    .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px; margin-bottom: 2px; }
-    .mono { font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
-    .invoice-box { text-align: center; padding-top: 4px; }
-    .invoice-box .label { font-size: 24px; font-weight: 700; }
-    .invoice-box .no { margin-top: 8px; font-size: 20px; font-weight: 700; }
-    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 12px; }
-    .meta .section { min-height: 160px; }
-    .meta .line { display: grid; grid-template-columns: 104px 1fr; gap: 6px; margin-bottom: 2px; }
-    .meta .title { margin-top: 8px; margin-bottom: 4px; font-size: 12px; font-weight: 700; text-decoration: underline; }
-    table.lines { width: 100%; border-collapse: collapse; border: 1px solid rgba(0, 0, 0, 0.45); font-size: 10px; }
-    table.lines th { background: rgba(0, 0, 0, 0.06); border-bottom: 1px solid rgba(0, 0, 0, 0.45); padding: 4px; text-align: left; }
-    table.lines td { border-top: 1px solid rgba(0, 0, 0, 0.2); padding: 4px; vertical-align: top; }
-    .br { border-right: 1px solid rgba(0, 0, 0, 0.2); }
-    .r { text-align: right; }
-    .c { text-align: center; }
-    .summary { display: grid; grid-template-columns: 1fr 340px; gap: 14px; margin-top: 10px; }
-    .summary-left { padding-top: 4px; }
-    .summary-left .qty { font-weight: 700; margin-bottom: 6px; }
-    .summary-left .words { font-style: italic; margin-bottom: 10px; }
-    .summary-right { border: 1px solid rgba(0, 0, 0, 0.45); }
-    .summary-right .row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0, 0, 0, 0.25); padding: 6px 8px; }
-    .summary-right .row:last-child { border-bottom: 0; background: rgba(0, 0, 0, 0.06); font-weight: 700; font-size: 12px; }
-    .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 40px; text-align: center; font-weight: 700; }
-    .sign div { border-top: 1px solid rgba(0, 0, 0, 0.3); padding-top: 8px; }
-    .footer { margin-top: 12px; text-align: right; font-size: 10px; color: #666; }
+    @page{size:A4;margin:8mm}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.25}
+    .page{padding:2mm}
+    .mono{font-variant-numeric:tabular-nums}
+    .bold{font-weight:700}
+    /* Top: company + invoice box */
+    .top{display:flex;justify-content:space-between;gap:18px;margin-bottom:12px}
+    .top-left{width:56%}
+    .top-left h1{font-size:28px;font-weight:700;letter-spacing:-0.3px;margin-bottom:4px}
+    .kv{display:grid;grid-template-columns:120px 1fr;gap:2px 8px;margin-bottom:2px}
+    .invoice-box{width:38%;text-align:center;padding-top:4px}
+    .invoice-box .label{font-size:24px;font-weight:700}
+    .invoice-box .no{margin-top:8px;font-size:20px;font-weight:700}
+    /* Meta: two columns */
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:12px}
+    .meta .section{min-height:160px}
+    .meta .line{display:grid;grid-template-columns:102px 1fr;gap:8px;margin-bottom:2px}
+    .meta .stitle{margin-top:8px;margin-bottom:4px;font-size:12px;font-weight:700;text-decoration:underline}
+    /* Items table */
+    table.lines{width:100%;border-collapse:collapse;border:1px solid rgba(0,0,0,.45);font-size:10px}
+    table.lines th{background:rgba(0,0,0,.06);border-bottom:1px solid rgba(0,0,0,.45);padding:4px;text-align:left;font-weight:700}
+    table.lines td{border-top:1px solid rgba(0,0,0,.2);padding:4px;vertical-align:top}
+    .br{border-right:1px solid rgba(0,0,0,.2)}
+    .r{text-align:right}.c{text-align:center}
+    .uom-badge{display:inline-flex;min-width:34px;align-items:center;justify-content:center;border:1px solid rgba(0,0,0,.35);border-radius:3px;padding:1px 4px;font-size:9px;font-weight:600;letter-spacing:.04em}
+    /* Summary */
+    .summary{display:grid;grid-template-columns:1fr 360px;gap:16px;margin-top:10px}
+    .summary-left{padding-top:4px}
+    .summary-left .qty{font-weight:700;margin-bottom:6px}
+    .summary-left .words{font-style:italic;margin-bottom:10px}
+    .summary-right{border:1px solid rgba(0,0,0,.45)}
+    .summary-right .row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(0,0,0,.25);padding:6px 8px;font-weight:600}
+    .summary-right .row:last-child{border-bottom:0;background:rgba(0,0,0,.06);font-weight:700;font-size:12px}
+    /* Signatures */
+    .sign{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:40px;text-align:center;font-size:11px;font-weight:600}
+    .sign div{border-top:1px solid rgba(0,0,0,.3);padding-top:12px}
+    /* Footer */
+    .doc-footer{margin-top:12px;text-align:right;font-size:10px;color:rgba(0,0,0,.5)}
+    @media print{.no-print{display:none}}
   </style>
 </head>
 <body>
   <div class="page">
     <section class="top">
-      <div class="company">
+      <div class="top-left">
         <h1>${_escapeHtml(companyName)}</h1>
-        <div class="kv"><span>Address</span><span>${_escapeHtml(companyAddress)}</span></div>
-        <div class="kv"><span>Contact</span><span class="mono">${_escapeHtml(companyContact)}</span></div>
-        <div class="kv"><span>Registration</span><span class="mono">${_escapeHtml(companyRegistration)}</span></div>
+        <div class="kv"><span>P.O. Box</span><span>-</span></div>
+        <div class="kv"><span>Tel</span><span>-</span></div>
+        <div class="kv"><span>Fax</span><span>-</span></div>
+        <div class="kv"><span>R.C</span><span class="mono">${_escapeHtml(companyRegistration)}</span></div>
+        <div class="kv"><span>VAT Registration No.</span><span class="mono">-</span></div>
       </div>
       <div class="invoice-box">
         <div class="label">Invoice</div>
@@ -2921,10 +2937,11 @@
     <section class="meta">
       <div class="section">
         <div class="line"><span><strong>Sales order No.</strong></span><span class="mono">${_escapeHtml(salesOrderNo)}</span></div>
-        <div class="line"><span><strong>Sales Person</strong></span><span class="mono">${_escapeHtml(salesPerson)}</span></div>
-        <div class="line"><span><strong>Route</strong></span><span class="mono">${_escapeHtml(routeName)}</span></div>
-        <div class="line"><span><strong>Reference</strong></span><span class="mono">${_escapeHtml(referenceNo)}</span></div>
-        <div class="title">Primary Address</div>
+        <div class="line"><span><strong>Sales Person</strong></span><span>${_escapeHtml(salesPerson)}</span></div>
+        <div class="line"><span><strong>Route</strong></span><span>${_escapeHtml(routeName)}</span></div>
+        <div class="line"><span><strong>Reference</strong></span><span>${_escapeHtml(referenceNo)}</span></div>
+        <div class="stitle">Primary Address</div>
+        <div class="line"><span><strong>Customer No.</strong></span><span>${_escapeHtml(customerNoShort)}</span></div>
         <div>${_escapeHtml(customerName)}</div>
         ${primaryLinesHtml}
         <div class="line"><span><strong>Tel</strong></span><span class="mono">${_escapeHtml(customerPhone)}</span></div>
@@ -2934,7 +2951,8 @@
         <div class="line"><span><strong>Due Date</strong></span><span class="mono">${_escapeHtml(fmtUsDate(inv?.due_date))}</span></div>
         <div class="line"><span><strong>Payment Terms</strong></span><span class="mono">${_escapeHtml(paymentTerms(inv?.invoice_date, inv?.due_date))}</span></div>
         <div class="line"><span><strong>Currency</strong></span><span class="mono">${_escapeHtml(String(inv?.settlement_currency || inv?.pricing_currency || "USD"))}</span></div>
-        <div class="title">Delivery Address</div>
+        <div class="stitle">Delivery Address</div>
+        <div class="line"><span><strong>Customer No.</strong></span><span>${_escapeHtml(customerNoShort)}</span></div>
         <div>${_escapeHtml(customerName)}</div>
         ${deliveryLinesHtml}
         <div class="line"><span><strong>Tel</strong></span><span class="mono">${_escapeHtml(customerPhone)}</span></div>
@@ -2963,7 +2981,7 @@
 
     <section class="summary">
       <div class="summary-left">
-        <div class="qty">Total Qty HL ${_escapeHtml(fmtPlainQty(officialTotalQty))}</div>
+        <div class="qty">Total Qty HL&nbsp;&nbsp;&nbsp;${_escapeHtml(fmtPlainQty(officialTotalQty))}</div>
         <div class="words">${_escapeHtml(totalWords)}</div>
       </div>
       <div class="summary-right">
@@ -2974,11 +2992,13 @@
     </section>
 
     <section class="sign">
-      <div>Receiver's Name & Signature</div>
+      <div>Receiver's Name &amp; Signature</div>
       <div>Stamp Duty Paid</div>
     </section>
 
+    <div class="doc-footer mono">Document ID: ${_escapeHtml(inv?.id || "-")} &middot; Generated: ${new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
   </div>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
 </body>
 </html>`;
     }
@@ -3000,23 +3020,44 @@
       : `<div class="row"><span class="muted">VAT 0%</span><strong class="mono">${_escapeHtml(_fmtMoney(0, 2))}</strong></div>`;
 
     if (thermal) {
-      // Thermal receipt — matches agent _receipt_html() style
+      // Thermal receipt — unified layout matching admin receipt paper (print/page.tsx)
       const title = (inv?.receipt_type === "return" || inv?.status === "return") ? "Return Receipt" : "Sale Receipt";
-      const metaHtml = [
-        `<div class="muted">No: <span class="mono">${_escapeHtml(docNo || "-")}</span></div>`,
-        `<div class="muted">Date: <span class="mono">${_escapeHtml(docDate || "-")}</span></div>`,
-        `<div class="muted">Customer: <span class="mono">${_escapeHtml(customerName)}</span></div>`,
-        `<div class="muted">Payment: <span>${_escapeHtml(String(inv?.payment_method || payments.map((p) => p?.method).filter(Boolean).join(", ") || "-"))}</span></div>`,
-      ].join("\n");
+      const receiptNo = docNo;
+      const dateStr = String(inv?.created_at || inv?.invoice_date || "").slice(0, 10) || "-";
+      const paymentMethod = String(inv?.payment_method || payments.map((p) => p?.method).filter(Boolean).join(", ") || "").trim();
 
-      const lineRowsHtml = lines.map((ln) => {
+      const metaRows = [];
+      metaRows.push(`<div class="mr"><span>Customer</span><span class="mono val">${_escapeHtml(customerName)}</span></div>`);
+      const cashierName = String(inv?.cashier?.name || inv?.cashier?.id || "").trim();
+      if (cashierName) metaRows.push(`<div class="mr"><span>Cashier</span><span class="val">${_escapeHtml(cashierName)}</span></div>`);
+      if (paymentMethod) metaRows.push(`<div class="mr"><span>Payment</span><span class="mono val">${_escapeHtml(paymentMethod.toUpperCase())}</span></div>`);
+
+      const itemRows = lines.map((ln) => {
         const name = _lineNameForPrint(ln);
+        const sku = _lineSkuForPrint(ln);
         const qty = toNum(ln?.qty_entered ?? ln?.qty, 0);
+        const qtyStr = qty.toLocaleString("en-US", { maximumFractionDigits: 3 });
         const uom = String(ln?.uom || "").trim();
-        const qtyLabel = uom ? `${qty} ${uom}` : String(qty);
+        const uomHtml = uom ? `<span class="uom">${_escapeHtml(uom)}</span>` : "";
         const amt = _fmtMoney(ln?.line_total_usd, 2);
-        return `<div class="line"><div class="lname">${_escapeHtml(name)}</div><div class="lmeta"><span>${_escapeHtml(qtyLabel)}</span><span class="mono">${_escapeHtml(amt)}</span></div></div>`;
+        return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div></td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(amt)}</td></tr>`;
       }).join("");
+
+      const totalRows = [];
+      totalRows.push(`<div class="tr"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</span></div>`);
+      if (!hideVat) totalRows.push(`<div class="tr"><span>VAT</span><span class="mono">${_escapeHtml(_fmtMoney(taxUsd, 2))}</span></div>`);
+      totalRows.push(`<div class="tr total-main"><span>Total</span><span class="mono bold">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))}</span></div>`);
+      totalRows.push(`<div class="tr total-lbp"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 0))}</span></div>`);
+
+      if (payments.length) {
+        const paidUsd = payments.reduce((s, p) => s + toNum(p?.amount_usd, 0), 0);
+        const paidLbp = payments.reduce((s, p) => s + toNum(p?.amount_lbp, 0), 0);
+        const balUsd = toNum(inv?.total_usd, 0) - paidUsd;
+        const balLbp = toNum(inv?.total_lbp, 0) - paidLbp;
+        totalRows.push('<div class="bal-sep"></div>');
+        totalRows.push(`<div class="tr"><span>Paid</span><span class="mono">${_escapeHtml(_fmtMoney(paidUsd, 2))}</span></div>`);
+        totalRows.push(`<div class="tr total-main"><span>Balance</span><span class="mono bold">${_escapeHtml(_fmtMoney(balUsd, 2))}</span></div>`);
+      }
 
       return `<!doctype html>
 <html lang="en">
@@ -3025,58 +3066,93 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${_escapeHtml(title)}</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { color: #111; font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-size: 10px; overflow-x: hidden; padding: 0 15px; }
-    .mono { font-family: "Roboto", ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-    .muted { color: #666; }
-    h2 { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
-    .meta { font-size: 9px; line-height: 1.3; margin-bottom: 6px; }
-    .hdr { display: flex; justify-content: space-between; border-bottom: 1px solid #ccc; padding-bottom: 2px; margin-bottom: 2px; font-size: 9px; font-weight: 700; }
-    .line { border-bottom: 1px dashed #ddd; padding: 2px 0 3px; }
-    .lname { font-weight: 500; word-break: break-word; }
-    .lmeta { display: flex; justify-content: space-between; font-size: 9px; color: #444; }
-    .totals { margin-top: 6px; font-size: 10px; }
-    .row { display: flex; justify-content: space-between; padding: 1px 0; }
-    .footer { margin-top: 6px; font-size: 8px; color: #666; text-align: center; }
-    @media print { @page { margin: 0; } body { width: 100%; } .no-print { display: none; } }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{max-width:80mm;margin:0 auto;padding:8px 8px 16px;color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.4;font-weight:700;-webkit-print-color-adjust:exact}
+    .mono{font-variant-numeric:tabular-nums}
+    .bold{font-weight:600}
+    header{text-align:center;margin-bottom:12px}
+    h1{font-size:16px;font-weight:600;letter-spacing:-0.025em}
+    .doc-no{margin-top:4px;font-size:10px;color:rgba(0,0,0,.7)}
+    .doc-date{margin-top:4px;font-size:10px;color:rgba(0,0,0,.6)}
+    .meta{color:rgba(0,0,0,.7);margin-bottom:12px}
+    .mr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:1px 0}
+    .mr .val{text-align:right}
+    .sep{border-top:1px dashed rgba(0,0,0,.3);margin:12px 0}
+    .bal-sep{border-top:1px solid rgba(0,0,0,.1);margin:8px 0}
+    table.items{width:100%;border-collapse:collapse}
+    table.items thead th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:rgba(0,0,0,.6);padding:4px 0;font-weight:400}
+    table.items thead th:first-child{text-align:left}
+    table.items thead th:not(:first-child){text-align:right}
+    table.items tbody tr{border-top:1px solid rgba(0,0,0,.1)}
+    .td-item{padding:4px 8px 4px 0;vertical-align:top}
+    .td-r{padding:4px 0;vertical-align:top;text-align:right;font-size:10px;color:rgba(0,0,0,.7);white-space:nowrap}
+    .iname{font-size:11px;word-break:break-word}
+    .sku{font-size:10px;color:rgba(0,0,0,.6)}
+    .uom{margin-left:3px;color:rgba(0,0,0,.5)}
+    .totals{color:rgba(0,0,0,.7)}
+    .tr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}
+    .total-main{padding-top:4px}
+    .total-main span:first-child{font-weight:500}
+    .total-lbp{color:rgba(0,0,0,.6)}
+    .custom-footer{margin-top:8px;font-size:10px;color:rgba(0,0,0,.6);text-align:center}
+    .doc-footer{margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.1);font-size:10px;color:rgba(0,0,0,.5)}
+    @media print{@page{margin:0}body{width:100%;padding:0 4px}.no-print{display:none}}
   </style>
 </head>
 <body>
-  <h2>${_escapeHtml(title)}</h2>
-  <div class="meta">${metaHtml}</div>
-  <div class="hdr"><span>Item</span><span>Qty / USD</span></div>
-  ${lineRowsHtml || '<div style="text-align:center;padding:6px;color:#666;">No lines.</div>'}
-  <div class="totals">
-    <div class="row"><span class="muted">Subtotal</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</strong></div>
-    ${vatRowHtml}
-    <div class="row"><span class="muted">Total USD</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))}</strong></div>
-    <div class="row"><span class="muted">Total LBP</span><strong class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 2))}</strong></div>
-  </div>
-  ${footerHtml}
+  <header>
+    <h1>${_escapeHtml(title)}</h1>
+    ${receiptNo ? `<div class="doc-no mono">${_escapeHtml(receiptNo)}</div>` : ""}
+    <div class="doc-date">${_escapeHtml(dateStr)}</div>
+  </header>
+  <div class="meta">${metaRows.join("")}</div>
+  <div class="sep"></div>
+  <table class="items">
+    <thead><tr><th>Item</th><th>Qty</th><th>USD</th></tr></thead>
+    <tbody>${itemRows || '<tr><td colspan="3" style="padding:12px;text-align:center;color:rgba(0,0,0,.6)">No items.</td></tr>'}</tbody>
+  </table>
+  <div class="sep"></div>
+  <section class="totals">${totalRows.join("")}</section>
+  ${footerText ? `<div class="custom-footer">${_escapeHtml(footerText)}</div>` : ""}
+  <div class="doc-footer mono">Document ID: ${_escapeHtml(inv?.id || "-")} &middot; Generated: ${new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
   ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
 </body>
 </html>`;
     }
 
-    // Unofficial A4 invoice — proper layout, no company header
-    const paymentRowsHtml = payments.length
-      ? payments.map((p) => {
-          const method = _escapeHtml(String(p?.method || "payment").toUpperCase());
-          return `<tr><td>${method}</td><td class="r mono">${_escapeHtml(_fmtMoney(p?.amount_usd, 2))}</td><td class="r mono">${_escapeHtml(_fmtMoney(p?.amount_lbp, 2))}</td></tr>`;
-        }).join("")
-      : '<tr><td colspan="3" style="color:#666;">No payments recorded.</td></tr>';
+    // Unofficial A4 invoice — unified layout matching admin standard A4 (print/page.tsx)
+    const dateStr = String(inv?.invoice_date || inv?.created_at || "").slice(0, 10) || "-";
+    const dueDateStr = String(inv?.due_date || "").slice(0, 10) || "-";
+    const currency = String(inv?.settlement_currency || inv?.pricing_currency || "USD");
+    const warehouseName = String(inv?.warehouse_name || inv?.warehouse_id || "").trim() || "-";
 
-    const a4LineRows = lines.map((ln, i) => {
+    const paidUsd = payments.reduce((s, p) => s + toNum(p?.amount_usd, 0), 0);
+    const paidLbp = payments.reduce((s, p) => s + toNum(p?.amount_lbp, 0), 0);
+    const balUsd = toNum(inv?.total_usd, 0) - paidUsd;
+    const balLbp = toNum(inv?.total_lbp, 0) - paidLbp;
+    const discountUsd = toNum(inv?.discount_total_usd, 0);
+    const discountLbp = toNum(inv?.discount_total_lbp, 0);
+
+    const a4LineRows = lines.map((ln) => {
+      const sku = _lineSkuForPrint(ln);
+      const name = _lineNameForPrint(ln);
+      const qty = toNum(ln?.qty_entered ?? ln?.qty, 0);
+      const qtyStr = qty.toLocaleString("en-US", { maximumFractionDigits: 3 });
+      const uom = String(ln?.uom || "").trim();
       return `<tr>
-        <td class="br c">${i + 1}</td>
-        <td class="br mono">${_escapeHtml(_lineSkuForPrint(ln))}</td>
-        <td class="br">${_escapeHtml(_lineNameForPrint(ln))}</td>
-        <td class="br r mono">${_escapeHtml(toNum(ln?.qty_entered ?? ln?.qty, 0).toLocaleString("en-US", { maximumFractionDigits: 3 }))}</td>
-        <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
-        <td class="br r mono">${_escapeHtml(_fmtMoney(ln?.unit_price_usd, 2))}</td>
+        <td class="code mono">${_escapeHtml(sku)}</td>
+        <td>${_escapeHtml(name)}</td>
+        <td class="r mono">${_escapeHtml(qtyStr)}${uom ? ` <span class="muted">${_escapeHtml(uom)}</span>` : ""}</td>
         <td class="r mono">${_escapeHtml(_fmtMoney(ln?.line_total_usd, 2))}</td>
       </tr>`;
     }).join("");
+
+    const paymentRowsHtml = payments.length
+      ? payments.map((p) => {
+          const method = _escapeHtml(String(p?.method || "payment"));
+          return `<div class="pay-row"><span class="mono">${method}</span><span class="mono">${_escapeHtml(_fmtMoney(p?.amount_usd, 2))} / ${_escapeHtml(_fmtMoney(p?.amount_lbp, 0))} LL</span></div>`;
+        }).join("")
+      : '<div class="muted">No payments.</div>';
 
     return `<!doctype html>
 <html>
@@ -3084,74 +3160,113 @@
   <meta charset="utf-8" />
   <title>${_escapeHtml(docNo || "Invoice")}</title>
   <style>
-    @page { size: A4; margin: 10mm; }
-    body { margin: 0; color: #111; font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-size: 11px; line-height: 1.3; }
-    .page { padding: 4mm; }
-    .mono { font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
-    .title { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
-    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 12px; margin-bottom: 16px; }
-    .meta .line { display: grid; grid-template-columns: 100px 1fr; gap: 6px; }
-    table.lines { width: 100%; border-collapse: collapse; border: 1px solid rgba(0,0,0,0.35); font-size: 10px; margin-bottom: 12px; }
-    table.lines th { background: rgba(0,0,0,0.06); border-bottom: 1px solid rgba(0,0,0,0.35); padding: 5px 4px; text-align: left; font-weight: 700; }
-    table.lines td { border-top: 1px solid rgba(0,0,0,0.15); padding: 5px 4px; vertical-align: top; }
-    .br { border-right: 1px solid rgba(0,0,0,0.15); }
-    .r { text-align: right; } .c { text-align: center; }
-    .summary { display: grid; grid-template-columns: 1fr 300px; gap: 16px; margin-top: 12px; }
-    .summary-right { border: 1px solid rgba(0,0,0,0.35); }
-    .summary-right .row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(0,0,0,0.2); padding: 6px 8px; }
-    .summary-right .row:last-child { border-bottom: 0; background: rgba(0,0,0,0.06); font-weight: 700; font-size: 12px; }
-    table.pay { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
-    table.pay th, table.pay td { border-bottom: 1px solid #ddd; padding: 4px 6px; text-align: left; }
-    table.pay th { font-weight: 700; }
-    .footer { margin-top: 16px; font-size: 10px; color: #666; text-align: center; }
-    @media print { .no-print { display: none; } }
+    @page{size:A4;margin:12mm}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.4}
+    .page{max-width:210mm;margin:0 auto;padding:16px 24px}
+    .mono{font-variant-numeric:tabular-nums}
+    .muted{color:rgba(0,0,0,.6)}
+    /* Header */
+    .hdr{border-bottom:1px solid rgba(0,0,0,.15);padding-bottom:16px;margin-bottom:24px}
+    .hdr h1{font-size:24px;font-weight:600;letter-spacing:-0.025em;margin-bottom:8px}
+    .hdr-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;font-size:12px;color:rgba(0,0,0,.7)}
+    /* Info boxes */
+    .boxes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+    .box{border:1px solid rgba(0,0,0,.15);border-radius:6px;padding:12px}
+    .box-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:rgba(0,0,0,.6);margin-bottom:4px}
+    .box-value{font-size:14px;font-weight:500;margin-top:4px}
+    .box-sub{font-size:11px;color:rgba(0,0,0,.7);margin-top:4px}
+    /* Items table */
+    .items-wrap{border:1px solid rgba(0,0,0,.15);border-radius:6px;margin-bottom:24px;overflow:hidden}
+    .items-hdr{border-bottom:1px solid rgba(0,0,0,.1);padding:12px 16px}
+    .items-hdr h2{font-size:14px;font-weight:600}
+    table.items{width:100%;border-collapse:collapse;font-size:12px}
+    table.items thead{background:rgba(0,0,0,.02)}
+    table.items thead th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:rgba(0,0,0,.6);padding:8px 12px;font-weight:400;text-align:left}
+    table.items thead th.r{text-align:right}
+    table.items tbody tr{border-top:1px solid rgba(0,0,0,.1)}
+    table.items tbody td{padding:8px 12px;vertical-align:top}
+    table.items td.code{color:rgba(0,0,0,.7);font-size:11px}
+    table.items td.r{text-align:right;font-size:11px}
+    .empty-row{padding:32px;text-align:center;color:rgba(0,0,0,.6)}
+    /* Bottom boxes */
+    .pay-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0;font-size:12px;color:rgba(0,0,0,.7)}
+    .total-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:rgba(0,0,0,.7)}
+    .total-row.main{border-top:1px solid rgba(0,0,0,.1);padding-top:8px;margin-top:4px}
+    .total-row.main span:first-child{font-weight:500}
+    .total-row.main span:last-child{font-weight:600}
+    /* Footer */
+    .doc-footer{margin-top:16px;text-align:right;font-size:10px;color:rgba(0,0,0,.5)}
+    .custom-footer{margin-top:12px;font-size:10px;color:rgba(0,0,0,.6);text-align:center}
+    @media print{.no-print{display:none}}
   </style>
 </head>
 <body>
   <div class="page">
-    <div class="title">Invoice <span class="mono">${_escapeHtml(docNo || "(draft)")}</span></div>
-
-    <div class="meta">
-      <div class="line"><strong>Date</strong><span class="mono">${_escapeHtml(docDate || "-")}</span></div>
-      <div class="line"><strong>Customer</strong><span>${_escapeHtml(customerName)}</span></div>
-      <div class="line"><strong>Due Date</strong><span class="mono">${_escapeHtml(inv?.due_date ? _fmtDateTime(inv.due_date) : "-")}</span></div>
-      <div class="line"><strong>Status</strong><span>${_escapeHtml(String(inv?.status || "").toUpperCase() || "-")}</span></div>
-      <div class="line"><strong>Currency</strong><span>${_escapeHtml(String(inv?.settlement_currency || inv?.pricing_currency || "USD"))}</span></div>
-    </div>
-
-    <table class="lines">
-      <thead>
-        <tr>
-          <th class="br c" style="width:30px">#</th>
-          <th class="br">Item</th>
-          <th class="br">Description</th>
-          <th class="br r">Qty</th>
-          <th class="br c">UOM</th>
-          <th class="br r">Unit USD</th>
-          <th class="r">Line USD</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${a4LineRows || '<tr><td colspan="7" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>'}
-      </tbody>
-    </table>
-
-    <div class="summary">
-      <div></div>
-      <div class="summary-right">
-        <div class="row"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))}</span></div>
-        ${hideVat ? "" : `<div class="row"><span>VAT 0%</span><span class="mono">${_escapeHtml(_fmtMoney(0, 2))}</span></div>`}
-        <div class="row"><span>Total USD</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))}</span></div>
-        <div class="row"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.total_lbp, 2))}</span></div>
+    <div class="hdr">
+      <h1>Sales Invoice</h1>
+      <div class="hdr-meta">
+        <div class="mono">${_escapeHtml(docNo || "(draft)")}</div>
+        <div style="text-align:right">
+          <div class="mono">Date ${_escapeHtml(dateStr)}</div>
+          <div class="mono">Due ${_escapeHtml(dueDateStr)}</div>
+        </div>
       </div>
     </div>
 
-    <table class="pay">
-      <thead><tr><th>Payment</th><th class="r">USD</th><th class="r">LBP</th></tr></thead>
-      <tbody>${paymentRowsHtml}</tbody>
-    </table>
+    <div class="boxes">
+      <div class="box">
+        <div class="box-label">Customer</div>
+        <div class="box-value">${_escapeHtml(customerName)}</div>
+      </div>
+      <div class="box">
+        <div class="box-label">Warehouse / Currency</div>
+        <div class="box-value">${_escapeHtml(warehouseName)}</div>
+        <div class="box-sub">Pricing <span class="mono">${_escapeHtml(currency)}</span> · Settlement <span class="mono">${_escapeHtml(currency)}</span></div>
+      </div>
+    </div>
 
-    ${footerHtml}
+    <div class="items-wrap">
+      <div class="items-hdr"><h2>Items</h2></div>
+      <table class="items">
+        <thead><tr>
+          <th>Code</th>
+          <th>Description</th>
+          <th class="r">Qty</th>
+          <th class="r">Total (USD)</th>
+        </tr></thead>
+        <tbody>
+          ${a4LineRows || '<tr><td colspan="4" class="empty-row">No lines.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="boxes">
+      <div class="box">
+        <div class="box-label">Payments</div>
+        <div style="margin-top:8px">${paymentRowsHtml}</div>
+      </div>
+      <div class="box">
+        <div class="box-label">Totals</div>
+        <div style="margin-top:8px">
+          <div class="total-row"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.subtotal_usd ?? inv?.total_usd, 2))} / ${_escapeHtml(_fmtMoney(inv?.subtotal_lbp ?? inv?.total_lbp, 0))} LL</span></div>
+          ${discountUsd > 0.001 ? `<div class="total-row"><span>Discount</span><span class="mono">${_escapeHtml(_fmtMoney(discountUsd, 2))} / ${_escapeHtml(_fmtMoney(discountLbp, 0))} LL</span></div>` : ""}
+          <div class="total-row"><span>Total</span><span class="mono">${_escapeHtml(_fmtMoney(inv?.total_usd, 2))} / ${_escapeHtml(_fmtMoney(inv?.total_lbp, 0))} LL</span></div>
+          <div class="total-row"><span>Paid</span><span class="mono">${_escapeHtml(_fmtMoney(paidUsd, 2))} / ${_escapeHtml(_fmtMoney(paidLbp, 0))} LL</span></div>
+          <div class="total-row main"><span>Balance</span><span class="mono">${_escapeHtml(_fmtMoney(balUsd, 2))} / ${_escapeHtml(_fmtMoney(balLbp, 0))} LL</span></div>
+        </div>
+        ${taxLines.length ? `
+        <div style="margin-top:14px;border-top:1px solid rgba(0,0,0,.1);padding-top:10px">
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px">Tax</div>
+          <div style="font-size:12px;color:rgba(0,0,0,.7)">
+            ${taxLines.map((t) => `<div class="total-row"><span class="mono">${_escapeHtml(t?.tax_code_id || "-")}</span><span class="mono">${_escapeHtml(_fmtMoney(t?.tax_usd, 2))} / ${_escapeHtml(_fmtMoney(t?.tax_lbp, 0))} LL</span></div>`).join("")}
+          </div>
+        </div>` : ""}
+      </div>
+    </div>
+
+    ${footerText ? `<div class="custom-footer">${_escapeHtml(footerText)}</div>` : ""}
+    <div class="doc-footer mono">Document ID: ${_escapeHtml(inv?.id || "-")} &middot; Generated: ${new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
   </div>
   ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
 </body>
