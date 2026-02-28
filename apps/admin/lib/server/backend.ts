@@ -6,7 +6,7 @@ function stripTrailingSlash(s: string) {
 
 export function backendBaseUrl(): string {
   // Match `next.config.js` rewrite default to keep local/dev simple.
-  return stripTrailingSlash(process.env.API_PROXY_TARGET || "http://127.0.0.1:8000");
+  return stripTrailingSlash(process.env.API_PROXY_TARGET || "http://127.0.0.1:8001");
 }
 
 export class BackendHttpError extends Error {
