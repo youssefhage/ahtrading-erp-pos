@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTheme } from "next-themes";
 import { Moon, Sun, Palette } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,165 +9,157 @@ import { PageHeader } from "@/components/business/page-header";
 import { apiGet, getCompanyId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type ColorTheme = "light" | "dark";
-type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
-const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
+/* ------------------------------------------------------------------ */
+/*  Accent theme definitions                                           */
+/* ------------------------------------------------------------------ */
+
+type AccentTheme = "default" | "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
+
 const ACCENT_THEME_STORAGE_KEY = "admin.accentTheme";
 
-const ALL_ACCENT_THEMES = ["cobalt", "sky", "emerald", "teal", "rose", "slate"] as const;
+const ACCENT_CLASSES: AccentTheme[] = ["cobalt", "sky", "emerald", "teal", "rose", "slate"];
 
 const ACCENT_THEMES: {
   key: AccentTheme;
   label: string;
-  primary: string;
-  dim: string;
+  /** HSL string for the preview swatch (light variant) */
+  swatch: string;
+  /** HSL string for the swatch gradient end */
+  swatchDim: string;
 }[] = [
-  { key: "cobalt", label: "Cobalt", primary: "37 99 235", dim: "29 78 216" },
-  { key: "sky", label: "Sky", primary: "14 165 233", dim: "3 105 161" },
-  { key: "emerald", label: "Emerald", primary: "16 185 129", dim: "4 120 87" },
-  { key: "teal", label: "Teal", primary: "20 184 166", dim: "15 118 110" },
-  { key: "rose", label: "Rose", primary: "244 63 94", dim: "190 18 60" },
-  { key: "slate", label: "Slate", primary: "100 116 139", dim: "51 65 85" },
+  { key: "default", label: "Default", swatch: "240 5.9% 10%", swatchDim: "240 3.8% 46.1%" },
+  { key: "cobalt", label: "Cobalt", swatch: "217 89% 53%", swatchDim: "217 89% 42%" },
+  { key: "sky", label: "Sky", swatch: "199 89% 48%", swatchDim: "199 89% 38%" },
+  { key: "emerald", label: "Emerald", swatch: "160 84% 39%", swatchDim: "160 84% 29%" },
+  { key: "teal", label: "Teal", swatch: "173 80% 40%", swatchDim: "173 80% 30%" },
+  { key: "rose", label: "Rose", swatch: "350 89% 60%", swatchDim: "350 89% 48%" },
+  { key: "slate", label: "Slate", swatch: "215 16% 47%", swatchDim: "215 16% 35%" },
 ];
 
-function normalizeCompanyThemeScope(companyId: string) {
-  return String(companyId || "").trim();
+/* ------------------------------------------------------------------ */
+/*  Scoped localStorage helpers for accent theme                       */
+/* ------------------------------------------------------------------ */
+
+function scopeKey(companyId: string) {
+  const cid = String(companyId || "").trim();
+  return cid ? `${ACCENT_THEME_STORAGE_KEY}.${cid}` : ACCENT_THEME_STORAGE_KEY;
 }
 
-function themeStorageKey(baseKey: string, companyId: string) {
-  const cid = normalizeCompanyThemeScope(companyId);
-  return cid ? `${baseKey}.${cid}` : baseKey;
-}
-
-function readThemeStorage(baseKey: string, companyId: string) {
+function readAccent(companyId: string): AccentTheme {
   try {
-    const scoped = localStorage.getItem(themeStorageKey(baseKey, companyId));
-    if (scoped != null) return scoped;
-    return localStorage.getItem(baseKey);
+    const scoped = localStorage.getItem(scopeKey(companyId));
+    const raw = scoped ?? localStorage.getItem(ACCENT_THEME_STORAGE_KEY);
+    if (raw && ACCENT_CLASSES.includes(raw as AccentTheme)) return raw as AccentTheme;
+    if (raw === "default") return "default";
+    return "default";
   } catch {
-    return null;
+    return "default";
   }
 }
 
-function saveThemeStorage(baseKey: string, companyId: string, value: string) {
+function saveAccent(companyId: string, value: AccentTheme) {
   try {
-    localStorage.setItem(themeStorageKey(baseKey, companyId), value);
-  } catch {
-    // ignore
-  }
-}
-
-function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme; companyId?: string }) {
-  try {
-    window.dispatchEvent(new CustomEvent("admin-theme-change", { detail }));
+    localStorage.setItem(scopeKey(companyId), value);
   } catch {
     // ignore
   }
 }
 
-function applyColorTheme(next: ColorTheme, companyId: string) {
-  saveThemeStorage(COLOR_THEME_STORAGE_KEY, companyId, next);
-  if (next === "dark") document.documentElement.classList.add("dark");
-  else document.documentElement.classList.remove("dark");
-  emitThemeChange({ color: next, companyId: normalizeCompanyThemeScope(companyId) });
-}
+/* ------------------------------------------------------------------ */
+/*  Apply accent theme to document                                     */
+/* ------------------------------------------------------------------ */
 
-function applyAccentTheme(next: AccentTheme, companyId: string) {
-  saveThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId, next);
+function applyAccent(next: AccentTheme) {
   const root = document.documentElement;
-  ALL_ACCENT_THEMES.forEach((t) => root.classList.remove(`theme-${t}`));
-  root.classList.add(`theme-${next}`);
-  root.style.removeProperty("--primary");
-  root.style.removeProperty("--primary-fg");
-  root.style.removeProperty("--primary-dim");
-  root.style.removeProperty("--primary-glow");
-  root.style.removeProperty("--ring");
-  emitThemeChange({ accent: next, companyId: normalizeCompanyThemeScope(companyId) });
-}
-
-function safeReadTheme(companyId: string): { color: ColorTheme; accent: AccentTheme } {
-  try {
-    const cRaw = readThemeStorage(COLOR_THEME_STORAGE_KEY, companyId);
-    const aRaw = readThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId);
-    const color: ColorTheme = cRaw === "dark" ? "dark" : "light";
-    const accent: AccentTheme =
-      aRaw === "cobalt" || aRaw === "emerald" || aRaw === "teal" || aRaw === "rose" || aRaw === "slate" || aRaw === "sky"
-        ? aRaw
-        : "cobalt";
-    return { color, accent };
-  } catch {
-    return { color: "light", accent: "cobalt" };
+  // Remove any existing accent class
+  ACCENT_CLASSES.forEach((t) => root.classList.remove(`theme-${t}`));
+  // Add the new one (skip for "default" — base CSS applies)
+  if (next !== "default") {
+    root.classList.add(`theme-${next}`);
   }
 }
 
-function swatchBg(primary: string, dim: string) {
-  return `linear-gradient(135deg, rgb(${primary} / 0.95), rgb(${dim} / 0.95))`;
+/* ------------------------------------------------------------------ */
+/*  Swatch gradient helper                                             */
+/* ------------------------------------------------------------------ */
+
+function swatchBg(swatch: string, swatchDim: string) {
+  return `linear-gradient(135deg, hsl(${swatch}), hsl(${swatchDim}))`;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page component                                                     */
+/* ------------------------------------------------------------------ */
 
 export default function AppearanceSettingsPage() {
-  const [companyId, setCompanyId] = useState<string>(() => getCompanyId());
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [companyId, setCompanyId] = useState<string>("");
   const [companyName, setCompanyName] = useState("");
-  const [colorTheme, setColorTheme] = useState<ColorTheme>("light");
-  const [accentTheme, setAccentTheme] = useState<AccentTheme>("cobalt");
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>("default");
 
+  // Wait for client mount (next-themes needs this)
   useEffect(() => {
-    const nextCompanyId = getCompanyId();
-    setCompanyId(nextCompanyId);
-    const t = safeReadTheme(nextCompanyId);
-    setColorTheme(t.color);
-    setAccentTheme(t.accent);
-    if (nextCompanyId) {
+    setMounted(true);
+    const cid = getCompanyId();
+    setCompanyId(cid);
+    setAccentTheme(readAccent(cid));
+    if (cid) {
       apiGet<{ companies: Array<{ id: string; name: string }> }>("/companies")
         .then((res) => {
-          const match = (res.companies || []).find((c) => c.id === nextCompanyId);
+          const match = (res.companies || []).find((c) => c.id === cid);
           if (match) setCompanyName(match.name);
         })
         .catch(() => {});
     }
   }, []);
 
+  // Listen for company switch or external accent changes
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === "ahtrading.companyId") {
-        const nextCompanyId = getCompanyId();
-        setCompanyId(nextCompanyId);
-        const t = safeReadTheme(nextCompanyId);
-        setColorTheme(t.color);
-        setAccentTheme(t.accent);
+        const cid = getCompanyId();
+        setCompanyId(cid);
+        setAccentTheme(readAccent(cid));
         return;
       }
-      if (!e.key) return;
-      if (e.key === COLOR_THEME_STORAGE_KEY || e.key.startsWith(`${COLOR_THEME_STORAGE_KEY}.`)) {
-        setColorTheme(safeReadTheme(getCompanyId()).color);
-      }
-      if (e.key === ACCENT_THEME_STORAGE_KEY || e.key.startsWith(`${ACCENT_THEME_STORAGE_KEY}.`)) {
-        setAccentTheme(safeReadTheme(getCompanyId()).accent);
+      if (e.key && e.key.startsWith(ACCENT_THEME_STORAGE_KEY)) {
+        setAccentTheme(readAccent(getCompanyId()));
       }
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const colorMode = mounted ? (resolvedTheme === "dark" ? "dark" : "light") : "light";
+
   const selectedAccent = useMemo(
     () => ACCENT_THEMES.find((t) => t.key === accentTheme) ?? ACCENT_THEMES[0],
     [accentTheme],
   );
 
+  function handleAccentChange(next: AccentTheme) {
+    setAccentTheme(next);
+    saveAccent(companyId, next);
+    applyAccent(next);
+  }
+
   return (
     <div className="space-y-8">
       <PageHeader
         title="Appearance"
-        description="Choose how the portal looks on this device. Your selection is saved in your browser per active company."
+        description="Choose how the portal looks. Color mode is saved in your browser; accent theme is per company."
       >
         <p className="text-xs text-muted-foreground">
           Active company: <span className="font-medium text-sm">{companyName || companyId || "not selected"}</span>
         </p>
       </PageHeader>
 
+      {/* ── Color Mode ─────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {colorTheme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {colorMode === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             Color Mode
           </CardTitle>
           <CardDescription>Light or dark UI mode.</CardDescription>
@@ -175,17 +168,14 @@ export default function AppearanceSettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <button
               type="button"
-              aria-pressed={colorTheme === "light"}
+              aria-pressed={colorMode === "light"}
               className={cn(
                 "group flex items-center gap-4 rounded-lg border p-4 text-left transition-colors",
-                colorTheme === "light"
+                colorMode === "light"
                   ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                   : "border-border hover:border-muted-foreground/30",
               )}
-              onClick={() => {
-                setColorTheme("light");
-                applyColorTheme("light", companyId);
-              }}
+              onClick={() => setTheme("light")}
             >
               <span
                 className="h-10 w-10 shrink-0 rounded-md border"
@@ -197,7 +187,7 @@ export default function AppearanceSettingsPage() {
                 <div className="text-sm font-medium">Light</div>
                 <div className="text-xs text-muted-foreground">Bright background, high contrast text.</div>
               </div>
-              {colorTheme === "light" && (
+              {colorMode === "light" && (
                 <span className="ml-auto rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   Active
                 </span>
@@ -206,17 +196,14 @@ export default function AppearanceSettingsPage() {
 
             <button
               type="button"
-              aria-pressed={colorTheme === "dark"}
+              aria-pressed={colorMode === "dark"}
               className={cn(
                 "group flex items-center gap-4 rounded-lg border p-4 text-left transition-colors",
-                colorTheme === "dark"
+                colorMode === "dark"
                   ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                   : "border-border hover:border-muted-foreground/30",
               )}
-              onClick={() => {
-                setColorTheme("dark");
-                applyColorTheme("dark", companyId);
-              }}
+              onClick={() => setTheme("dark")}
             >
               <span
                 className="h-10 w-10 shrink-0 rounded-md border"
@@ -228,7 +215,7 @@ export default function AppearanceSettingsPage() {
                 <div className="text-sm font-medium">Dark</div>
                 <div className="text-xs text-muted-foreground">Low glare, better in dim environments.</div>
               </div>
-              {colorTheme === "dark" && (
+              {colorMode === "dark" && (
                 <span className="ml-auto rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   Active
                 </span>
@@ -238,6 +225,7 @@ export default function AppearanceSettingsPage() {
         </CardContent>
       </Card>
 
+      {/* ── Accent Theme ───────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -259,18 +247,14 @@ export default function AppearanceSettingsPage() {
                     ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                     : "border-border hover:border-muted-foreground/30",
                 )}
-                onClick={() => {
-                  setAccentTheme(t.key);
-                  applyAccentTheme(t.key, companyId);
-                }}
+                onClick={() => handleAccentChange(t.key)}
               >
                 <span
                   className="h-10 w-10 shrink-0 rounded-md border"
-                  style={{ background: swatchBg(t.primary, t.dim) }}
+                  style={{ background: swatchBg(t.swatch, t.swatchDim) }}
                 />
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{t.label}</div>
-                  <div className="font-mono text-xs text-muted-foreground">{t.primary}</div>
                 </div>
                 {accentTheme === t.key && (
                   <span className="ml-auto rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -287,7 +271,7 @@ export default function AppearanceSettingsPage() {
               <span className="font-medium text-foreground">{selectedAccent.label}</span>
               <span
                 className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ background: `rgb(${selectedAccent.primary})` }}
+                style={{ background: `hsl(${selectedAccent.swatch})` }}
               />
             </div>
           </div>

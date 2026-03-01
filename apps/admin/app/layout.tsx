@@ -27,6 +27,10 @@ export const metadata: Metadata = {
 // Admin portal requires auth — skip static generation for all pages.
 export const dynamic = "force-dynamic";
 
+// Inline script that runs before first paint to apply the saved accent theme
+// class (e.g. "theme-cobalt") so the user never sees a flash of the wrong color.
+const ACCENT_INIT_SCRIPT = `(function(){try{var c=localStorage.getItem("ahtrading.companyId")||"";var k=c?"admin.accentTheme."+c:"admin.accentTheme";var a=localStorage.getItem(k)||localStorage.getItem("admin.accentTheme")||"default";var v=["cobalt","sky","emerald","teal","rose","slate"];if(v.indexOf(a)>=0){document.documentElement.classList.add("theme-"+a)}}catch(e){}})()`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
@@ -34,6 +38,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: ACCENT_INIT_SCRIPT }} />
+      </head>
       <body className="font-sans antialiased">
         <ThemeProvider
           attribute="class"
