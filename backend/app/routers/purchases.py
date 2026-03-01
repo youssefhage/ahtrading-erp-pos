@@ -1638,7 +1638,7 @@ def list_supplier_invoices(
                         FROM supplier_payments p3
                         WHERE p3.supplier_invoice_id = i.id
                       ), 0)
-                    ) > 0.005
+                    ) > 100
                   )
                 """
 
