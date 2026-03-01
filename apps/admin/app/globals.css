@@ -198,6 +198,120 @@
 }
 
 /* ----------------------------------------------------------------
+   Accent Theme Overrides
+   Each accent redefines --primary and related tokens.
+   "default" uses the base :root / .dark values (no class needed).
+   ---------------------------------------------------------------- */
+
+/* — Cobalt (blue-600) ——————————————————————————— */
+.theme-cobalt {
+  --primary: 217 89% 53%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 217 89% 53%;
+  --sidebar-primary: 217 89% 53%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 217 89% 53%;
+}
+.dark.theme-cobalt {
+  --primary: 217 91% 65%;
+  --primary-foreground: 222 47% 11%;
+  --ring: 217 91% 65%;
+  --sidebar-primary: 217 91% 65%;
+  --sidebar-primary-foreground: 222 47% 11%;
+  --sidebar-ring: 217 91% 65%;
+}
+
+/* — Sky (sky-500) ———————————————————————————————— */
+.theme-sky {
+  --primary: 199 89% 48%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 199 89% 48%;
+  --sidebar-primary: 199 89% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 199 89% 48%;
+}
+.dark.theme-sky {
+  --primary: 199 89% 58%;
+  --primary-foreground: 201 80% 8%;
+  --ring: 199 89% 58%;
+  --sidebar-primary: 199 89% 58%;
+  --sidebar-primary-foreground: 201 80% 8%;
+  --sidebar-ring: 199 89% 58%;
+}
+
+/* — Emerald (emerald-500) ———————————————————————— */
+.theme-emerald {
+  --primary: 160 84% 39%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 160 84% 39%;
+  --sidebar-primary: 160 84% 39%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 160 84% 39%;
+}
+.dark.theme-emerald {
+  --primary: 160 84% 45%;
+  --primary-foreground: 152 81% 6%;
+  --ring: 160 84% 45%;
+  --sidebar-primary: 160 84% 45%;
+  --sidebar-primary-foreground: 152 81% 6%;
+  --sidebar-ring: 160 84% 45%;
+}
+
+/* — Teal (teal-500) —————————————————————————————— */
+.theme-teal {
+  --primary: 173 80% 40%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 173 80% 40%;
+  --sidebar-primary: 173 80% 40%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 173 80% 40%;
+}
+.dark.theme-teal {
+  --primary: 173 80% 48%;
+  --primary-foreground: 171 77% 6%;
+  --ring: 173 80% 48%;
+  --sidebar-primary: 173 80% 48%;
+  --sidebar-primary-foreground: 171 77% 6%;
+  --sidebar-ring: 173 80% 48%;
+}
+
+/* — Rose (rose-500) —————————————————————————————— */
+.theme-rose {
+  --primary: 350 89% 60%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 350 89% 60%;
+  --sidebar-primary: 350 89% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 350 89% 60%;
+}
+.dark.theme-rose {
+  --primary: 350 89% 65%;
+  --primary-foreground: 344 84% 8%;
+  --ring: 350 89% 65%;
+  --sidebar-primary: 350 89% 65%;
+  --sidebar-primary-foreground: 344 84% 8%;
+  --sidebar-ring: 350 89% 65%;
+}
+
+/* — Slate (slate-500) ———————————————————————————— */
+.theme-slate {
+  --primary: 215 16% 47%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 215 16% 47%;
+  --sidebar-primary: 215 16% 47%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-ring: 215 16% 47%;
+}
+.dark.theme-slate {
+  --primary: 215 16% 55%;
+  --primary-foreground: 216 19% 10%;
+  --ring: 215 16% 55%;
+  --sidebar-primary: 215 16% 55%;
+  --sidebar-primary-foreground: 216 19% 10%;
+  --sidebar-ring: 215 16% 55%;
+}
+
+/* ----------------------------------------------------------------
    Base Styles
    ---------------------------------------------------------------- */
 @layer base {

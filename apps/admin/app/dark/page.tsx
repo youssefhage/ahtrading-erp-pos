@@ -3,29 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
-import { getCompanyId } from "@/lib/api";
-
-const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
-
-function scopedThemeKey(companyId: string) {
-  const cid = String(companyId || "").trim();
-  return cid ? `${COLOR_THEME_STORAGE_KEY}.${cid}` : COLOR_THEME_STORAGE_KEY;
-}
 
 export default function DarkThemeEntryPage() {
   const router = useRouter();
+  const { setTheme } = useTheme();
 
   useEffect(() => {
-    try {
-      localStorage.setItem(scopedThemeKey(getCompanyId()), "dark");
-      document.documentElement.classList.add("dark");
-    } catch {
-      // ignore
-    }
+    setTheme("dark");
     router.replace("/dashboard");
-  }, [router]);
+  }, [router, setTheme]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
