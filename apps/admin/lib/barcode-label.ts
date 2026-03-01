@@ -76,7 +76,7 @@ export async function printBarcodeStickerLabel(input: BarcodeStickerInput): Prom
   const barcode = String(input.barcode || "").trim();
   if (!barcode) throw new Error("Enter or generate a barcode first.");
 
-  const popup = window.open("", "_blank", "noopener,noreferrer,width=420,height=320");
+  const popup = window.open("", "_blank", "width=420,height=320");
   if (!popup) throw new Error("Unable to open print window. Please allow popups for this app.");
 
   const sku = String(input.sku || "").trim();
