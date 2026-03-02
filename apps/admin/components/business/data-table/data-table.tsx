@@ -50,6 +50,8 @@ interface DataTableProps<TData, TValue> {
   }[];
   /** Extra action nodes rendered in the toolbar */
   toolbarActions?: React.ReactNode;
+  /** Callback when the search input changes (for server-side search) */
+  onSearchChange?: (value: string) => void;
 }
 
 export function DataTable<TData, TValue>({
@@ -65,6 +67,7 @@ export function DataTable<TData, TValue>({
   manualPagination,
   filterableColumns,
   toolbarActions,
+  onSearchChange,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] =
@@ -73,6 +76,12 @@ export function DataTable<TData, TValue>({
     React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const onSearchChangeRef = React.useRef(onSearchChange);
+  onSearchChangeRef.current = onSearchChange;
+  const handleGlobalFilterChange = React.useCallback((value: string) => {
+    setGlobalFilter(value);
+    onSearchChangeRef.current?.(value);
+  }, []);
   const [pagination, setPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize,
@@ -114,7 +123,7 @@ export function DataTable<TData, TValue>({
       <DataTableToolbar
         table={table}
         globalFilter={globalFilter}
-        onGlobalFilterChange={setGlobalFilter}
+        onGlobalFilterChange={handleGlobalFilterChange}
         searchPlaceholder={searchPlaceholder}
         filterableColumns={filterableColumns}
         actions={toolbarActions}

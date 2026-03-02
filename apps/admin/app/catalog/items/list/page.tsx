@@ -72,6 +72,10 @@ export default function ItemsListPage() {
     return () => clearTimeout(t);
   }, [load]);
 
+  const handleSearchChange = useCallback((value: string) => {
+    setQ(value);
+  }, []);
+
   const columns = useMemo<ColumnDef<ItemRow>[]>(() => [
     {
       accessorKey: "sku",
@@ -161,8 +165,9 @@ export default function ItemsListPage() {
         columns={columns}
         data={items}
         isLoading={loading}
-        searchPlaceholder="Search by SKU, name, or barcode..."
+        searchPlaceholder="Search by SKU, name, barcode, or brand..."
         onRowClick={(row) => router.push(`/catalog/items/${row.id}`)}
+        onSearchChange={handleSearchChange}
         totalRows={total ?? undefined}
         filterableColumns={[
           {

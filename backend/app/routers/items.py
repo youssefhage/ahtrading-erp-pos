@@ -381,6 +381,7 @@ def list_items_list(
                     OR i.sku ILIKE %s
                     OR i.name ILIKE %s
                     OR (i.barcode IS NOT NULL AND i.barcode ILIKE %s)
+                    OR (i.brand IS NOT NULL AND i.brand ILIKE %s)
                     OR EXISTS (
                       SELECT 1
                       FROM item_barcodes b
@@ -390,7 +391,7 @@ def list_items_list(
                     )
                   )
                 """,
-                (company_id, bool(include_inactive), qq, like, like, like, like),
+                (company_id, bool(include_inactive), qq, like, like, like, like, like),
             )
             total = int((cur.fetchone() or {}).get("n") or 0)
 
@@ -413,6 +414,7 @@ def list_items_list(
                     OR i.sku ILIKE %s
                     OR i.name ILIKE %s
                     OR (i.barcode IS NOT NULL AND i.barcode ILIKE %s)
+                    OR (i.brand IS NOT NULL AND i.brand ILIKE %s)
                     OR EXISTS (
                       SELECT 1
                       FROM item_barcodes b
@@ -423,7 +425,7 @@ def list_items_list(
                   )
                 ORDER BY i.sku
             """
-            params = [company_id, bool(include_inactive), qq, like, like, like, like]
+            params = [company_id, bool(include_inactive), qq, like, like, like, like, like]
             if limit > 0:
                 sql += " LIMIT %s OFFSET %s"
                 params.extend([int(limit), int(offset)])
