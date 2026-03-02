@@ -192,7 +192,7 @@ export default function SupplierSoaPage() {
       cell: ({ row }) => {
         const href = docHref(row.original.kind, row.original.doc_id);
         const label = row.original.ref || "";
-        if (href && label) return <Link href={href} className="font-mono text-sm text-blue-600 underline-offset-4 hover:underline dark:text-blue-400">{label}</Link>;
+        if (href && label) return <Link href={href} className="font-mono text-sm text-teal-600 underline-offset-4 hover:underline dark:text-teal-400">{label}</Link>;
         return <span className="font-mono text-sm">{label}</span>;
       },
       enableSorting: false,

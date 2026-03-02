@@ -226,7 +226,7 @@ function SupplierPaymentsInner() {
       accessorFn: (r) => r.invoice_no || "",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />,
       cell: ({ row }) => (
-        <Link href={`/purchasing/supplier-invoices/${row.original.supplier_invoice_id}`} className="font-mono text-sm text-blue-600 underline-offset-4 hover:underline dark:text-blue-400">
+        <Link href={`/purchasing/supplier-invoices/${row.original.supplier_invoice_id}`} className="font-mono text-sm text-teal-600 underline-offset-4 hover:underline dark:text-teal-400">
           {row.original.invoice_no || row.original.supplier_invoice_id.slice(0, 8)}
         </Link>
       ),
