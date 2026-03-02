@@ -594,7 +594,7 @@ export default function PriceListsPage() {
 
       {/* ---- List Items Dialog (full-width) ---- */}
       <Dialog open={itemsOpen} onOpenChange={setItemsOpen}>
-        <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh] overflow-hidden p-0">
+        <DialogContent className="w-[96vw] max-w-[1400px] h-[92vh] overflow-hidden p-0">
           <div className="flex h-full min-h-0 flex-col">
             <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6 pr-12">
               <DialogTitle>
