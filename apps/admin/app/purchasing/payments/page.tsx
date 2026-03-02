@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -225,7 +226,9 @@ function SupplierPaymentsInner() {
       accessorFn: (r) => r.invoice_no || "",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />,
       cell: ({ row }) => (
-        <span className="font-mono text-sm">{row.original.invoice_no || row.original.supplier_invoice_id.slice(0, 8)}</span>
+        <Link href={`/purchasing/supplier-invoices/${row.original.supplier_invoice_id}`} className="font-mono text-sm text-blue-600 underline-offset-4 hover:underline dark:text-blue-400">
+          {row.original.invoice_no || row.original.supplier_invoice_id.slice(0, 8)}
+        </Link>
       ),
     },
     {

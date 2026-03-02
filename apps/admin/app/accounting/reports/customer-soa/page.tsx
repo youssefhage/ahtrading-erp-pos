@@ -77,6 +77,14 @@ function kindLabel(kind: string) {
   return kind || "-";
 }
 
+function docHref(kind: string, docId: string): string | null {
+  if (!docId) return null;
+  const k = String(kind || "").toLowerCase();
+  if (k === "invoice" || k === "return") return `/sales/invoices/${docId}`;
+  if (k === "payment" || k === "refund") return `/sales/payments?invoice_id=${docId}`;
+  return null;
+}
+
 function debitAmount(value: string | number) { const n = toNum(value); return n > 0 ? n : 0; }
 function creditAmount(value: string | number) { const n = toNum(value); return n < 0 ? Math.abs(n) : 0; }
 
@@ -181,7 +189,12 @@ export default function CustomerSoaPage() {
       id: "ref",
       accessorFn: (r) => r.ref || "",
       header: "Ref",
-      cell: ({ row }) => <span className="font-mono text-sm">{row.original.ref || ""}</span>,
+      cell: ({ row }) => {
+        const href = docHref(row.original.kind, row.original.doc_id);
+        const label = row.original.ref || "";
+        if (href && label) return <Link href={href} className="font-mono text-sm text-blue-600 underline-offset-4 hover:underline dark:text-blue-400">{label}</Link>;
+        return <span className="font-mono text-sm">{label}</span>;
+      },
       enableSorting: false,
     },
     {
