@@ -742,10 +742,17 @@ export default function SalesInvoicePrintPage() {
                       <span>Paid</span>
                       <span className="font-mono">{fmtUsdLbp(totals.paidUsd, totals.paidLbp)}</span>
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">Balance</span>
-                      <span className="font-mono font-semibold">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
-                    </div>
+                    {Math.abs(totals.balUsd) >= 0.01 || Math.abs(totals.balLbp) >= 100 ? (
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-red-600 bg-red-50 px-1.5 py-1">
+                        <span className="font-semibold text-red-700">Balance Due</span>
+                        <span className="font-mono font-bold text-red-700">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-green-600 bg-green-50 px-1.5 py-1">
+                        <span className="font-semibold text-green-700">Settled</span>
+                        <span className="font-mono font-bold text-green-700">{fmtUsdLbp(0, 0)}</span>
+                      </div>
+                    )}
                   </>
                 ) : null}
               </section>
@@ -931,6 +938,28 @@ export default function SalesInvoicePrintPage() {
                 </div>
               </section>
 
+              {(detail.payments || []).length > 0 ? (
+                <section className="flex justify-end">
+                  <div className="w-[360px] border border-black/45">
+                    <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
+                      <span className="font-semibold">Amount Paid</span>
+                      <span className="font-semibold">{fmtPlainMoney(totals.paidUsd)}</span>
+                    </div>
+                    {Math.abs(totals.balUsd) >= 0.01 ? (
+                      <div className="flex items-center justify-between bg-red-50 px-2 py-1.5">
+                        <span className="text-[12px] font-bold text-red-700">Balance Due</span>
+                        <span className="text-[12px] font-bold text-red-700">{fmtPlainMoney(totals.balUsd)}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between bg-green-50 px-2 py-1.5">
+                        <span className="text-[12px] font-bold text-green-700">Settled</span>
+                        <span className="text-[12px] font-bold text-green-700">{fmtPlainMoney(0)}</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              ) : null}
+
               <section className="grid grid-cols-2 gap-16 pt-10 text-center text-[11px] font-semibold">
                 <div className="border-t border-black/30 pt-3">Receiver&apos;s Name & Signature</div>
                 <div className="border-t border-black/30 pt-3">Stamp Duty Paid</div>
@@ -1056,10 +1085,22 @@ export default function SalesInvoicePrintPage() {
                       <span>Paid</span>
                       <span className="font-mono">{fmtUsdLbp(totals.paidUsd, totals.paidLbp)}</span>
                     </div>
-                    <div className="flex items-center justify-between gap-2 border-t border-black/10 pt-2">
-                      <span className="font-medium">Balance</span>
-                      <span className="font-mono font-semibold">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
-                    </div>
+                    {Math.abs(totals.balUsd) >= 0.01 || Math.abs(totals.balLbp) >= 100 ? (
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-red-600 bg-red-50 px-1.5 py-1">
+                        <span className="font-semibold text-red-700">Balance Due</span>
+                        <span className="font-mono font-bold text-red-700">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
+                      </div>
+                    ) : (detail.payments || []).length > 0 ? (
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-green-600 bg-green-50 px-1.5 py-1">
+                        <span className="font-semibold text-green-700">Settled</span>
+                        <span className="font-mono font-bold text-green-700">{fmtUsdLbp(0, 0)}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2 border-t border-black/10 pt-2">
+                        <span className="font-medium">Balance</span>
+                        <span className="font-mono font-semibold">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 border-t border-black/10 pt-3">

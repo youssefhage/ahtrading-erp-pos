@@ -275,6 +275,11 @@ function hasLineDiscount(line: InvoiceLine) {
   return Math.abs(lineDiscountAmount(line)) > 0.0001;
 }
 
+/** FX-rounding-aware "is there still an outstanding balance?" */
+function hasOutstandingBalance(balUsd: number, balLbp: number) {
+  return Math.abs(balUsd) >= 0.01 || Math.abs(balLbp) >= 100;
+}
+
 function toMoneyCents(value: unknown) {
   return Math.max(0, Math.round((toNum(value) + Number.EPSILON) * 100));
 }
@@ -707,6 +712,64 @@ const official = StyleSheet.create({
   footerWrap: {
     marginTop: "auto",
   },
+
+  paymentStatusRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  paymentStatusBox: {
+    width: "39%",
+    borderWidth: 1,
+    borderColor: "#8c8c8c",
+  },
+  paymentStatusBoxDue: {
+    width: "39%",
+    borderWidth: 1.5,
+    borderColor: "#b91c1c",
+  },
+  paidRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#bdbdbd",
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+  },
+  balanceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    backgroundColor: "#fef2f2",
+  },
+  balanceRowSettled: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    backgroundColor: "#f0fdf4",
+  },
+  balanceLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#b91c1c",
+  },
+  balanceValue: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#b91c1c",
+  },
+  settledLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#166534",
+  },
+  settledValue: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#166534",
+  },
 });
 
 function OfficialInvoiceTemplate(props: {
@@ -717,6 +780,7 @@ function OfficialInvoiceTemplate(props: {
 }) {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
+  const payments = props.detail.payments || [];
   const taxLines = props.detail.tax_lines || [];
   const customer = props.customer || null;
   const addresses = props.addresses || [];
@@ -730,6 +794,10 @@ function OfficialInvoiceTemplate(props: {
 
   const deliveryLines = deliveryAddressLines(meta, defaultAddress);
   const primaryLines = addressLines(defaultAddress);
+
+  const paidUsd = payments.reduce((a, p) => a + toNum(p.amount_usd), 0);
+  const balUsd = toNum(inv.total_usd) - paidUsd;
+  const isDue = hasOutstandingBalance(balUsd, 0);
 
   const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
   const totalUsd = toNum(inv.total_usd);
@@ -923,6 +991,28 @@ function OfficialInvoiceTemplate(props: {
               </View>
             </View>
           </View>
+
+          {payments.length > 0 ? (
+            <View style={official.paymentStatusRow}>
+              <View style={isDue ? official.paymentStatusBoxDue : official.paymentStatusBox}>
+                <View style={official.paidRow}>
+                  <Text style={official.totalLabel}>Amount Paid</Text>
+                  <Text style={official.totalValue}>{fmtPlainMoney(paidUsd)}</Text>
+                </View>
+                {isDue ? (
+                  <View style={official.balanceRow}>
+                    <Text style={official.balanceLabel}>Balance Due</Text>
+                    <Text style={official.balanceValue}>{fmtPlainMoney(balUsd)}</Text>
+                  </View>
+                ) : (
+                  <View style={official.balanceRowSettled}>
+                    <Text style={official.settledLabel}>Settled</Text>
+                    <Text style={official.settledValue}>{fmtPlainMoney(0)}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <View style={official.footerWrap}>
@@ -951,6 +1041,7 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
 }) {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
+  const payments = props.detail.payments || [];
   const taxLines = props.detail.tax_lines || [];
   const customer = props.customer || null;
   const addresses = props.addresses || [];
@@ -964,6 +1055,10 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
 
   const deliveryLines = deliveryAddressLines(meta, defaultAddress);
   const primaryLines = addressLines(defaultAddress);
+
+  const paidUsd = payments.reduce((a, p) => a + toNum(p.amount_usd), 0);
+  const balUsd = toNum(inv.total_usd) - paidUsd;
+  const isDue = hasOutstandingBalance(balUsd, 0);
 
   const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
   const totalUsd = toNum(inv.total_usd);
@@ -1165,6 +1260,28 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
               </View>
             </View>
           </View>
+
+          {payments.length > 0 ? (
+            <View style={official.paymentStatusRow}>
+              <View style={isDue ? official.paymentStatusBoxDue : official.paymentStatusBox}>
+                <View style={official.paidRow}>
+                  <Text style={official.totalLabel}>Amount Paid</Text>
+                  <Text style={official.totalValue}>{fmtPlainMoney(paidUsd)}</Text>
+                </View>
+                {isDue ? (
+                  <View style={official.balanceRow}>
+                    <Text style={official.balanceLabel}>Balance Due</Text>
+                    <Text style={official.balanceValue}>{fmtPlainMoney(balUsd)}</Text>
+                  </View>
+                ) : (
+                  <View style={official.balanceRowSettled}>
+                    <Text style={official.settledLabel}>Settled</Text>
+                    <Text style={official.settledValue}>{fmtPlainMoney(0)}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <View style={official.footerWrap}>
@@ -1192,6 +1309,7 @@ function OfficialCompactInvoiceTemplate(props: {
 }) {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
+  const payments = props.detail.payments || [];
   const taxLines = props.detail.tax_lines || [];
   const customer = props.customer || null;
 
@@ -1199,6 +1317,10 @@ function OfficialCompactInvoiceTemplate(props: {
   const customerName = customerLabel(inv, customer);
   const customerPhone = String(customer?.phone || "").trim() || "-";
   const totalQty = lines.reduce((a, l) => a + lineQty(l), 0);
+
+  const paidUsd = payments.reduce((a, p) => a + toNum(p.amount_usd), 0);
+  const balUsd = toNum(inv.total_usd) - paidUsd;
+  const isDue = hasOutstandingBalance(balUsd, 0);
 
   const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
   const totalUsd = toNum(inv.total_usd);
@@ -1295,6 +1417,38 @@ function OfficialCompactInvoiceTemplate(props: {
           </View>
         </View>
 
+        {payments.length > 0 ? (
+          <View style={[s.section, { flexDirection: "row", gap: 10 }]}>
+            <View style={[s.box, { flex: 1 }]}>
+              <Text style={s.label}>Amount Paid</Text>
+              <Text style={[s.value, s.mono]}>{fmtUsd(paidUsd)}</Text>
+            </View>
+            <View
+              style={[
+                s.box,
+                { flex: 1 },
+                isDue
+                  ? { borderColor: "#b91c1c", backgroundColor: "#fef2f2" }
+                  : { borderColor: "#16a34a", backgroundColor: "#f0fdf4" },
+              ]}
+            >
+              <Text style={[s.label, isDue ? { color: "#b91c1c" } : { color: "#166534" }]}>
+                {isDue ? "BALANCE DUE" : "SETTLED"}
+              </Text>
+              <Text
+                style={[
+                  s.value,
+                  s.mono,
+                  { fontWeight: 700 },
+                  isDue ? { color: "#b91c1c" } : { color: "#166534" },
+                ]}
+              >
+                {isDue ? fmtUsd(balUsd) : fmtUsd(0)}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         <View style={s.foot}>
           <Text style={s.mono}>No. {docNo}</Text>
           <Text style={s.mono}>Generated {generatedAtStamp()}</Text>
@@ -1322,6 +1476,7 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
   const paidLbp = payments.reduce((a, p) => a + toNum(p.amount_lbp), 0);
   const balUsd = toNum(inv.total_usd) - paidUsd;
   const balLbp = toNum(inv.total_lbp) - paidLbp;
+  const isDue = hasOutstandingBalance(balUsd, balLbp);
   const subtotalUsd = toNum(inv.subtotal_usd || inv.total_usd);
   const subtotalLbp = toNum(inv.subtotal_lbp || inv.total_lbp);
 
@@ -1425,11 +1580,19 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
               <Text style={[s.value, s.mono]}>{fmtUsdLbp(taxUsd, taxLbp)}</Text>
             </View>
           )}
-          <View style={[s.box, { flex: 1 }]}> 
+          <View style={[s.box, { flex: 1 }]}>
             <Text style={s.label}>Totals</Text>
             <Text style={[s.value, s.mono]}>{fmtUsdLbp(inv.total_usd, inv.total_lbp)}</Text>
             <Text style={[s.muted, s.mono, { marginTop: 3 }]}>Paid {fmtUsdLbp(paidUsd, paidLbp)}</Text>
-            <Text style={[{ marginTop: 3 }, s.mono]}>Balance {fmtUsdLbp(balUsd, balLbp)}</Text>
+            {isDue ? (
+              <Text style={[s.mono, { marginTop: 3, fontWeight: 700, color: "#b91c1c" }]}>
+                Balance Due {fmtUsdLbp(balUsd, balLbp)}
+              </Text>
+            ) : payments.length > 0 ? (
+              <Text style={[s.mono, { marginTop: 3, fontWeight: 700, color: "#166534" }]}>Settled</Text>
+            ) : (
+              <Text style={[s.mono, { marginTop: 3 }]}>Balance {fmtUsdLbp(balUsd, balLbp)}</Text>
+            )}
           </View>
         </View>
 
