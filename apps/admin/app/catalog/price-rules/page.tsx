@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, RefreshCw, Play, Zap } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Play, Zap, Pencil } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -100,6 +100,17 @@ export default function PriceRulesPage() {
   const [skipIfCostMissing, setSkipIfCostMissing] = useState(true);
   const [active, setActive] = useState(true);
 
+  /* ---- Edit ---- */
+  const [editOpen, setEditOpen] = useState(false);
+  const [editId, setEditId] = useState("");
+  const [editMode, setEditMode] = useState<"markup_pct" | "discount_pct">("markup_pct");
+  const [editPct, setEditPct] = useState("");
+  const [editUsdStep, setEditUsdStep] = useState("");
+  const [editLbpStep, setEditLbpStep] = useState("");
+  const [editMinMargin, setEditMinMargin] = useState("");
+  const [editSkipIfCostMissing, setEditSkipIfCostMissing] = useState(true);
+  const [editActive, setEditActive] = useState(true);
+
   /* ---- Load ---- */
   const load = useCallback(async () => {
     setLoading(true);
@@ -176,6 +187,42 @@ export default function PriceRulesPage() {
       setMinMargin("0.12");
       setSkipIfCostMissing(true);
       setActive(true);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ---- Edit ---- */
+  function openEdit(rule: DerivationRow) {
+    setEditId(rule.id);
+    setEditMode(rule.mode);
+    setEditPct(String(pctNum(rule.pct)));
+    setEditUsdStep(String(rule.usd_round_step ?? "0.01"));
+    setEditLbpStep(String(rule.lbp_round_step ?? "0"));
+    setEditMinMargin(rule.min_margin_pct == null ? "" : String(pctNum(rule.min_margin_pct)));
+    setEditSkipIfCostMissing(rule.skip_if_cost_missing);
+    setEditActive(rule.is_active);
+    setEditOpen(true);
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiPatch(`/pricing/derivations/${encodeURIComponent(editId)}`, {
+        mode: editMode,
+        pct: Number(editPct || 0),
+        usd_round_step: Number(editUsdStep || 0.01),
+        lbp_round_step: Number(editLbpStep || 0),
+        min_margin_pct: editMinMargin.trim() ? Number(editMinMargin) : null,
+        skip_if_cost_missing: Boolean(editSkipIfCostMissing),
+        is_active: Boolean(editActive),
+      });
+      setEditOpen(false);
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -266,6 +313,14 @@ export default function PriceRulesPage() {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => openEdit(r)}
+              disabled={busy}
+            >
+              <Pencil className="mr-1 h-3 w-3" /> Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => runRule(r.id)}
               disabled={busy}
             >
@@ -283,7 +338,7 @@ export default function PriceRulesPage() {
         );
       },
     },
-  ], [busy, runRule, toggleActive]);
+  ], [busy, runRule, toggleActive, openEdit]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
@@ -412,6 +467,65 @@ export default function PriceRulesPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ---- Edit Dialog ---- */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Price Rule</DialogTitle>
+            <DialogDescription>Update the derivation parameters. Re-run the rule after saving to apply changes.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Mode</Label>
+                <Select value={editMode} onValueChange={(v) => setEditMode(v as "markup_pct" | "discount_pct")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="markup_pct">Markup (%)</SelectItem>
+                    <SelectItem value="discount_pct">Discount (%)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Percent (fraction, e.g. 0.05 = 5%)</Label>
+                <Input value={editPct} onChange={(e) => setEditPct(e.target.value)} placeholder="0.05" inputMode="decimal" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>USD Round Step</Label>
+                <Input value={editUsdStep} onChange={(e) => setEditUsdStep(e.target.value)} placeholder="0.25" inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>LL Round Step</Label>
+                <Input value={editLbpStep} onChange={(e) => setEditLbpStep(e.target.value)} placeholder="5000" inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Min Margin (fraction)</Label>
+                <Input value={editMinMargin} onChange={(e) => setEditMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <Switch checked={editSkipIfCostMissing} onCheckedChange={setEditSkipIfCostMissing} />
+                <Label>Skip / hold discount when cost is missing</Label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={editActive} onCheckedChange={setEditActive} />
+                <Label>Active</Label>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
