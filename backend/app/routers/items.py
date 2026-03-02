@@ -48,6 +48,29 @@ def _norm_sku(value: Optional[str]) -> str:
     return str(value or "").strip()
 
 
+def _build_sku_prefix(category_name: Optional[str], brand: Optional[str]) -> str:
+    """Build SKU prefix from category (2 chars) + brand (3 chars)."""
+    cat = (category_name or "").strip()[:2].upper()
+    br = (brand or "").strip()[:3].upper()
+    prefix = cat + br
+    return prefix if prefix else "ITM"
+
+
+def _generate_sku(cur, company_id: str, category_id: Optional[str], brand: Optional[str]) -> str:
+    """Atomically generate next SKU for the given category/brand combo."""
+    cat_name = None
+    if category_id:
+        cur.execute(
+            "SELECT name FROM item_categories WHERE company_id = %s AND id = %s",
+            (company_id, category_id),
+        )
+        row = cur.fetchone()
+        if row:
+            cat_name = row["name"]
+    prefix = _build_sku_prefix(cat_name, brand)
+    cur.execute("SELECT next_sku_no(%s, %s) AS sku", (company_id, prefix))
+    return cur.fetchone()["sku"]
+
 
 def _is_owner_admin_user(cur, company_id: str, user_id: str) -> bool:
     """
@@ -185,7 +208,7 @@ def _cleanup_item_refs_for_hard_delete(cur, company_id: str, item_id: str) -> No
 
 
 class ItemIn(BaseModel):
-    sku: str
+    sku: Optional[str] = None
     name: str
     item_type: ItemType = "stocked"
     tags: Optional[List[str]] = None
@@ -962,6 +985,41 @@ def bulk_upsert_barcodes(data: BulkBarcodesIn, company_id: str = Depends(get_com
 
                 return {"ok": True, "upserted": upserted}
 
+
+@router.get("/suggest-sku", dependencies=[Depends(require_permission("items:read"))])
+def suggest_sku(
+    category_id: Optional[str] = None,
+    brand: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """Preview the next auto-generated SKU (does NOT consume the sequence)."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cat_name = None
+            if category_id:
+                cur.execute(
+                    "SELECT name FROM item_categories WHERE company_id = %s AND id = %s",
+                    (company_id, category_id),
+                )
+                row = cur.fetchone()
+                if row:
+                    cat_name = row["name"]
+            prefix = _build_sku_prefix(cat_name, brand)
+            cur.execute(
+                """
+                SELECT COALESCE(
+                    (SELECT next_no FROM sku_sequences WHERE company_id = %s AND prefix = %s),
+                    1
+                ) AS next_no
+                """,
+                (company_id, prefix),
+            )
+            next_no = cur.fetchone()["next_no"]
+            suggested = prefix + "-" + str(next_no).zfill(3)
+            return {"sku": suggested, "prefix": prefix}
+
+
 @router.get("/{item_id}", dependencies=[Depends(require_permission("items:read"))])
 def get_item(item_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -1135,8 +1193,10 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
         with conn.transaction():
             with conn.cursor() as cur:
                 sku = _norm_sku(data.sku)
+                auto_sku = False
                 if not sku:
-                    raise HTTPException(status_code=400, detail="sku is required")
+                    sku = _generate_sku(cur, company_id, data.category_id, data.brand)
+                    auto_sku = True
                 barcode = data.barcode.strip() if data.barcode else None
                 tags = [t.strip() for t in (data.tags or []) if (t or "").strip()] or None
                 uom = _norm_uom(data.unit_of_measure)
@@ -1237,7 +1297,10 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                     """,
                     (company_id, user["user_id"], item_id, json.dumps(data.model_dump(), default=str)),
                 )
-                return {"id": item_id}
+                result = {"id": item_id}
+                if auto_sku:
+                    result["sku"] = sku
+                return result
 
 
 @router.post("/bulk", dependencies=[Depends(require_permission("items:write"))])
