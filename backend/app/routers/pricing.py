@@ -1112,7 +1112,7 @@ def list_price_list_items(list_id: str, company_id: str = Depends(get_company_id
                 FROM price_list_items
                 WHERE company_id = %s AND price_list_id = %s
                 ORDER BY effective_from DESC, created_at DESC
-                LIMIT 500
+                LIMIT 5000
                 """,
                 (company_id, list_id),
             )
