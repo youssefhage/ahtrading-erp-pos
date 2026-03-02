@@ -70,6 +70,7 @@ export function SalesReceiptPdf(props: { detail: SalesReceiptDetail }) {
   const paidLbp = payments.reduce((a, p) => a + toNum(p.amount_lbp), 0);
   const balUsd = toNum(inv.total_usd) - paidUsd;
   const balLbp = toNum(inv.total_lbp) - paidLbp;
+  const isDue = Math.abs(balUsd) >= 0.01 || Math.abs(balLbp) >= 100;
 
   const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
   const taxLbp = taxLines.reduce((a, t) => a + toNum(t.tax_lbp), 0);
@@ -147,11 +148,19 @@ export function SalesReceiptPdf(props: { detail: SalesReceiptDetail }) {
               <Text style={[s.value, s.mono]}>No payments</Text>
             )}
           </View>
-          <View style={[s.box, { flex: 1 }]}> 
+          <View style={[s.box, { flex: 1 }]}>
             <Text style={s.label}>Totals</Text>
             <Text style={[s.value, s.mono]}>Total {fmtUsdLbp(inv.total_usd, inv.total_lbp)}</Text>
             <Text style={[s.muted, s.mono, { marginTop: 3 }]}>Paid {fmtUsdLbp(paidUsd, paidLbp)}</Text>
-            <Text style={[s.mono, { marginTop: 3 }]}>Balance {fmtUsdLbp(balUsd, balLbp)}</Text>
+            {isDue ? (
+              <Text style={[s.mono, { marginTop: 3, fontWeight: 700, color: "#b91c1c" }]}>
+                Balance Due {fmtUsdLbp(balUsd, balLbp)}
+              </Text>
+            ) : payments.length > 0 ? (
+              <Text style={[s.mono, { marginTop: 3, fontWeight: 700, color: "#166534" }]}>Settled</Text>
+            ) : (
+              <Text style={[s.mono, { marginTop: 3 }]}>Balance {fmtUsdLbp(balUsd, balLbp)}</Text>
+            )}
           </View>
         </View>
 
