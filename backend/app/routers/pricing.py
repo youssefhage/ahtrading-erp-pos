@@ -1112,20 +1112,62 @@ def list_price_list_items_for_item(list_id: str, item_id: str, company_id: str =
 
 
 @router.get("/lists/{list_id}/items", dependencies=[Depends(require_permission("items:read"))])
-def list_price_list_items(list_id: str, company_id: str = Depends(get_company_id)):
+def list_price_list_items(
+    list_id: str,
+    search: Optional[str] = Query(None, description="Filter by SKU or item name"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(500, ge=1, le=5000, description="Items per page"),
+    latest_only: bool = Query(True, description="Only return latest effective row per item"),
+    company_id: str = Depends(get_company_id),
+):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
+            params: list = [company_id, list_id]
+            search_clause = ""
+            if search and search.strip():
+                search_clause = """
+                    AND (
+                        i.sku ILIKE %s
+                        OR i.name ILIKE %s
+                        OR i.barcode ILIKE %s
+                    )
                 """
-                SELECT id, item_id, price_usd, price_lbp, effective_from, effective_to, created_at
-                FROM price_list_items
-                WHERE company_id = %s AND price_list_id = %s
-                ORDER BY effective_from DESC, created_at DESC
-                LIMIT 500
-                """,
-                (company_id, list_id),
-            )
+                like = f"%{search.strip()}%"
+                params.extend([like, like, like])
+
+            if latest_only:
+                # Return only the most recent effective row per item (deduped).
+                cur.execute(
+                    f"""
+                    SELECT DISTINCT ON (pli.item_id)
+                           pli.id, pli.item_id, pli.price_usd, pli.price_lbp,
+                           pli.effective_from, pli.effective_to, pli.created_at
+                    FROM price_list_items pli
+                    JOIN items i ON i.id = pli.item_id AND i.company_id = pli.company_id
+                    WHERE pli.company_id = %s AND pli.price_list_id = %s
+                      AND (pli.effective_from IS NULL OR pli.effective_from <= CURRENT_DATE)
+                      {search_clause}
+                    ORDER BY pli.item_id, pli.effective_from DESC NULLS LAST, pli.created_at DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    [*params, page_size, (page - 1) * page_size],
+                )
+            else:
+                # Return all rows (full history).
+                cur.execute(
+                    f"""
+                    SELECT pli.id, pli.item_id, pli.price_usd, pli.price_lbp,
+                           pli.effective_from, pli.effective_to, pli.created_at
+                    FROM price_list_items pli
+                    JOIN items i ON i.id = pli.item_id AND i.company_id = pli.company_id
+                    WHERE pli.company_id = %s AND pli.price_list_id = %s
+                      {search_clause}
+                    ORDER BY pli.effective_from DESC, pli.created_at DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    [*params, page_size, (page - 1) * page_size],
+                )
             return {"items": cur.fetchall()}
 
 

@@ -248,7 +248,7 @@ export default function PriceListsPage() {
     setAddLbp("");
     setItemsOpen(true);
     try {
-      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${listId}/items`);
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${listId}/items?page_size=5000`);
       setListItems(res.items || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -277,7 +277,7 @@ export default function PriceListsPage() {
         effective_from: addEffectiveFrom,
         effective_to: addEffectiveTo ? addEffectiveTo : null,
       });
-      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
       setListItems(res.items || []);
       setAddSku("");
       setAddItemId("");
@@ -305,7 +305,7 @@ export default function PriceListsPage() {
         effective_from: editEffectiveFrom,
         effective_to: editEffectiveTo ? editEffectiveTo : null,
       });
-      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
       setListItems(res.items || []);
       setEditItemOpen(false);
     } catch (e) {
@@ -449,7 +449,7 @@ export default function PriceListsPage() {
               onConfirm={async () => {
                 if (!itemsListId) return;
                 await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
-                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
                 setListItems(res.items || []);
               }}
               trigger={
