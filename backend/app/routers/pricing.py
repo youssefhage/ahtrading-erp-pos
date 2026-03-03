@@ -248,6 +248,239 @@ def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, compa
                 return {"ok": True}
 
 
+def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, user_id: str | None = None) -> dict:
+    """Core derivation logic — runs a single derivation rule and returns a summary dict.
+
+    Called by the HTTP endpoint (manual Run) and by _trigger_dependent_derivations (auto).
+    Expects to be called inside an existing transaction with an open cursor.
+    """
+    cur.execute(
+        """
+        SELECT id, target_price_list_id, base_price_list_id, mode, pct,
+               usd_round_step, lbp_round_step, min_margin_pct, skip_if_cost_missing, is_active
+        FROM price_list_derivations
+        WHERE company_id = %s AND id = %s
+        """,
+        (company_id, derivation_id),
+    )
+    d = cur.fetchone()
+    if not d:
+        return {"error": "derivation not found", "applied": 0}
+    if not bool(d.get("is_active")):
+        return {"error": "derivation is not active", "applied": 0}
+
+    target_id = str(d["target_price_list_id"])
+    base_id = str(d["base_price_list_id"])
+    mode: str = str(d.get("mode") or "markup_pct")
+    pct = _to_dec(d.get("pct"))
+    usd_step = _to_dec(d.get("usd_round_step") or "0.01")
+    lbp_step = _to_dec(d.get("lbp_round_step") or "0")
+    min_margin = d.get("min_margin_pct")
+    min_margin = _to_dec(min_margin) if min_margin is not None else None
+    skip_if_cost_missing = bool(d.get("skip_if_cost_missing"))
+
+    # Validate lists exist (defensive).
+    cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, target_id))
+    if not cur.fetchone():
+        return {"error": "invalid target_price_list_id", "applied": 0}
+    cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, base_id))
+    if not cur.fetchone():
+        return {"error": "invalid base_price_list_id", "applied": 0}
+
+    # Effective base prices for the given date.
+    cur.execute(
+        """
+        SELECT DISTINCT ON (item_id)
+          item_id, price_usd, price_lbp
+        FROM price_list_items
+        WHERE company_id = %s
+          AND price_list_id = %s::uuid
+          AND effective_from <= %s
+          AND (effective_to IS NULL OR effective_to >= %s)
+        ORDER BY item_id, effective_from DESC, created_at DESC, id DESC
+        """,
+        (company_id, base_id, eff, eff),
+    )
+    base_price_by_item = {str(r["item_id"]): r for r in (cur.fetchall() or [])}
+
+    # Cost basis for margin guards:
+    # - prefer weighted avg cost (if any on-hand qty)
+    # - else simple avg of warehouse avg_cost
+    # - fallback to item.standard_cost
+    cur.execute(
+        """
+        SELECT
+          i.id AS item_id,
+          COALESCE(
+            SUM(COALESCE(w.avg_cost_usd,0) * GREATEST(COALESCE(w.on_hand_qty,0),0)) / NULLIF(SUM(GREATEST(COALESCE(w.on_hand_qty,0),0)), 0),
+            AVG(COALESCE(w.avg_cost_usd,0))
+          ) AS avg_cost_usd,
+          COALESCE(
+            SUM(COALESCE(w.avg_cost_lbp,0) * GREATEST(COALESCE(w.on_hand_qty,0),0)) / NULLIF(SUM(GREATEST(COALESCE(w.on_hand_qty,0),0)), 0),
+            AVG(COALESCE(w.avg_cost_lbp,0))
+          ) AS avg_cost_lbp,
+          i.standard_cost_usd,
+          i.standard_cost_lbp
+        FROM items i
+        LEFT JOIN item_warehouse_costs w
+          ON w.company_id = i.company_id AND w.item_id = i.id
+        WHERE i.company_id = %s
+        GROUP BY i.id, i.standard_cost_usd, i.standard_cost_lbp
+        """,
+        (company_id,),
+    )
+    cost_by_item: dict[str, dict[str, Decimal]] = {}
+    for r in (cur.fetchall() or []):
+        iid = str(r["item_id"])
+        avg_usd = _to_dec(r.get("avg_cost_usd"))
+        avg_lbp = _to_dec(r.get("avg_cost_lbp"))
+        std_usd = _to_dec(r.get("standard_cost_usd"))
+        std_lbp = _to_dec(r.get("standard_cost_lbp"))
+        cost_by_item[iid] = {
+            "avg_usd": avg_usd,
+            "avg_lbp": avg_lbp,
+            "std_usd": std_usd,
+            "std_lbp": std_lbp,
+        }
+
+    prepared = 0
+    applied = 0
+    missing_base = 0
+    missing_cost = 0
+    blocked_by_margin = 0
+
+    # Upsert derived rows for eff date.
+    for item_id, bp in base_price_by_item.items():
+        base_usd = _to_dec(bp.get("price_usd"))
+        base_lbp = _to_dec(bp.get("price_lbp"))
+        if base_usd <= 0 and base_lbp <= 0:
+            missing_base += 1
+            continue
+
+        prepared += 1
+        mult = Decimal("1")
+        if mode == "markup_pct":
+            mult = Decimal("1") + pct
+        elif mode == "discount_pct":
+            mult = Decimal("1") - pct
+        else:
+            # Unknown mode — skip silently in auto-trigger context.
+            continue
+
+        d_usd = base_usd * mult
+        d_lbp = base_lbp * mult
+        d_usd = _round_up(d_usd, usd_step)
+        if lbp_step and lbp_step > 0:
+            d_lbp = _round_up(d_lbp, lbp_step)
+
+        # Margin guard (USD only for now; LBP follows same multiplier/rounding).
+        if min_margin is not None and min_margin > 0:
+            cb = cost_by_item.get(item_id) or {}
+            cost_usd = cb.get("avg_usd", Decimal("0"))
+            if cost_usd <= 0:
+                cost_usd = cb.get("std_usd", Decimal("0"))
+            if cost_usd <= 0:
+                missing_cost += 1
+                if skip_if_cost_missing:
+                    # For discounts, keep base price; for markups, still apply (safe).
+                    if mode == "discount_pct":
+                        d_usd, d_lbp = base_usd, base_lbp
+                        blocked_by_margin += 1
+                # else allow
+            else:
+                if d_usd > 0:
+                    margin_pct = (d_usd - cost_usd) / d_usd
+                    if margin_pct < min_margin:
+                        # Discount rules should not apply if they break margin.
+                        if mode == "discount_pct":
+                            d_usd, d_lbp = base_usd, base_lbp
+                            blocked_by_margin += 1
+                        else:
+                            # Markup: raise to meet min margin.
+                            target = cost_usd / (Decimal("1") - min_margin)
+                            d_usd = _round_up(target, usd_step)
+                            # LBP: keep same ratio if base LBP exists.
+                            if base_usd > 0 and base_lbp > 0:
+                                ratio = base_lbp / base_usd
+                                d_lbp = d_usd * ratio
+                                if lbp_step and lbp_step > 0:
+                                    d_lbp = _round_up(d_lbp, lbp_step)
+                            blocked_by_margin += 1
+
+        cur.execute(
+            """
+            INSERT INTO price_list_items
+              (id, company_id, price_list_id, item_id, price_usd, price_lbp, effective_from, effective_to)
+            VALUES
+              (gen_random_uuid(), %s, %s::uuid, %s::uuid, %s, %s, %s, NULL)
+            ON CONFLICT (company_id, price_list_id, item_id, effective_from) DO UPDATE
+            SET price_usd = EXCLUDED.price_usd,
+                price_lbp = EXCLUDED.price_lbp,
+                effective_to = EXCLUDED.effective_to
+            """,
+            (company_id, target_id, item_id, d_usd, d_lbp, eff),
+        )
+        applied += 1
+
+    summary = {
+        "effective_from": eff.isoformat(),
+        "base_price_rows": len(base_price_by_item),
+        "prepared": int(prepared),
+        "applied": int(applied),
+        "missing_base": int(missing_base),
+        "missing_cost": int(missing_cost),
+        "adjusted_or_blocked_by_margin": int(blocked_by_margin),
+    }
+
+    cur.execute(
+        """
+        UPDATE price_list_derivations
+        SET last_run_at = now(),
+            last_run_summary = %s::jsonb,
+            updated_at = now()
+        WHERE company_id = %s AND id = %s
+        """,
+        (json.dumps(summary), company_id, derivation_id),
+    )
+    if user_id:
+        cur.execute(
+            """
+            INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+            VALUES (gen_random_uuid(), %s, %s, 'price_list_derivation_run', 'price_list_derivation', %s, %s::jsonb)
+            """,
+            (company_id, user_id, derivation_id, json.dumps(summary)),
+        )
+    return summary
+
+
+def _trigger_dependent_derivations(cur, company_id: str, modified_list_id: str, eff: date, user_id: str | None = None, _visited: set | None = None):
+    """Auto-run all active derivations that use modified_list_id as their base.
+
+    Cascades: if the target list of a derivation is itself the base of another,
+    that one runs too.  The _visited set prevents infinite loops from circular
+    derivation chains.
+    """
+    if _visited is None:
+        _visited = set()
+    if modified_list_id in _visited:
+        return
+    _visited.add(modified_list_id)
+
+    cur.execute(
+        """
+        SELECT id, target_price_list_id
+        FROM price_list_derivations
+        WHERE company_id = %s AND base_price_list_id = %s::uuid AND is_active = true
+        """,
+        (company_id, modified_list_id),
+    )
+    rows = cur.fetchall() or []
+    for row in rows:
+        _execute_derivation(cur, company_id, str(row["id"]), eff, user_id)
+        # Cascade: if this target list is also a base for another derivation
+        _trigger_dependent_derivations(cur, company_id, str(row["target_price_list_id"]), eff, user_id, _visited)
+
+
 @router.post("/derivations/{derivation_id}/run", dependencies=[Depends(require_permission("items:write"))])
 def run_derivation(derivation_id: str, data: RunDerivationIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     eff = data.effective_from or date.today()
@@ -255,13 +488,9 @@ def run_derivation(derivation_id: str, data: RunDerivationIn, company_id: str = 
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                # Validate derivation exists and is active (HTTP-specific errors).
                 cur.execute(
-                    """
-                    SELECT id, target_price_list_id, base_price_list_id, mode, pct,
-                           usd_round_step, lbp_round_step, min_margin_pct, skip_if_cost_missing, is_active
-                    FROM price_list_derivations
-                    WHERE company_id = %s AND id = %s
-                    """,
+                    "SELECT is_active FROM price_list_derivations WHERE company_id = %s AND id = %s",
                     (company_id, derivation_id),
                 )
                 d = cur.fetchone()
@@ -270,185 +499,9 @@ def run_derivation(derivation_id: str, data: RunDerivationIn, company_id: str = 
                 if not bool(d.get("is_active")):
                     raise HTTPException(status_code=400, detail="derivation is not active")
 
-                target_id = str(d["target_price_list_id"])
-                base_id = str(d["base_price_list_id"])
-                mode: str = str(d.get("mode") or "markup_pct")
-                pct = _to_dec(d.get("pct"))
-                usd_step = _to_dec(d.get("usd_round_step") or "0.01")
-                lbp_step = _to_dec(d.get("lbp_round_step") or "0")
-                min_margin = d.get("min_margin_pct")
-                min_margin = _to_dec(min_margin) if min_margin is not None else None
-                skip_if_cost_missing = bool(d.get("skip_if_cost_missing"))
-
-                # Validate lists exist (defensive).
-                cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, target_id))
-                if not cur.fetchone():
-                    raise HTTPException(status_code=400, detail="invalid target_price_list_id")
-                cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, base_id))
-                if not cur.fetchone():
-                    raise HTTPException(status_code=400, detail="invalid base_price_list_id")
-
-                # Effective base prices for the given date.
-                cur.execute(
-                    """
-                    SELECT DISTINCT ON (item_id)
-                      item_id, price_usd, price_lbp
-                    FROM price_list_items
-                    WHERE company_id = %s
-                      AND price_list_id = %s::uuid
-                      AND effective_from <= %s
-                      AND (effective_to IS NULL OR effective_to >= %s)
-                    ORDER BY item_id, effective_from DESC, created_at DESC, id DESC
-                    """,
-                    (company_id, base_id, eff, eff),
-                )
-                base_price_by_item = {str(r["item_id"]): r for r in (cur.fetchall() or [])}
-
-                # Cost basis for margin guards:
-                # - prefer weighted avg cost (if any on-hand qty)
-                # - else simple avg of warehouse avg_cost
-                # - fallback to item.standard_cost
-                cur.execute(
-                    """
-                    SELECT
-                      i.id AS item_id,
-                      COALESCE(
-                        SUM(COALESCE(w.avg_cost_usd,0) * GREATEST(COALESCE(w.on_hand_qty,0),0)) / NULLIF(SUM(GREATEST(COALESCE(w.on_hand_qty,0),0)), 0),
-                        AVG(COALESCE(w.avg_cost_usd,0))
-                      ) AS avg_cost_usd,
-                      COALESCE(
-                        SUM(COALESCE(w.avg_cost_lbp,0) * GREATEST(COALESCE(w.on_hand_qty,0),0)) / NULLIF(SUM(GREATEST(COALESCE(w.on_hand_qty,0),0)), 0),
-                        AVG(COALESCE(w.avg_cost_lbp,0))
-                      ) AS avg_cost_lbp,
-                      i.standard_cost_usd,
-                      i.standard_cost_lbp
-                    FROM items i
-                    LEFT JOIN item_warehouse_costs w
-                      ON w.company_id = i.company_id AND w.item_id = i.id
-                    WHERE i.company_id = %s
-                    GROUP BY i.id, i.standard_cost_usd, i.standard_cost_lbp
-                    """,
-                    (company_id,),
-                )
-                cost_by_item: dict[str, dict[str, Decimal]] = {}
-                for r in (cur.fetchall() or []):
-                    iid = str(r["item_id"])
-                    avg_usd = _to_dec(r.get("avg_cost_usd"))
-                    avg_lbp = _to_dec(r.get("avg_cost_lbp"))
-                    std_usd = _to_dec(r.get("standard_cost_usd"))
-                    std_lbp = _to_dec(r.get("standard_cost_lbp"))
-                    cost_by_item[iid] = {
-                        "avg_usd": avg_usd,
-                        "avg_lbp": avg_lbp,
-                        "std_usd": std_usd,
-                        "std_lbp": std_lbp,
-                    }
-
-                prepared = 0
-                applied = 0
-                missing_base = 0
-                missing_cost = 0
-                blocked_by_margin = 0
-
-                # Upsert derived rows for eff date.
-                for item_id, bp in base_price_by_item.items():
-                    base_usd = _to_dec(bp.get("price_usd"))
-                    base_lbp = _to_dec(bp.get("price_lbp"))
-                    if base_usd <= 0 and base_lbp <= 0:
-                        missing_base += 1
-                        continue
-
-                    prepared += 1
-                    mult = Decimal("1")
-                    if mode == "markup_pct":
-                        mult = Decimal("1") + pct
-                    elif mode == "discount_pct":
-                        mult = Decimal("1") - pct
-                    else:
-                        raise HTTPException(status_code=500, detail=f"unknown derivation mode: {mode}")
-
-                    d_usd = base_usd * mult
-                    d_lbp = base_lbp * mult
-                    d_usd = _round_up(d_usd, usd_step)
-                    if lbp_step and lbp_step > 0:
-                        d_lbp = _round_up(d_lbp, lbp_step)
-
-                    # Margin guard (USD only for now; LL follows same multiplier/rounding).
-                    if min_margin is not None and min_margin > 0:
-                        cb = cost_by_item.get(item_id) or {}
-                        cost_usd = cb.get("avg_usd", Decimal("0"))
-                        if cost_usd <= 0:
-                            cost_usd = cb.get("std_usd", Decimal("0"))
-                        if cost_usd <= 0:
-                            missing_cost += 1
-                            if skip_if_cost_missing:
-                                # For discounts, keep base price; for markups, still apply (safe).
-                                if mode == "discount_pct":
-                                    d_usd, d_lbp = base_usd, base_lbp
-                                    blocked_by_margin += 1
-                            # else allow
-                        else:
-                            if d_usd > 0:
-                                margin_pct = (d_usd - cost_usd) / d_usd
-                                if margin_pct < min_margin:
-                                    # Discount rules should not apply if they break margin.
-                                    if mode == "discount_pct":
-                                        d_usd, d_lbp = base_usd, base_lbp
-                                        blocked_by_margin += 1
-                                    else:
-                                        # Markup: raise to meet min margin.
-                                        target = cost_usd / (Decimal("1") - min_margin)
-                                        d_usd = _round_up(target, usd_step)
-                                        # LL: keep same ratio if base LBP exists.
-                                        if base_usd > 0 and base_lbp > 0:
-                                            ratio = base_lbp / base_usd
-                                            d_lbp = d_usd * ratio
-                                            if lbp_step and lbp_step > 0:
-                                                d_lbp = _round_up(d_lbp, lbp_step)
-                                        blocked_by_margin += 1
-
-                    cur.execute(
-                        """
-                        INSERT INTO price_list_items
-                          (id, company_id, price_list_id, item_id, price_usd, price_lbp, effective_from, effective_to)
-                        VALUES
-                          (gen_random_uuid(), %s, %s::uuid, %s::uuid, %s, %s, %s, NULL)
-                        ON CONFLICT (company_id, price_list_id, item_id, effective_from) DO UPDATE
-                        SET price_usd = EXCLUDED.price_usd,
-                            price_lbp = EXCLUDED.price_lbp,
-                            effective_to = EXCLUDED.effective_to
-                        """,
-                        (company_id, target_id, item_id, d_usd, d_lbp, eff),
-                    )
-                    applied += 1
-
-                summary = {
-                    "effective_from": eff.isoformat(),
-                    "base_price_rows": len(base_price_by_item),
-                    "prepared": int(prepared),
-                    "applied": int(applied),
-                    "missing_base": int(missing_base),
-                    "missing_cost": int(missing_cost),
-                    "adjusted_or_blocked_by_margin": int(blocked_by_margin),
-                }
-
-                cur.execute(
-                    """
-                    UPDATE price_list_derivations
-                    SET last_run_at = now(),
-                        last_run_summary = %s::jsonb,
-                        updated_at = now()
-                    WHERE company_id = %s AND id = %s
-                    """,
-                    (json.dumps(summary), company_id, derivation_id),
-                )
-                cur.execute(
-                    """
-                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                    VALUES (gen_random_uuid(), %s, %s, 'price_list_derivation_run', 'price_list_derivation', %s, %s::jsonb)
-                    """,
-                    (company_id, user["user_id"], derivation_id, json.dumps(summary)),
-                )
+                summary = _execute_derivation(cur, company_id, derivation_id, eff, user["user_id"])
+                if summary.get("error"):
+                    raise HTTPException(status_code=400, detail=summary["error"])
                 return {"ok": True, "summary": summary}
 
 @router.get("/cost-changes", dependencies=[Depends(require_permission("items:read"))])
@@ -1167,6 +1220,8 @@ def add_price_list_item(list_id: str, data: PriceListItemIn, company_id: str = D
                     """,
                     (company_id, user["user_id"], pli_id, json.dumps(data.model_dump(), default=str)),
                 )
+                # Auto-propagate: run any derivations that use this list as their base.
+                _trigger_dependent_derivations(cur, company_id, list_id, data.effective_from, user["user_id"])
                 return {"id": pli_id}
 
 
@@ -1217,6 +1272,9 @@ def update_price_list_item(
                     """,
                     (company_id, user["user_id"], item_row_id, json.dumps(patch, default=str)),
                 )
+                # Auto-propagate: run any derivations that use this list as their base.
+                eff = patch.get("effective_from") or date.today()
+                _trigger_dependent_derivations(cur, company_id, list_id, eff, user["user_id"])
                 return {"ok": True}
 
 
