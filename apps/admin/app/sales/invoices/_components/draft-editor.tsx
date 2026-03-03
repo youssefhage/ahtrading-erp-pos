@@ -668,6 +668,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       pre_discount_unit_price_usd: number;
       pre_discount_unit_price_lbp: number;
       discount_pct: number; // fraction (0.10 == 10%)
+      applied_price_list_id?: string | null;
     }> = [];
     for (let i = 0; i < (lines || []).length; i++) {
       const l = lines[i];
