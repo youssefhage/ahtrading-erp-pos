@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, Check, ChevronsUpDown, X } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, X, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -40,19 +40,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -86,7 +75,7 @@ type DerivationRow = {
   lbp_round_step: string | number;
   min_margin_pct: string | number | null;
   skip_if_cost_missing: boolean;
-  exempt_category_ids: string[];
+  category_overrides: { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct"; pct: number }[];
   is_active: boolean;
   last_run_at?: string | null;
   last_run_summary?: unknown;
@@ -98,65 +87,81 @@ function pctNum(v: string | number | null | undefined) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Category Multi-Select                                                     */
+/*  Category Overrides                                                        */
 /* -------------------------------------------------------------------------- */
 
-function CategoryMultiSelect({
+type Override = { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct"; pct: number };
+
+function CategoryOverrides({
   categories,
   value,
   onChange,
 }: {
   categories: CategoryRow[];
-  value: string[];
-  onChange: (v: string[]) => void;
+  value: Override[];
+  onChange: (v: Override[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const usedIds = new Set(value.map((o) => o.category_id));
+  const available = categories.filter((c) => c.is_active && !usedIds.has(c.id));
   const catMap = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
-  function toggle(id: string) {
-    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  function addRow() {
+    if (available.length === 0) return;
+    onChange([...value, { category_id: available[0].id, mode: "exempt", pct: 0 }]);
+  }
+
+  function updateRow(idx: number, patch: Partial<Override>) {
+    const next = value.map((o, i) => (i === idx ? { ...o, ...patch } : o));
+    onChange(next);
+  }
+
+  function removeRow(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
   }
 
   return (
-    <div className="space-y-2">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="w-full justify-between font-normal">
-            {value.length === 0
-              ? "None (all categories included)"
-              : `${value.length} categor${value.length === 1 ? "y" : "ies"} exempt`}
-            <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50" />
+    <div className="space-y-3">
+      {value.map((ov, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          {/* Category picker */}
+          <Select value={ov.category_id} onValueChange={(v) => updateRow(idx, { category_id: v })}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectContent>
+              {categories.filter((c) => c.is_active && (c.id === ov.category_id || !usedIds.has(c.id))).map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Mode */}
+          <Select value={ov.mode} onValueChange={(v) => updateRow(idx, { mode: v as Override["mode"], pct: v === "exempt" ? 0 : ov.pct })}>
+            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="exempt">Exempt</SelectItem>
+              <SelectItem value="markup_pct">Markup (%)</SelectItem>
+              <SelectItem value="discount_pct">Discount (%)</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* Pct input (only when not exempt) */}
+          {ov.mode !== "exempt" ? (
+            <Input
+              className="w-[90px]"
+              value={ov.pct}
+              onChange={(e) => updateRow(idx, { pct: Number(e.target.value) || 0 })}
+              placeholder="0.05"
+              inputMode="decimal"
+            />
+          ) : (
+            <div className="w-[90px]" />
+          )}
+          {/* Remove */}
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeRow(idx)}>
+            <X className="h-4 w-4" />
           </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-72 p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Search categories..." />
-            <CommandList>
-              <CommandEmpty>No categories found.</CommandEmpty>
-              <CommandGroup>
-                {categories.filter((c) => c.is_active).map((c) => (
-                  <CommandItem key={c.id} value={c.name} onSelect={() => toggle(c.id)}>
-                    <Check className={`mr-2 h-4 w-4 ${value.includes(c.id) ? "opacity-100" : "opacity-0"}`} />
-                    {c.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-      {value.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {value.map((id) => (
-            <Badge key={id} variant="secondary" className="gap-1 text-xs">
-              {catMap.get(id) || id}
-              <button type="button" onClick={() => toggle(id)} className="ml-0.5 rounded-full hover:bg-muted">
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
         </div>
-      )}
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={available.length === 0}>
+        <Plus className="mr-1 h-3 w-3" /> Add Override
+      </Button>
     </div>
   );
 }
@@ -184,7 +189,8 @@ export default function PriceRulesPage() {
   const [minMargin, setMinMargin] = useState("0.12");
   const [skipIfCostMissing, setSkipIfCostMissing] = useState(true);
   const [active, setActive] = useState(true);
-  const [exemptCats, setExemptCats] = useState<string[]>([]);
+  const [overrides, setOverrides] = useState<Override[]>([]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /* ---- Run summary ---- */
   const [runSummary, setRunSummary] = useState<{
@@ -194,6 +200,7 @@ export default function PriceRulesPage() {
     missing_base: number;
     missing_cost: number;
     adjusted_or_blocked_by_margin: number;
+    skipped_exempt: number;
     effective_from: string;
   } | null>(null);
 
@@ -207,7 +214,8 @@ export default function PriceRulesPage() {
   const [editMinMargin, setEditMinMargin] = useState("");
   const [editSkipIfCostMissing, setEditSkipIfCostMissing] = useState(true);
   const [editActive, setEditActive] = useState(true);
-  const [editExemptCats, setEditExemptCats] = useState<string[]>([]);
+  const [editOverrides, setEditOverrides] = useState<Override[]>([]);
+  const [editAdvancedOpen, setEditAdvancedOpen] = useState(false);
 
   /* ---- Load ---- */
   const load = useCallback(async () => {
@@ -278,7 +286,7 @@ export default function PriceRulesPage() {
         min_margin_pct: minMargin.trim() ? Number(minMargin) : null,
         skip_if_cost_missing: Boolean(skipIfCostMissing),
         is_active: Boolean(active),
-        exempt_category_ids: exemptCats,
+        category_overrides: overrides,
       });
       setCreateOpen(false);
       setTargetId("");
@@ -290,7 +298,8 @@ export default function PriceRulesPage() {
       setMinMargin("0.12");
       setSkipIfCostMissing(true);
       setActive(true);
-      setExemptCats([]);
+      setOverrides([]);
+      setAdvancedOpen(false);
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -309,7 +318,12 @@ export default function PriceRulesPage() {
     setEditMinMargin(rule.min_margin_pct == null ? "" : String(pctNum(rule.min_margin_pct)));
     setEditSkipIfCostMissing(rule.skip_if_cost_missing);
     setEditActive(rule.is_active);
-    setEditExemptCats(rule.exempt_category_ids || []);
+    setEditOverrides((rule.category_overrides || []).map((o) => ({
+      category_id: o.category_id,
+      mode: o.mode,
+      pct: Number(o.pct || 0),
+    })));
+    setEditAdvancedOpen((rule.category_overrides || []).length > 0);
     setEditOpen(true);
   }
 
@@ -326,7 +340,7 @@ export default function PriceRulesPage() {
         min_margin_pct: editMinMargin.trim() ? Number(editMinMargin) : null,
         skip_if_cost_missing: Boolean(editSkipIfCostMissing),
         is_active: Boolean(editActive),
-        exempt_category_ids: editExemptCats,
+        category_overrides: editOverrides,
       });
       setEditOpen(false);
       await load();
@@ -396,16 +410,21 @@ export default function PriceRulesPage() {
       ),
     },
     {
-      accessorFn: (r) => (r.exempt_category_ids || []).length,
-      id: "exemptions",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Exemptions" />,
+      accessorFn: (r) => (r.category_overrides || []).length,
+      id: "overrides",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Overrides" />,
       cell: ({ row }) => {
-        const ids = row.original.exempt_category_ids || [];
-        if (ids.length === 0) return <span className="text-xs text-muted-foreground">-</span>;
-        const names = ids.map((id) => categories.find((c) => c.id === id)?.name || id);
+        const ovs = row.original.category_overrides || [];
+        if (ovs.length === 0) return <span className="text-xs text-muted-foreground">-</span>;
+        const labels = ovs.map((o) => {
+          const name = categories.find((c) => c.id === o.category_id)?.name || o.category_id.slice(0, 6);
+          if (o.mode === "exempt") return `${name} exempt`;
+          const sign = o.mode === "markup_pct" ? "+" : "-";
+          return `${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`;
+        });
         return (
-          <span className="text-xs text-muted-foreground" title={names.join(", ")}>
-            {names.length <= 2 ? names.join(", ") : `${names[0]} +${names.length - 1}`}
+          <span className="text-xs text-muted-foreground" title={labels.join(", ")}>
+            {labels.length <= 2 ? labels.join(", ") : `${labels.length} overrides`}
           </span>
         );
       },
@@ -546,25 +565,29 @@ export default function PriceRulesPage() {
                       <Input value={minMargin} onChange={(e) => setMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Exempt Categories</Label>
-                    <p className="text-xs text-muted-foreground">Items in these categories will be skipped.</p>
-                    <CategoryMultiSelect
-                      categories={categories}
-                      value={exemptCats}
-                      onChange={setExemptCats}
-                    />
+                  <div className="flex items-center gap-3">
+                    <Switch checked={active} onCheckedChange={setActive} />
+                    <Label>Active</Label>
                   </div>
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-3">
-                      <Switch checked={skipIfCostMissing} onCheckedChange={setSkipIfCostMissing} />
-                      <Label>Skip / hold discount when cost is missing</Label>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Switch checked={active} onCheckedChange={setActive} />
-                      <Label>Active</Label>
-                    </div>
-                  </div>
+                  <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" type="button" className="w-full justify-between px-0">
+                        <span className="text-sm font-medium">Advanced Options</span>
+                        <ChevronDown className={cn("h-4 w-4 transition-transform", advancedOpen && "rotate-180")} />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-4 pt-2">
+                      <div className="space-y-2">
+                        <Label>Category Overrides</Label>
+                        <p className="text-xs text-muted-foreground">Customize pricing for specific categories (exempt, custom markup, or custom discount).</p>
+                        <CategoryOverrides categories={categories} value={overrides} onChange={setOverrides} />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Switch checked={skipIfCostMissing} onCheckedChange={setSkipIfCostMissing} />
+                        <Label>Skip / hold discount when cost is missing</Label>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
                   <DialogFooter>
                     <Button type="submit" disabled={busy}>
                       {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -593,6 +616,7 @@ export default function PriceRulesPage() {
                 <p className="text-xs text-muted-foreground">
                   {runSummary.base_price_rows} base price{runSummary.base_price_rows !== 1 ? "s" : ""} found
                   {runSummary.missing_base > 0 && ` · ${runSummary.missing_base} skipped (zero price)`}
+                  {runSummary.skipped_exempt > 0 && ` · ${runSummary.skipped_exempt} exempt`}
                   {runSummary.missing_cost > 0 && ` · ${runSummary.missing_cost} missing cost`}
                   {runSummary.adjusted_or_blocked_by_margin > 0 && ` · ${runSummary.adjusted_or_blocked_by_margin} blocked/adjusted by margin`}
                 </p>
@@ -670,25 +694,29 @@ export default function PriceRulesPage() {
                 <Input value={editMinMargin} onChange={(e) => setEditMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Exempt Categories</Label>
-              <p className="text-xs text-muted-foreground">Items in these categories will be skipped.</p>
-              <CategoryMultiSelect
-                categories={categories}
-                value={editExemptCats}
-                onChange={setEditExemptCats}
-              />
+            <div className="flex items-center gap-3">
+              <Switch checked={editActive} onCheckedChange={setEditActive} />
+              <Label>Active</Label>
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-3">
-                <Switch checked={editSkipIfCostMissing} onCheckedChange={setEditSkipIfCostMissing} />
-                <Label>Skip / hold discount when cost is missing</Label>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch checked={editActive} onCheckedChange={setEditActive} />
-                <Label>Active</Label>
-              </div>
-            </div>
+            <Collapsible open={editAdvancedOpen} onOpenChange={setEditAdvancedOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" type="button" className="w-full justify-between px-0">
+                  <span className="text-sm font-medium">Advanced Options</span>
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", editAdvancedOpen && "rotate-180")} />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label>Category Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Customize pricing for specific categories (exempt, custom markup, or custom discount).</p>
+                  <CategoryOverrides categories={categories} value={editOverrides} onChange={setEditOverrides} />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch checked={editSkipIfCostMissing} onCheckedChange={setEditSkipIfCostMissing} />
+                  <Label>Skip / hold discount when cost is missing</Label>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={busy}>
