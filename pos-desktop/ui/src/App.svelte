@@ -2116,7 +2116,7 @@
         discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
         applied_promotion_id: line.applied_promotion_id || null,
         applied_promotion_item_id: line.applied_promotion_item_id || null,
-        applied_price_list_id: _resolvedPriceListId(line.companyKey || originCompanyKey) || selectedPriceListId || null,
+        applied_price_list_id: _resolvedPriceListId(line.companyKey || originCompanyKey) || null,
         line_total_usd: totals.usd,
         line_total_lbp: totals.lbp,
         unit_cost_usd: 0,
@@ -3758,6 +3758,13 @@
         if (companyKey === originCompanyKey) {
           priceLists = parsed;
           const defaultPl = String(posCfg?.default_price_list_id || "").trim();
+          // Validate: if the stored selectedPriceListId doesn't exist in the
+          // current price lists (e.g. deleted or from a different company), reset
+          // to the company default so we don't use a stale ID.
+          if (selectedPriceListId && parsed.length && !parsed.find((p) => p.id === selectedPriceListId)) {
+            selectedPriceListId = defaultPl || (parsed[0]?.id || "");
+            try { localStorage.setItem("pos.selectedPriceListId", selectedPriceListId); } catch (_) {}
+          }
           if (!selectedPriceListId && defaultPl) selectedPriceListId = defaultPl;
         }
       }
@@ -5535,33 +5542,37 @@
           unofficialOutbox = [];
           unofficialLastReceipt = null;
         } else {
-          const uResults = await Promise.allSettled([
-            apiCallFor(otherCompanyKey, "/config"),
-            apiCallFor(otherCompanyKey, "/items"),
-            apiCallFor(otherCompanyKey, "/barcodes"),
-            apiCallFor(otherCompanyKey, "/customers"),
-            apiCallFor(otherCompanyKey, "/cashiers"),
-            apiCallFor(otherCompanyKey, "/outbox"),
-            apiCallFor(otherCompanyKey, "/receipts/last"),
-            apiCallFor(otherCompanyKey, "/promotions"),
-          ]);
-
-          const uCfgRes = uResults[0];
+          // Fetch config FIRST so companyPriceListsMap is populated before /items
+          // calls _getWebCatalog → _resolvedPriceListId for this company.
+          const uCfgRes = await apiCallFor(otherCompanyKey, "/config").then(
+            (v) => ({ status: "fulfilled", value: v }),
+            (e) => ({ status: "rejected", reason: e }),
+          );
           if (uCfgRes.status === "fulfilled") {
             unofficialConfig = { ...unofficialConfig, ...(uCfgRes.value || {}) };
             unofficialLocked = false;
+            // Now fetch the rest in parallel (items needs the populated price-list map).
+            const uResults = await Promise.allSettled([
+              apiCallFor(otherCompanyKey, "/items"),
+              apiCallFor(otherCompanyKey, "/barcodes"),
+              apiCallFor(otherCompanyKey, "/customers"),
+              apiCallFor(otherCompanyKey, "/cashiers"),
+              apiCallFor(otherCompanyKey, "/outbox"),
+              apiCallFor(otherCompanyKey, "/receipts/last"),
+              apiCallFor(otherCompanyKey, "/promotions"),
+            ]);
             const setIfOkU = (idx, setter, fallback) => {
               const r = uResults[idx];
               if (r.status === "fulfilled") setter(r.value);
               else if (fallback !== undefined) setter(fallback);
             };
-            setIfOkU(1, (v) => (unofficialItems = v.items || []), []);
-            setIfOkU(2, (v) => (unofficialBarcodes = v.barcodes || []), []);
-            setIfOkU(3, (v) => (unofficialCustomers = v.customers || []), []);
-            setIfOkU(4, (v) => (unofficialCashiers = v.cashiers || []), []);
-            setIfOkU(5, (v) => (unofficialOutbox = v.outbox || []), []);
-            setIfOkU(6, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
-            setIfOkU(7, (v) => (unofficialPromotions = v.promotions || []), []);
+            setIfOkU(0, (v) => (unofficialItems = v.items || []), []);
+            setIfOkU(1, (v) => (unofficialBarcodes = v.barcodes || []), []);
+            setIfOkU(2, (v) => (unofficialCustomers = v.customers || []), []);
+            setIfOkU(3, (v) => (unofficialCashiers = v.cashiers || []), []);
+            setIfOkU(4, (v) => (unofficialOutbox = v.outbox || []), []);
+            setIfOkU(5, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+            setIfOkU(6, (v) => (unofficialPromotions = v.promotions || []), []);
             unofficialStatus = "Ready";
           } else {
             const p = uCfgRes.reason?.payload;
