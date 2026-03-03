@@ -7,6 +7,7 @@ import {
   type SortingState,
   type VisibilityState,
   type PaginationState,
+  type FilterFn,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
@@ -25,6 +26,19 @@ import {
 import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
+
+/**
+ * Case-insensitive substring search across all column accessor values.
+ * Replaces TanStack's default "auto" global filter which silently skips
+ * columns whose first-row value isn't a string or number.
+ */
+const globalIncludesString: FilterFn<unknown> = (row, columnId, filterValue) => {
+  const search = String(filterValue ?? "").toLowerCase();
+  if (!search) return true;
+  const cellValue = row.getValue(columnId);
+  if (cellValue == null) return false;
+  return String(cellValue).toLowerCase().includes(search);
+};
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -80,6 +94,9 @@ export function DataTable<TData, TValue>({
   onSearchChangeRef.current = onSearchChange;
   const handleGlobalFilterChange = React.useCallback((value: string) => {
     setGlobalFilter(value);
+    // Reset to first page so filtered results are visible (not stuck on an
+    // out-of-range page).
+    setPagination((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
     onSearchChangeRef.current?.(value);
   }, []);
   const [pagination, setPagination] = React.useState<PaginationState>({
@@ -116,6 +133,10 @@ export function DataTable<TData, TValue>({
       setPagination(next);
       onPaginationChange?.(next);
     },
+    globalFilterFn: globalIncludesString,
+    // Always allow columns with an accessor to be globally filtered, regardless
+    // of the first-row value type (the TanStack default skips non-string/number).
+    getColumnCanGlobalFilter: (column) => !!column.accessorFn,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: manualPagination ? undefined : getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
