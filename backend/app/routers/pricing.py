@@ -61,7 +61,7 @@ class PriceListDerivationIn(BaseModel):
     min_margin_pct: Optional[Decimal] = None
     skip_if_cost_missing: bool = False
     is_active: bool = True
-    exempt_category_ids: list[str] = []
+    category_overrides: list[dict] = []  # [{category_id, mode, pct}]
 
 class PriceListDerivationUpdate(BaseModel):
     target_price_list_id: Optional[str] = None
@@ -73,7 +73,7 @@ class PriceListDerivationUpdate(BaseModel):
     min_margin_pct: Optional[Decimal] = None
     skip_if_cost_missing: Optional[bool] = None
     is_active: Optional[bool] = None
-    exempt_category_ids: Optional[list[str]] = None
+    category_overrides: Optional[list[dict]] = None
 
 class RunDerivationIn(BaseModel):
     effective_from: Optional[date] = None
@@ -91,7 +91,7 @@ def list_derivations(company_id: str = Depends(get_company_id)):
                        d.mode, d.pct,
                        d.usd_round_step, d.lbp_round_step,
                        d.min_margin_pct, d.skip_if_cost_missing,
-                       d.exempt_category_ids,
+                       d.category_overrides,
                        d.is_active,
                        d.last_run_at, d.last_run_summary,
                        d.created_at, d.updated_at
@@ -135,9 +135,9 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                       (company_id, target_price_list_id, base_price_list_id,
                        mode, pct, usd_round_step, lbp_round_step,
                        min_margin_pct, skip_if_cost_missing, is_active,
-                       exempt_category_ids)
+                       category_overrides)
                     VALUES
-                      (%s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s::uuid[])
+                      (%s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                     ON CONFLICT (company_id, target_price_list_id) DO UPDATE
                     SET base_price_list_id = EXCLUDED.base_price_list_id,
                         mode = EXCLUDED.mode,
@@ -147,7 +147,7 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                         min_margin_pct = EXCLUDED.min_margin_pct,
                         skip_if_cost_missing = EXCLUDED.skip_if_cost_missing,
                         is_active = EXCLUDED.is_active,
-                        exempt_category_ids = EXCLUDED.exempt_category_ids,
+                        category_overrides = EXCLUDED.category_overrides,
                         updated_at = now()
                     RETURNING id
                     """,
@@ -162,7 +162,7 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                         data.min_margin_pct,
                         bool(data.skip_if_cost_missing),
                         bool(data.is_active),
-                        data.exempt_category_ids or [],
+                        json.dumps(data.category_overrides or []),
                     ),
                 )
                 did = cur.fetchone()["id"]
@@ -199,11 +199,12 @@ def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, compa
     fields = []
     params = []
     for k, v in patch.items():
-        if k == "exempt_category_ids":
-            fields.append(f"{k} = %s::uuid[]")
+        if k == "category_overrides":
+            fields.append(f"{k} = %s::jsonb")
+            params.append(json.dumps(v or []))
         else:
             fields.append(f"{k} = %s")
-        params.append(v)
+            params.append(v)
     params.extend([company_id, derivation_id])
 
     with get_conn() as conn:
@@ -267,7 +268,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         """
         SELECT id, target_price_list_id, base_price_list_id, mode, pct,
                usd_round_step, lbp_round_step, min_margin_pct, skip_if_cost_missing,
-               exempt_category_ids, is_active
+               category_overrides, is_active
         FROM price_list_derivations
         WHERE company_id = %s AND id = %s
         """,
@@ -288,7 +289,17 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     min_margin = d.get("min_margin_pct")
     min_margin = _to_dec(min_margin) if min_margin is not None else None
     skip_if_cost_missing = bool(d.get("skip_if_cost_missing"))
-    exempt_cats: list[str] = [str(c) for c in (d.get("exempt_category_ids") or [])]
+
+    # Build per-category override lookup from JSONB array.
+    overrides_by_cat: dict[str, dict] = {}
+    raw_overrides = d.get("category_overrides") or []
+    if isinstance(raw_overrides, str):
+        try:
+            raw_overrides = json.loads(raw_overrides)
+        except Exception:
+            raw_overrides = []
+    for ov in (raw_overrides or []):
+        overrides_by_cat[str(ov["category_id"])] = ov
 
     # Validate lists exist (defensive).
     cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, target_id))
@@ -298,21 +309,20 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     if not cur.fetchone():
         return {"error": "invalid base_price_list_id", "applied": 0}
 
-    # Effective base prices for the given date, excluding exempt categories.
+    # Effective base prices for the given date (fetch ALL items with category_id).
     cur.execute(
         """
         SELECT DISTINCT ON (pli.item_id)
-          pli.item_id, pli.price_usd, pli.price_lbp
+          pli.item_id, pli.price_usd, pli.price_lbp, i.category_id
         FROM price_list_items pli
         JOIN items i ON i.company_id = pli.company_id AND i.id = pli.item_id
         WHERE pli.company_id = %s
           AND pli.price_list_id = %s::uuid
           AND pli.effective_from <= %s
           AND (pli.effective_to IS NULL OR pli.effective_to >= %s)
-          AND (%s::uuid[] = '{}' OR i.category_id IS NULL OR NOT (i.category_id = ANY(%s::uuid[])))
         ORDER BY pli.item_id, pli.effective_from DESC, pli.created_at DESC, pli.id DESC
         """,
-        (company_id, base_id, eff, eff, exempt_cats, exempt_cats),
+        (company_id, base_id, eff, eff),
     )
     base_price_by_item = {str(r["item_id"]): r for r in (cur.fetchall() or [])}
 
@@ -361,6 +371,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     missing_base = 0
     missing_cost = 0
     blocked_by_margin = 0
+    skipped_exempt = 0
 
     # Upsert derived rows for eff date.
     for item_id, bp in base_price_by_item.items():
@@ -370,12 +381,28 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
             missing_base += 1
             continue
 
+        # Check per-category override
+        cat_id = str(bp.get("category_id") or "")
+        override = overrides_by_cat.get(cat_id)
+
+        if override and override.get("mode") == "exempt":
+            skipped_exempt += 1
+            continue  # fully exempt — skip this item
+
+        # Determine effective mode/pct (override or rule default)
+        if override:
+            item_mode = str(override["mode"])
+            item_pct = _to_dec(override["pct"])
+        else:
+            item_mode = mode
+            item_pct = pct
+
         prepared += 1
         mult = Decimal("1")
-        if mode == "markup_pct":
-            mult = Decimal("1") + pct
-        elif mode == "discount_pct":
-            mult = Decimal("1") - pct
+        if item_mode == "markup_pct":
+            mult = Decimal("1") + item_pct
+        elif item_mode == "discount_pct":
+            mult = Decimal("1") - item_pct
         else:
             # Unknown mode — skip silently in auto-trigger context.
             continue
@@ -396,7 +423,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
                 missing_cost += 1
                 if skip_if_cost_missing:
                     # For discounts, keep base price; for markups, still apply (safe).
-                    if mode == "discount_pct":
+                    if item_mode == "discount_pct":
                         d_usd, d_lbp = base_usd, base_lbp
                         blocked_by_margin += 1
                 # else allow
@@ -405,7 +432,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
                     margin_pct = (d_usd - cost_usd) / d_usd
                     if margin_pct < min_margin:
                         # Discount rules should not apply if they break margin.
-                        if mode == "discount_pct":
+                        if item_mode == "discount_pct":
                             d_usd, d_lbp = base_usd, base_lbp
                             blocked_by_margin += 1
                         else:
@@ -443,6 +470,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         "missing_base": int(missing_base),
         "missing_cost": int(missing_cost),
         "adjusted_or_blocked_by_margin": int(blocked_by_margin),
+        "skipped_exempt": int(skipped_exempt),
     }
 
     cur.execute(
