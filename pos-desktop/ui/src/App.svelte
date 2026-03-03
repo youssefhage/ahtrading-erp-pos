@@ -6937,22 +6937,23 @@
         created_at: draft.created_at || new Date().toISOString(),
         updated_at: draft.updated_at || new Date().toISOString(),
       },
-    }).catch(() => {});
+    }).catch((e) => console.warn("[Drafts] backend save failed:", e?.message || e));
   };
 
   // Delete a single draft from the backend (fire-and-forget).
   const _deleteDraftFromBackend = (draftId) => {
     if (!draftId) return;
-    apiCall("/drafts/delete", { method: "POST", body: { id: draftId } }).catch(() => {});
+    apiCall("/drafts/delete", { method: "POST", body: { id: draftId } })
+      .catch((e) => console.warn("[Drafts] backend delete failed:", e?.message || e));
   };
 
   // Load all drafts from backend API.
   const _loadCartDraftsFromBackend = async () => {
     try {
       const res = await apiCall("/drafts");
-      const rows = Array.isArray(res?.drafts) ? res.drafts : [];
+      if (!Array.isArray(res?.drafts)) return null; // Malformed response; treat as error.
       return _trimArray(
-        _sortCartDrafts(rows.map((row) => {
+        _sortCartDrafts(res.drafts.map((row) => {
           const draft = row?.draft || {};
           return _normalizeCartDraftRecord({
             id: row?.id,
@@ -6969,7 +6970,7 @@
         CART_DRAFTS_MAX,
       );
     } catch (_) {
-      return [];
+      return null;
     }
   };
 
@@ -6983,12 +6984,20 @@
     );
   };
 
-  // Async reload: fetch from backend, update reactive state & localStorage cache.
+  // Async reload: fetch from backend, merge with local state & update localStorage cache.
   const reloadCartDrafts = async () => {
     try {
       const backendDrafts = await _loadCartDraftsFromBackend();
-      cartDrafts = backendDrafts;
-      _persistCartDrafts(backendDrafts);
+      if (!backendDrafts) return; // Backend unreachable; keep local state.
+      // Merge: keep any local-only drafts (e.g. save POST still in-flight).
+      const backendIds = new Set(backendDrafts.map((d) => d.id));
+      const localOnly = (cartDrafts || []).filter((d) => d?.id && !backendIds.has(d.id));
+      const merged = _trimArray(
+        _sortCartDrafts([...backendDrafts, ...localOnly]),
+        CART_DRAFTS_MAX,
+      );
+      cartDrafts = merged;
+      _persistCartDrafts(merged);
     } catch (_) {}
   };
 
