@@ -11,6 +11,9 @@
   export let flagOfficial = false;
   export let onInvoiceCompanyModeChange = (v) => {};
   export let onFlagOfficialChange = (v) => {};
+  export let priceLists = [];
+  export let selectedPriceListId = "";
+  export let onPriceListChange = (id) => {};
   export let checkoutBlocked = false;
   export let checkoutBlockedReason = "";
   export let onCheckout = () => {};
@@ -80,6 +83,10 @@
   $: showSplitAlignBadge = !emptyCart && mixedCart && invoiceCompanyMode === "auto" && splitAlignAdjustmentCents > 0;
   $: hasSaleToCheckout = lineCount > 0 || totalIncUsd > 0;
   $: canCheckout = hasSaleToCheckout && !checkoutBlocked;
+  $: selectedPriceListName = (() => {
+    const pl = (priceLists || []).find((p) => p.id === selectedPriceListId);
+    return pl ? pl.name : "";
+  })();
 </script>
 
 <section class="glass-panel rounded-2xl p-2.5 h-full min-h-0 flex flex-col relative">
@@ -95,6 +102,9 @@
       <div class="flex items-center gap-2 min-w-0">
         <div class={`w-1.5 h-1.5 rounded-full shrink-0 ${routeHint ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`}></div>
         <span class="text-[10px] font-bold text-ink uppercase tracking-wider truncate">{routeLabel}</span>
+        {#if selectedPriceListName}
+          <span class="text-[9px] text-accent font-bold uppercase">{selectedPriceListName}</span>
+        {/if}
         <span class="text-[9px] text-muted font-medium">VAT: {modeLabel}</span>
       </div>
       <svg class={`w-3 h-3 text-muted shrink-0 transition-transform ${settingsOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -130,6 +140,22 @@
         {#if routeHint}
           <div class="mx-1 text-[9px] text-amber-300/90 leading-snug font-medium bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/10">
             {routeHint}
+          </div>
+        {/if}
+
+        <!-- Price list selector -->
+        {#if priceLists.length > 1}
+          <div class="flex items-center gap-2 px-1">
+            <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0 w-12">Prices</span>
+            <select
+              class="flex-1 bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2 py-1 text-[10px] font-bold text-ink focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none"
+              value={selectedPriceListId}
+              on:change={(e) => onPriceListChange(e.target.value)}
+            >
+              {#each priceLists as pl}
+                <option value={pl.id}>{pl.name}{pl.is_default ? " (Default)" : ""}</option>
+              {/each}
+            </select>
           </div>
         {/if}
 

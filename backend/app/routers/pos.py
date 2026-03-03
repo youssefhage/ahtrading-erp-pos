@@ -1417,22 +1417,30 @@ def push_inbox(
 
 
 @router.get("/catalog")
-def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_device)):
+def catalog(
+    company_id: Optional[uuid.UUID] = None,
+    price_list_id: Optional[str] = Query(None, description="Override price list (default: company default)"),
+    device=Depends(require_device),
+):
     if company_id and company_id != device["company_id"]:
         raise HTTPException(status_code=400, detail="company_id mismatch")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT value_json->>'id' AS id
-                FROM company_settings
-                WHERE company_id = %s AND key = 'default_price_list_id'
-                """,
-                (device["company_id"],),
-            )
-            srow = cur.fetchone()
-            default_pl_id = srow["id"] if srow else None
+            if price_list_id:
+                effective_pl_id = price_list_id
+            else:
+                cur.execute(
+                    """
+                    SELECT value_json->>'id' AS id
+                    FROM company_settings
+                    WHERE company_id = %s AND key = 'default_price_list_id'
+                    """,
+                    (device["company_id"],),
+                )
+                srow = cur.fetchone()
+                effective_pl_id = srow["id"] if srow else None
+            default_pl_id = effective_pl_id
             cur.execute(
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
@@ -1523,6 +1531,7 @@ def catalog_delta(
     since_id: Optional[uuid.UUID] = None,
     limit: int = 5000,
     company_id: Optional[uuid.UUID] = None,
+    price_list_id: Optional[str] = Query(None, description="Override price list (default: company default)"),
     device=Depends(require_device),
 ):
     """
@@ -1536,16 +1545,20 @@ def catalog_delta(
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT value_json->>'id' AS id
-                FROM company_settings
-                WHERE company_id = %s AND key = 'default_price_list_id'
-                """,
-                (device["company_id"],),
-            )
-            srow = cur.fetchone()
-            default_pl_id = srow["id"] if srow else None
+            if price_list_id:
+                effective_pl_id = price_list_id
+            else:
+                cur.execute(
+                    """
+                    SELECT value_json->>'id' AS id
+                    FROM company_settings
+                    WHERE company_id = %s AND key = 'default_price_list_id'
+                    """,
+                    (device["company_id"],),
+                )
+                srow = cur.fetchone()
+                effective_pl_id = srow["id"] if srow else None
+            default_pl_id = effective_pl_id
             cur.execute(
                 """
                 WITH items_with_changed_at AS (
@@ -1964,6 +1977,18 @@ def pos_config(device=Depends(require_device)):
 
             print_policy = _load_print_policy(cur, str(device["company_id"]))
 
+            # Price lists for the price list selector dropdown.
+            cur.execute(
+                """
+                SELECT id, code, name, is_default
+                FROM price_lists
+                WHERE company_id = %s
+                ORDER BY is_default DESC, code
+                """,
+                (device["company_id"],),
+            )
+            price_lists = cur.fetchall() or []
+
     return {
         "company_id": device["company_id"],
         "device": dev,
@@ -1974,6 +1999,7 @@ def pos_config(device=Depends(require_device)):
         "vat_codes": vat_codes,
         "payment_methods": pay_methods,
         "default_price_list_id": default_pl_id,
+        "price_lists": price_lists,
         "inventory_policy": inventory_policy,
         "print_policy": print_policy,
     }
