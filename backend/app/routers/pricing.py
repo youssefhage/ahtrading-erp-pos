@@ -61,6 +61,7 @@ class PriceListDerivationIn(BaseModel):
     min_margin_pct: Optional[Decimal] = None
     skip_if_cost_missing: bool = False
     is_active: bool = True
+    exempt_category_ids: list[str] = []
 
 class PriceListDerivationUpdate(BaseModel):
     target_price_list_id: Optional[str] = None
@@ -72,6 +73,7 @@ class PriceListDerivationUpdate(BaseModel):
     min_margin_pct: Optional[Decimal] = None
     skip_if_cost_missing: Optional[bool] = None
     is_active: Optional[bool] = None
+    exempt_category_ids: Optional[list[str]] = None
 
 class RunDerivationIn(BaseModel):
     effective_from: Optional[date] = None
@@ -89,6 +91,7 @@ def list_derivations(company_id: str = Depends(get_company_id)):
                        d.mode, d.pct,
                        d.usd_round_step, d.lbp_round_step,
                        d.min_margin_pct, d.skip_if_cost_missing,
+                       d.exempt_category_ids,
                        d.is_active,
                        d.last_run_at, d.last_run_summary,
                        d.created_at, d.updated_at
@@ -131,9 +134,10 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                     INSERT INTO price_list_derivations
                       (company_id, target_price_list_id, base_price_list_id,
                        mode, pct, usd_round_step, lbp_round_step,
-                       min_margin_pct, skip_if_cost_missing, is_active)
+                       min_margin_pct, skip_if_cost_missing, is_active,
+                       exempt_category_ids)
                     VALUES
-                      (%s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s)
+                      (%s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s::uuid[])
                     ON CONFLICT (company_id, target_price_list_id) DO UPDATE
                     SET base_price_list_id = EXCLUDED.base_price_list_id,
                         mode = EXCLUDED.mode,
@@ -143,6 +147,7 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                         min_margin_pct = EXCLUDED.min_margin_pct,
                         skip_if_cost_missing = EXCLUDED.skip_if_cost_missing,
                         is_active = EXCLUDED.is_active,
+                        exempt_category_ids = EXCLUDED.exempt_category_ids,
                         updated_at = now()
                     RETURNING id
                     """,
@@ -157,6 +162,7 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                         data.min_margin_pct,
                         bool(data.skip_if_cost_missing),
                         bool(data.is_active),
+                        data.exempt_category_ids or [],
                     ),
                 )
                 did = cur.fetchone()["id"]
@@ -193,7 +199,10 @@ def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, compa
     fields = []
     params = []
     for k, v in patch.items():
-        fields.append(f"{k} = %s")
+        if k == "exempt_category_ids":
+            fields.append(f"{k} = %s::uuid[]")
+        else:
+            fields.append(f"{k} = %s")
         params.append(v)
     params.extend([company_id, derivation_id])
 
@@ -257,7 +266,8 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     cur.execute(
         """
         SELECT id, target_price_list_id, base_price_list_id, mode, pct,
-               usd_round_step, lbp_round_step, min_margin_pct, skip_if_cost_missing, is_active
+               usd_round_step, lbp_round_step, min_margin_pct, skip_if_cost_missing,
+               exempt_category_ids, is_active
         FROM price_list_derivations
         WHERE company_id = %s AND id = %s
         """,
@@ -278,6 +288,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     min_margin = d.get("min_margin_pct")
     min_margin = _to_dec(min_margin) if min_margin is not None else None
     skip_if_cost_missing = bool(d.get("skip_if_cost_missing"))
+    exempt_cats: list[str] = [str(c) for c in (d.get("exempt_category_ids") or [])]
 
     # Validate lists exist (defensive).
     cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, target_id))
@@ -287,19 +298,21 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     if not cur.fetchone():
         return {"error": "invalid base_price_list_id", "applied": 0}
 
-    # Effective base prices for the given date.
+    # Effective base prices for the given date, excluding exempt categories.
     cur.execute(
         """
-        SELECT DISTINCT ON (item_id)
-          item_id, price_usd, price_lbp
-        FROM price_list_items
-        WHERE company_id = %s
-          AND price_list_id = %s::uuid
-          AND effective_from <= %s
-          AND (effective_to IS NULL OR effective_to >= %s)
-        ORDER BY item_id, effective_from DESC, created_at DESC, id DESC
+        SELECT DISTINCT ON (pli.item_id)
+          pli.item_id, pli.price_usd, pli.price_lbp
+        FROM price_list_items pli
+        JOIN items i ON i.company_id = pli.company_id AND i.id = pli.item_id
+        WHERE pli.company_id = %s
+          AND pli.price_list_id = %s::uuid
+          AND pli.effective_from <= %s
+          AND (pli.effective_to IS NULL OR pli.effective_to >= %s)
+          AND (%s::uuid[] = '{}' OR i.category_id IS NULL OR NOT (i.category_id = ANY(%s::uuid[])))
+        ORDER BY pli.item_id, pli.effective_from DESC, pli.created_at DESC, pli.id DESC
         """,
-        (company_id, base_id, eff, eff),
+        (company_id, base_id, eff, eff, exempt_cats, exempt_cats),
     )
     base_price_by_item = {str(r["item_id"]): r for r in (cur.fetchall() or [])}
 

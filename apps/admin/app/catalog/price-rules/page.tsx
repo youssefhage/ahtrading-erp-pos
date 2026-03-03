@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, RefreshCw, Play, Zap, Pencil } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, Check, ChevronsUpDown, X } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -40,6 +40,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -51,6 +64,12 @@ type PriceListRow = {
   name: string;
   currency: "USD" | "LBP";
   is_default: boolean;
+};
+
+type CategoryRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
 };
 
 type DerivationRow = {
@@ -67,6 +86,7 @@ type DerivationRow = {
   lbp_round_step: string | number;
   min_margin_pct: string | number | null;
   skip_if_cost_missing: boolean;
+  exempt_category_ids: string[];
   is_active: boolean;
   last_run_at?: string | null;
   last_run_summary?: unknown;
@@ -78,11 +98,76 @@ function pctNum(v: string | number | null | undefined) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Category Multi-Select                                                     */
+/* -------------------------------------------------------------------------- */
+
+function CategoryMultiSelect({
+  categories,
+  value,
+  onChange,
+}: {
+  categories: CategoryRow[];
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const catMap = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
+  function toggle(id: string) {
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  }
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="w-full justify-between font-normal">
+            {value.length === 0
+              ? "None (all categories included)"
+              : `${value.length} categor${value.length === 1 ? "y" : "ies"} exempt`}
+            <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search categories..." />
+            <CommandList>
+              <CommandEmpty>No categories found.</CommandEmpty>
+              <CommandGroup>
+                {categories.filter((c) => c.is_active).map((c) => (
+                  <CommandItem key={c.id} value={c.name} onSelect={() => toggle(c.id)}>
+                    <Check className={`mr-2 h-4 w-4 ${value.includes(c.id) ? "opacity-100" : "opacity-0"}`} />
+                    {c.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {value.map((id) => (
+            <Badge key={id} variant="secondary" className="gap-1 text-xs">
+              {catMap.get(id) || id}
+              <button type="button" onClick={() => toggle(id)} className="ml-0.5 rounded-full hover:bg-muted">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 
 export default function PriceRulesPage() {
   const [lists, setLists] = useState<PriceListRow[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [rows, setRows] = useState<DerivationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -99,6 +184,7 @@ export default function PriceRulesPage() {
   const [minMargin, setMinMargin] = useState("0.12");
   const [skipIfCostMissing, setSkipIfCostMissing] = useState(true);
   const [active, setActive] = useState(true);
+  const [exemptCats, setExemptCats] = useState<string[]>([]);
 
   /* ---- Run summary ---- */
   const [runSummary, setRunSummary] = useState<{
@@ -121,18 +207,21 @@ export default function PriceRulesPage() {
   const [editMinMargin, setEditMinMargin] = useState("");
   const [editSkipIfCostMissing, setEditSkipIfCostMissing] = useState(true);
   const [editActive, setEditActive] = useState(true);
+  const [editExemptCats, setEditExemptCats] = useState<string[]>([]);
 
   /* ---- Load ---- */
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const [pl, dr] = await Promise.all([
+      const [pl, dr, cats] = await Promise.all([
         apiGet<{ lists: PriceListRow[] }>("/pricing/lists"),
         apiGet<{ derivations: DerivationRow[] }>("/pricing/derivations"),
+        apiGet<{ categories: CategoryRow[] }>("/item-categories"),
       ]);
       setLists(pl.lists || []);
       setRows(dr.derivations || []);
+      setCategories(cats.categories || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -189,6 +278,7 @@ export default function PriceRulesPage() {
         min_margin_pct: minMargin.trim() ? Number(minMargin) : null,
         skip_if_cost_missing: Boolean(skipIfCostMissing),
         is_active: Boolean(active),
+        exempt_category_ids: exemptCats,
       });
       setCreateOpen(false);
       setTargetId("");
@@ -200,6 +290,7 @@ export default function PriceRulesPage() {
       setMinMargin("0.12");
       setSkipIfCostMissing(true);
       setActive(true);
+      setExemptCats([]);
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -218,6 +309,7 @@ export default function PriceRulesPage() {
     setEditMinMargin(rule.min_margin_pct == null ? "" : String(pctNum(rule.min_margin_pct)));
     setEditSkipIfCostMissing(rule.skip_if_cost_missing);
     setEditActive(rule.is_active);
+    setEditExemptCats(rule.exempt_category_ids || []);
     setEditOpen(true);
   }
 
@@ -234,6 +326,7 @@ export default function PriceRulesPage() {
         min_margin_pct: editMinMargin.trim() ? Number(editMinMargin) : null,
         skip_if_cost_missing: Boolean(editSkipIfCostMissing),
         is_active: Boolean(editActive),
+        exempt_category_ids: editExemptCats,
       });
       setEditOpen(false);
       await load();
@@ -301,6 +394,21 @@ export default function PriceRulesPage() {
           USD {String(row.original.usd_round_step)} / LBP {String(row.original.lbp_round_step)}
         </span>
       ),
+    },
+    {
+      accessorFn: (r) => (r.exempt_category_ids || []).length,
+      id: "exemptions",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Exemptions" />,
+      cell: ({ row }) => {
+        const ids = row.original.exempt_category_ids || [];
+        if (ids.length === 0) return <span className="text-xs text-muted-foreground">-</span>;
+        const names = ids.map((id) => categories.find((c) => c.id === id)?.name || id);
+        return (
+          <span className="text-xs text-muted-foreground" title={names.join(", ")}>
+            {names.length <= 2 ? names.join(", ") : `${names[0]} +${names.length - 1}`}
+          </span>
+        );
+      },
     },
     {
       accessorFn: (r) => (r.is_active ? "active" : "inactive"),
@@ -438,6 +546,15 @@ export default function PriceRulesPage() {
                       <Input value={minMargin} onChange={(e) => setMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
                     </div>
                   </div>
+                  <div className="space-y-2">
+                    <Label>Exempt Categories</Label>
+                    <p className="text-xs text-muted-foreground">Items in these categories will be skipped.</p>
+                    <CategoryMultiSelect
+                      categories={categories}
+                      value={exemptCats}
+                      onChange={setExemptCats}
+                    />
+                  </div>
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
                       <Switch checked={skipIfCostMissing} onCheckedChange={setSkipIfCostMissing} />
@@ -552,6 +669,15 @@ export default function PriceRulesPage() {
                 <Label>Min Margin (fraction)</Label>
                 <Input value={editMinMargin} onChange={(e) => setEditMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Exempt Categories</Label>
+              <p className="text-xs text-muted-foreground">Items in these categories will be skipped.</p>
+              <CategoryMultiSelect
+                categories={categories}
+                value={editExemptCats}
+                onChange={setEditExemptCats}
+              />
             </div>
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
