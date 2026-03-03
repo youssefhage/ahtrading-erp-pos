@@ -19,6 +19,7 @@ import { ShortcutLink } from "@/components/shortcut-link";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 
 type Warehouse = { id: string; name: string };
+type PriceListRow = { id: string; code: string; name: string; is_default: boolean };
 type UomConv = { uom_code: string; to_base_factor: string | number; is_active: boolean };
 type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency?: string };
 type CompanySettingRow = { key: string; value_json: any };
@@ -167,6 +168,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [saving, setSaving] = useState(false);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
+  const [selectedPriceListId, setSelectedPriceListId] = useState("");
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [defaultVatTaxCodeId, setDefaultVatTaxCodeId] = useState<string | null>(null);
 
@@ -319,13 +322,24 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [wh, fx, tc, settingsRes] = await Promise.all([
+      const [wh, fx, tc, settingsRes, plRes] = await Promise.all([
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
         getFxRateUsdToLbp(),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ settings: CompanySettingRow[] }>("/pricing/company-settings").catch(() => ({ settings: [] as CompanySettingRow[] })),
+        apiGet<{ lists: PriceListRow[] }>("/pricing/lists").catch(() => ({ lists: [] as PriceListRow[] })),
       ]);
       setWarehouses(wh.warehouses || []);
+      const plList = plRes.lists || [];
+      setPriceLists(plList);
+      // Initialize selected price list from settings or default.
+      const defaultPlSetting = (settingsRes.settings || []).find((s) => s.key === "default_price_list_id");
+      const defaultPlId = defaultPlSetting?.value_json?.id || "";
+      if (!selectedPriceListId && defaultPlId) setSelectedPriceListId(defaultPlId);
+      else if (!selectedPriceListId && plList.length > 0) {
+        const def = plList.find((p) => p.is_default);
+        if (def) setSelectedPriceListId(def.id);
+      }
       setTaxCodes(tc.tax_codes || []);
       setDefaultVatTaxCodeId(resolveDefaultVatTaxCodeId(tc.tax_codes || [], settingsRes.settings || []));
       const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : FALLBACK_FX_RATE_USD_LBP;
@@ -506,6 +520,51 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     setDueDate(next);
   }, [autoDueDate, customerId, invoiceDate, selectedCustomer?.payment_terms_days]);
 
+  // Dynamic endpoint for item typeahead — includes price_list_id when set.
+  const itemTypeaheadEndpoint = useMemo(() => {
+    if (selectedPriceListId) return `/pricing/catalog/typeahead?price_list_id=${encodeURIComponent(selectedPriceListId)}`;
+    return "/pricing/catalog/typeahead";
+  }, [selectedPriceListId]);
+
+  async function handlePriceListChange(newId: string) {
+    if (newId === selectedPriceListId) return;
+    setSelectedPriceListId(newId);
+    // Re-fetch prices for existing lines from the new price list.
+    if (!newId || lines.length === 0) return;
+    try {
+      const itemIds = lines.map((l) => l.item_id).filter(Boolean);
+      const prices = await Promise.all(
+        itemIds.map((id) =>
+          apiGet<{ effective?: { price_usd: string | number; price_lbp: string | number } }>(
+            `/pricing/lists/${encodeURIComponent(newId)}/items/by-item/${encodeURIComponent(id)}`
+          ).catch(() => ({ effective: null }))
+        )
+      );
+      const priceMap = new Map<string, { usd: number; lbp: number }>();
+      for (let i = 0; i < itemIds.length; i++) {
+        const eff = prices[i]?.effective;
+        if (eff) {
+          priceMap.set(itemIds[i], { usd: Number(eff.price_usd || 0), lbp: Number(eff.price_lbp || 0) });
+        }
+      }
+      if (priceMap.size > 0) {
+        setLines((prev) =>
+          prev.map((l) => {
+            const p = priceMap.get(l.item_id);
+            if (!p) return l;
+            return {
+              ...l,
+              pre_unit_price_usd: p.usd > 0 ? String(p.usd) : l.pre_unit_price_usd,
+              pre_unit_price_lbp: p.lbp > 0 ? String(p.lbp) : l.pre_unit_price_lbp,
+            };
+          })
+        );
+      }
+    } catch {
+      // Non-blocking: user can still manually adjust prices.
+    }
+  }
+
   function onPickItem(it: ItemTypeaheadItem) {
     setAddItem(it);
     // Best-effort preload conversions so the line UOM selector is ready.
@@ -658,7 +717,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         unit_price_entered_lbp: netLbp * qtyFactor,
         pre_discount_unit_price_usd: preUsd,
         pre_discount_unit_price_lbp: preLbp,
-        discount_pct: discFrac
+        discount_pct: discFrac,
+        applied_price_list_id: selectedPriceListId || null,
       });
     }
 
@@ -795,6 +855,19 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              {priceLists.length > 1 ? (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Price List</label>
+                  <SearchableSelect
+                    value={selectedPriceListId}
+                    onChange={handlePriceListChange}
+                    disabled={loading}
+                    placeholder="Select price list..."
+                    searchPlaceholder="Search price lists..."
+                    options={priceLists.map((p) => ({ value: p.id, label: `${p.name}${p.is_default ? " (Default)" : ""}` }))}
+                  />
+                </div>
+              ) : null}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Due Date</label>
                 <Input
@@ -862,7 +935,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-4" : "md:col-span-5"}`}>
                     <label className="text-xs font-medium text-muted-foreground">Item (search by name or barcode)</label>
                     <ItemTypeahead
-                      endpoint="/pricing/catalog/typeahead"
+                      endpoint={itemTypeaheadEndpoint}
                       globalScan
                       onSelect={(it) => onPickItem(it)}
                       disabled={loading}

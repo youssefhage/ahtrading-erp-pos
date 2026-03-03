@@ -604,6 +604,10 @@
   let showPriceDisplayControls = false;
   let linkedOpsMode = true;
 
+  // Price list selection
+  let priceLists = []; // [{ id, code, name, is_default }]
+  let selectedPriceListId = ""; // currently active price list
+
   // Layout
   let catalogCollapsed = true;
   
@@ -1999,7 +2003,7 @@
   };
 
   const _getWebCatalog = async (companyKey, cfg, { force = false } = {}) => {
-    const key = String(companyKey || "");
+    const key = String(companyKey || "") + "|" + (selectedPriceListId || "");
     const now = Date.now();
     const cached = webCatalogCache.get(key);
     if (!force && cached?.data && (now - toNum(cached.at, 0)) <= WEB_CATALOG_CACHE_TTL_MS) {
@@ -2009,7 +2013,10 @@
       return await cached.promise;
     }
     const companyId = String(cfg?.company_id || "").trim();
-    const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
+    const params = new URLSearchParams();
+    if (companyId) params.set("company_id", companyId);
+    if (selectedPriceListId) params.set("price_list_id", selectedPriceListId);
+    const q = params.toString() ? `?${params.toString()}` : "";
     const promise = _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" })
       .then((res) => ({ items: Array.isArray(res?.items) ? res.items : [] }));
     webCatalogCache.set(key, { ...cached, promise });
@@ -2083,6 +2090,7 @@
         discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
         applied_promotion_id: line.applied_promotion_id || null,
         applied_promotion_item_id: line.applied_promotion_item_id || null,
+        applied_price_list_id: selectedPriceListId || null,
         line_total_usd: totals.usd,
         line_total_lbp: totals.lbp,
         unit_cost_usd: 0,
@@ -3715,6 +3723,13 @@
       const openShiftRes = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" }).catch(() => ({}));
       const vatCodes = Array.isArray(posCfg?.vat_codes) ? posCfg.vat_codes : [];
       const policyTemplate = String(posCfg?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
+      // Populate price lists from the origin company config.
+      if (companyKey === originCompanyKey) {
+        const plRaw = Array.isArray(posCfg?.price_lists) ? posCfg.price_lists : [];
+        priceLists = plRaw.map((p) => ({ id: String(p?.id || ""), code: String(p?.code || ""), name: String(p?.name || ""), is_default: !!p?.is_default })).filter((p) => p.id);
+        const defaultPl = String(posCfg?.default_price_list_id || "").trim();
+        if (!selectedPriceListId && defaultPl) selectedPriceListId = defaultPl;
+      }
       const next = _setCfgForCompanyKey(companyKey, {
         company_id: String(posCfg?.company_id || cfg.company_id || "").trim(),
         device_id: String(posCfg?.device?.id || cfg.device_id || "").trim(),
@@ -6009,6 +6024,15 @@
   const onVatDisplayModeChange = (v) => {
     vatDisplayMode = normalizeVatDisplayMode(v);
     try { localStorage.setItem(VAT_DISPLAY_MODE_STORAGE_KEY, vatDisplayMode); } catch (_) {}
+  };
+
+  const onPriceListChange = async (id) => {
+    if (id === selectedPriceListId) return;
+    selectedPriceListId = id;
+    try { localStorage.setItem("pos.selectedPriceListId", id); } catch (_) {}
+    // Invalidate catalog cache and re-fetch to pick up new prices.
+    webCatalogCache.clear();
+    await fetchData({ background: false });
   };
 
   const onShowPriceDisplayControlsChange = (value) => {
@@ -8725,6 +8749,7 @@
     vatDisplayMode = normalizeVatDisplayMode(_readStorage(VAT_DISPLAY_MODE_STORAGE_KEY, "both"));
     showPriceDisplayControls = _readStorage(PRICE_DISPLAY_CONTROLS_STORAGE_KEY, "") === "1";
     linkedOpsMode = _readStorage(LINKED_OPS_MODE_STORAGE_KEY, "1") !== "0";
+    selectedPriceListId = _readStorage("pos.selectedPriceListId", "") || "";
 
     theme = _readStorage(THEME_STORAGE_KEY, "dark") || "dark";
     if (theme !== "light" && theme !== "dark") theme = "dark";
@@ -9371,6 +9396,9 @@
             flagOfficial={flagOfficial}
             onInvoiceCompanyModeChange={onInvoiceCompanyModeChange}
             onFlagOfficialChange={onFlagOfficialChange}
+            priceLists={priceLists}
+            selectedPriceListId={selectedPriceListId}
+            onPriceListChange={onPriceListChange}
             checkoutBlocked={checkoutBlocked}
             checkoutBlockedReason={checkoutBlockReason}
             onCheckout={handleCheckoutRequest}

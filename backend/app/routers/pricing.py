@@ -789,7 +789,10 @@ def suggested_price(
             }
 
 @router.get("/catalog", dependencies=[Depends(require_permission("items:read"))])
-def catalog(company_id: str = Depends(get_company_id)):
+def catalog(
+    price_list_id: Optional[str] = Query(None, description="Override price list (default: company default)"),
+    company_id: str = Depends(get_company_id),
+):
     """
     Admin-friendly pricing catalog (same "effective price" logic as POS catalog),
     authenticated via session/company access (not device tokens).
@@ -797,16 +800,19 @@ def catalog(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT value_json->>'id' AS id
-                FROM company_settings
-                WHERE company_id = %s AND key = 'default_price_list_id'
-                """,
-                (company_id,),
-            )
-            srow = cur.fetchone()
-            default_pl_id = srow["id"] if srow else None
+            if price_list_id:
+                default_pl_id = price_list_id
+            else:
+                cur.execute(
+                    """
+                    SELECT value_json->>'id' AS id
+                    FROM company_settings
+                    WHERE company_id = %s AND key = 'default_price_list_id'
+                    """,
+                    (company_id,),
+                )
+                srow = cur.fetchone()
+                default_pl_id = srow["id"] if srow else None
 
             cur.execute(
                 """
@@ -866,6 +872,7 @@ def catalog_typeahead(
     q: str = Query("", description="Search SKU/name/barcode"),
     limit: int = Query(30, ge=1, le=100),
     include_inactive: bool = Query(False, description="Include inactive items"),
+    price_list_id: Optional[str] = Query(None, description="Override price list (default: company default)"),
     company_id: str = Depends(get_company_id),
 ):
     """
@@ -881,16 +888,19 @@ def catalog_typeahead(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT value_json->>'id' AS id
-                FROM company_settings
-                WHERE company_id = %s AND key = 'default_price_list_id'
-                """,
-                (company_id,),
-            )
-            srow = cur.fetchone()
-            default_pl_id = srow["id"] if srow else None
+            if price_list_id:
+                default_pl_id = price_list_id
+            else:
+                cur.execute(
+                    """
+                    SELECT value_json->>'id' AS id
+                    FROM company_settings
+                    WHERE company_id = %s AND key = 'default_price_list_id'
+                    """,
+                    (company_id,),
+                )
+                srow = cur.fetchone()
+                default_pl_id = srow["id"] if srow else None
 
             cur.execute(
                 """
