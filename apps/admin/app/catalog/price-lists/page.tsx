@@ -46,7 +46,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 /*  Types                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type ItemRow = { id: string; sku: string; name: string; barcode: string | null };
+type ItemRow = { id: string; sku: string; name: string; barcode: string | null; all_barcodes?: string };
 
 type PriceListRow = {
   id: string;
@@ -385,7 +385,11 @@ export default function PriceListsPage() {
       },
     },
     {
-      accessorFn: (li) => itemById.get(li.item_id)?.name || li.item_id,
+      accessorFn: (li) => {
+        const it = itemById.get(li.item_id);
+        // Include barcode data in accessor so global filter can search by barcode
+        return [it?.name || li.item_id, it?.barcode || "", it?.all_barcodes || ""].join(" ");
+      },
       id: "item",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Item" />,
       cell: ({ row }) => {
@@ -395,6 +399,11 @@ export default function PriceListsPage() {
             {it?.name || row.original.item_id}
           </Link>
         );
+      },
+      sortingFn: (rowA, rowB) => {
+        const a = itemById.get(rowA.original.item_id)?.name || "";
+        const b = itemById.get(rowB.original.item_id)?.name || "";
+        return a.localeCompare(b);
       },
     },
     {
@@ -615,7 +624,7 @@ export default function PriceListsPage() {
                   <DataTable
                     columns={listItemColumns}
                     data={listItems}
-                    searchPlaceholder="Search SKU / item..."
+                    searchPlaceholder="Search SKU / item / barcode..."
                     pageSize={25}
                   />
                 </div>

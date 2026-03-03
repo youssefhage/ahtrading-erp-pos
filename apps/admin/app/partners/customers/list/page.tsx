@@ -107,7 +107,9 @@ export default function CustomersListPage() {
         ),
       },
       {
-        accessorKey: "name",
+        id: "name",
+        accessorFn: (row) =>
+          [row.name, row.membership_no || ""].join(" "),
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Name" />
         ),
@@ -119,6 +121,8 @@ export default function CustomersListPage() {
             {row.original.name}
           </Link>
         ),
+        sortingFn: (rowA, rowB) =>
+          (rowA.original.name || "").localeCompare(rowB.original.name || ""),
       },
       {
         id: "party_type",

@@ -360,7 +360,15 @@ def list_items_min(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.sku, i.name
+                SELECT i.id, i.sku, i.name, i.barcode,
+                       COALESCE(
+                         (
+                           SELECT string_agg(b.barcode, ' ' ORDER BY b.barcode)
+                           FROM item_barcodes b
+                           WHERE b.company_id = i.company_id AND b.item_id = i.id
+                         ),
+                         ''
+                       ) AS all_barcodes
                 FROM items i
                 WHERE i.company_id = %s
                   AND (%s = true OR i.is_active = true)

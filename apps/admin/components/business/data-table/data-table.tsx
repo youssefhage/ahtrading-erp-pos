@@ -87,6 +87,11 @@ export function DataTable<TData, TValue>({
     pageSize,
   });
 
+  // When onSearchChange is provided, the server handles filtering — disable
+  // client-side global filter to prevent double-filtering (the server may match
+  // on fields that aren't in column accessors, e.g. barcode or brand).
+  const isServerSearch = !!onSearchChange;
+
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
@@ -97,7 +102,7 @@ export function DataTable<TData, TValue>({
       columnFilters,
       columnVisibility,
       rowSelection,
-      globalFilter,
+      globalFilter: isServerSearch ? "" : globalFilter,
       pagination,
     },
     onSortingChange: setSorting,
