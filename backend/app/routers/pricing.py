@@ -386,6 +386,18 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         override = overrides_by_cat.get(cat_id)
 
         if override and override.get("mode") == "exempt":
+            # Remove any previously-derived price for this item so the
+            # exemption actually takes effect even if the rule ran before.
+            cur.execute(
+                """
+                DELETE FROM price_list_items
+                WHERE company_id = %s
+                  AND price_list_id = %s::uuid
+                  AND item_id = %s::uuid
+                  AND effective_from = %s
+                """,
+                (company_id, target_id, item_id, eff),
+            )
             skipped_exempt += 1
             continue  # fully exempt — skip this item
 
