@@ -100,6 +100,17 @@ export default function PriceRulesPage() {
   const [skipIfCostMissing, setSkipIfCostMissing] = useState(true);
   const [active, setActive] = useState(true);
 
+  /* ---- Run summary ---- */
+  const [runSummary, setRunSummary] = useState<{
+    applied: number;
+    base_price_rows: number;
+    prepared: number;
+    missing_base: number;
+    missing_cost: number;
+    adjusted_or_blocked_by_margin: number;
+    effective_from: string;
+  } | null>(null);
+
   /* ---- Edit ---- */
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState("");
@@ -135,8 +146,10 @@ export default function PriceRulesPage() {
   const runRule = useCallback(async (ruleId: string) => {
     setBusy(true);
     setErr(null);
+    setRunSummary(null);
     try {
-      await apiPost(`/pricing/derivations/${encodeURIComponent(ruleId)}/run`, {});
+      const res = await apiPost<{ ok: boolean; summary: typeof runSummary }>(`/pricing/derivations/${encodeURIComponent(ruleId)}/run`, {});
+      setRunSummary(res.summary ?? null);
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -299,9 +312,20 @@ export default function PriceRulesPage() {
       accessorFn: (r) => r.last_run_at || "",
       id: "last_run",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Last Run" />,
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">{formatDateLike(row.original.last_run_at, "-")}</span>
-      ),
+      cell: ({ row }) => {
+        const r = row.original;
+        const s = r.last_run_summary as { applied?: number; base_price_rows?: number } | null | undefined;
+        return (
+          <div>
+            <span className="text-xs text-muted-foreground">{formatDateLike(r.last_run_at, "-")}</span>
+            {s && typeof s.applied === "number" && (
+              <p className="text-xs text-muted-foreground">
+                {s.applied}/{s.base_price_rows ?? "?"} applied
+              </p>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "actions",
@@ -438,6 +462,29 @@ export default function PriceRulesPage() {
       />
 
       {err ? <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert> : null}
+
+      {runSummary && (
+        <Alert variant={runSummary.applied > 0 ? "default" : "destructive"}>
+          <AlertDescription>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="space-y-1">
+                <p className="font-medium">
+                  {runSummary.applied > 0
+                    ? `✓ Applied ${runSummary.applied} price${runSummary.applied !== 1 ? "s" : ""} (effective ${runSummary.effective_from})`
+                    : "No prices were applied."}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {runSummary.base_price_rows} base price{runSummary.base_price_rows !== 1 ? "s" : ""} found
+                  {runSummary.missing_base > 0 && ` · ${runSummary.missing_base} skipped (zero price)`}
+                  {runSummary.missing_cost > 0 && ` · ${runSummary.missing_cost} missing cost`}
+                  {runSummary.adjusted_or_blocked_by_margin > 0 && ` · ${runSummary.adjusted_or_blocked_by_margin} blocked/adjusted by margin`}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setRunSummary(null)}>Dismiss</Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {!loading && rows.length === 0 ? (
         <Card>
