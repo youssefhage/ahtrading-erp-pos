@@ -32,7 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
  * Replaces TanStack's default "auto" global filter which silently skips
  * columns whose first-row value isn't a string or number.
  */
-const globalIncludesString: FilterFn<unknown> = (row, columnId, filterValue) => {
+const globalIncludesString: FilterFn<any> = (row, columnId, filterValue) => {
   const search = String(filterValue ?? "").toLowerCase();
   if (!search) return true;
   const cellValue = row.getValue(columnId);
@@ -110,7 +110,7 @@ export function DataTable<TData, TValue>({
   const isServerSearch = !!onSearchChange;
 
   // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
+  const table = useReactTable<TData>({
     data,
     columns,
     pageCount: manualPagination ? pageCount : undefined,
