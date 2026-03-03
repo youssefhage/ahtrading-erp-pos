@@ -1451,6 +1451,8 @@ def catalog(
                        i.updated_at,
                        COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
+                       COALESCE(icost.avg_cost_usd, 0) AS cost_usd,
+                       COALESCE(icost.avg_cost_lbp, 0) AS cost_lbp,
                        COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
                        COALESCE(uc.uom_conversions, '[]'::jsonb) AS uom_conversions
                 FROM items i
@@ -1516,6 +1518,16 @@ def catalog(
                       WHERE COALESCE(i.unit_of_measure, '') <> ''
                     ) conv
                 ) uc ON true
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(
+                        SUM(iwc.on_hand_qty * iwc.avg_cost_usd) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
+                    ) AS avg_cost_usd,
+                    COALESCE(
+                        SUM(iwc.on_hand_qty * iwc.avg_cost_lbp) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
+                    ) AS avg_cost_lbp
+                    FROM item_warehouse_costs iwc
+                    WHERE iwc.company_id = i.company_id AND iwc.item_id = i.id
+                ) icost ON true
                 WHERE i.is_active = true
                 ORDER BY i.sku
                 """
@@ -1569,6 +1581,8 @@ def catalog_delta(
                          i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                          COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                          COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
+                         COALESCE(icost.avg_cost_usd, 0) AS cost_usd,
+                         COALESCE(icost.avg_cost_lbp, 0) AS cost_lbp,
                          COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
                          COALESCE(uc.uom_conversions, '[]'::jsonb) AS uom_conversions,
                          GREATEST(
@@ -1664,6 +1678,16 @@ def catalog_delta(
                         WHERE COALESCE(i.unit_of_measure, '') <> ''
                       ) conv
                   ) uc ON true
+                  LEFT JOIN LATERAL (
+                      SELECT COALESCE(
+                          SUM(iwc.on_hand_qty * iwc.avg_cost_usd) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
+                      ) AS avg_cost_usd,
+                      COALESCE(
+                          SUM(iwc.on_hand_qty * iwc.avg_cost_lbp) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
+                      ) AS avg_cost_lbp
+                      FROM item_warehouse_costs iwc
+                      WHERE iwc.company_id = i.company_id AND iwc.item_id = i.id
+                  ) icost ON true
                   WHERE i.is_active = true
                     AND (
                       i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
