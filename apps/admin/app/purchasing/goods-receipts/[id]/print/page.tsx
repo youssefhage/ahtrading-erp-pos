@@ -100,12 +100,14 @@ export default function GoodsReceiptPrintPage() {
   useEffect(() => {
     applyPrintSettingsFromQuery();
     // Optional: allow kiosk-style auto print via ?autoprint=1.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const qs = new URLSearchParams(window.location.search);
-      if (qs.get("autoprint") === "1") setTimeout(() => window.print(), 250);
+      if (qs.get("autoprint") === "1") timer = setTimeout(() => window.print(), 250);
     } catch {
       // ignore
     }
+    return () => clearTimeout(timer);
   }, []);
 
   const receipt = detail?.receipt || null;

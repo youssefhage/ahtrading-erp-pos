@@ -359,14 +359,16 @@ export default function SalesInvoicePrintPage() {
     setQueryPrint(q);
 
     // Optional: allow kiosk-style auto print via ?autoprint=1.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const qs = new URLSearchParams(window.location.search);
       const rawDoc = String(qs.get("doc") || "").trim().toLowerCase();
       setDocVariant(rawDoc === "receipt" ? "receipt" : "invoice");
-      if (qs.get("autoprint") === "1") setTimeout(() => window.print(), 250);
+      if (qs.get("autoprint") === "1") timer = setTimeout(() => window.print(), 250);
     } catch {
       // ignore
     }
+    return () => clearTimeout(timer);
   }, []);
 
   const isUnofficial = useMemo(() => {
