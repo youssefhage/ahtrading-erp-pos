@@ -605,8 +605,9 @@
   let linkedOpsMode = true;
 
   // Price list selection
-  let priceLists = []; // [{ id, code, name, is_default }]
-  let selectedPriceListId = ""; // currently active price list
+  let priceLists = []; // [{ id, code, name, is_default }]  (origin company, for dropdown)
+  let companyPriceListsMap = {}; // { companyKey: [{ id, code, name, is_default }] }
+  let selectedPriceListId = ""; // currently active price list (origin company ID)
 
   // Layout
   let catalogCollapsed = true;
@@ -1997,13 +1998,38 @@
       webCatalogCache = new Map();
       return;
     }
+    const prefix = String(companyKey || "") + "|";
     const next = new Map(webCatalogCache);
-    next.delete(String(companyKey || ""));
+    for (const k of next.keys()) {
+      if (k === companyKey || k.startsWith(prefix)) next.delete(k);
+    }
     webCatalogCache = next;
   };
 
+  /**
+   * Resolve the correct price list ID for a specific company.
+   * The user selects a price list from the origin company's list (by ID).
+   * For the other company we match by `code` so each company uses its own
+   * Emergency / Wholesale / … list.
+   */
+  const _resolvedPriceListId = (companyKey) => {
+    if (!selectedPriceListId) return "";
+    const nk = normalizeCompanyKey(companyKey);
+    // Origin company — use directly.
+    if (nk === originCompanyKey) return selectedPriceListId;
+    // Find the *code* of the selected list in the origin company's list.
+    const originList = companyPriceListsMap[originCompanyKey] || priceLists || [];
+    const selected = originList.find((p) => p.id === selectedPriceListId);
+    if (!selected?.code) return ""; // unknown → let backend use its own default
+    // Find the matching code in the target company.
+    const targetList = companyPriceListsMap[nk] || [];
+    const match = targetList.find((p) => p.code === selected.code);
+    return match?.id || ""; // no match → let backend decide
+  };
+
   const _getWebCatalog = async (companyKey, cfg, { force = false } = {}) => {
-    const key = String(companyKey || "") + "|" + (selectedPriceListId || "");
+    const resolvedPlId = _resolvedPriceListId(companyKey);
+    const key = String(companyKey || "") + "|" + (resolvedPlId || "");
     const now = Date.now();
     const cached = webCatalogCache.get(key);
     if (!force && cached?.data && (now - toNum(cached.at, 0)) <= WEB_CATALOG_CACHE_TTL_MS) {
@@ -2015,7 +2041,7 @@
     const companyId = String(cfg?.company_id || "").trim();
     const params = new URLSearchParams();
     if (companyId) params.set("company_id", companyId);
-    if (selectedPriceListId) params.set("price_list_id", selectedPriceListId);
+    if (resolvedPlId) params.set("price_list_id", resolvedPlId);
     const q = params.toString() ? `?${params.toString()}` : "";
     const promise = _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" })
       .then((res) => ({ items: Array.isArray(res?.items) ? res.items : [] }));
@@ -2090,7 +2116,7 @@
         discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
         applied_promotion_id: line.applied_promotion_id || null,
         applied_promotion_item_id: line.applied_promotion_item_id || null,
-        applied_price_list_id: selectedPriceListId || null,
+        applied_price_list_id: _resolvedPriceListId(line.companyKey || originCompanyKey) || selectedPriceListId || null,
         line_total_usd: totals.usd,
         line_total_lbp: totals.lbp,
         unit_cost_usd: 0,
@@ -3723,12 +3749,17 @@
       const openShiftRes = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" }).catch(() => ({}));
       const vatCodes = Array.isArray(posCfg?.vat_codes) ? posCfg.vat_codes : [];
       const policyTemplate = String(posCfg?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
-      // Populate price lists from the origin company config.
-      if (companyKey === originCompanyKey) {
+      // Store price lists for EVERY company so we can resolve by code across companies.
+      {
         const plRaw = Array.isArray(posCfg?.price_lists) ? posCfg.price_lists : [];
-        priceLists = plRaw.map((p) => ({ id: String(p?.id || ""), code: String(p?.code || ""), name: String(p?.name || ""), is_default: !!p?.is_default })).filter((p) => p.id);
-        const defaultPl = String(posCfg?.default_price_list_id || "").trim();
-        if (!selectedPriceListId && defaultPl) selectedPriceListId = defaultPl;
+        const parsed = plRaw.map((p) => ({ id: String(p?.id || ""), code: String(p?.code || ""), name: String(p?.name || ""), is_default: !!p?.is_default })).filter((p) => p.id);
+        companyPriceListsMap = { ...companyPriceListsMap, [companyKey]: parsed };
+        // Dropdown list + default selection come from the origin company only.
+        if (companyKey === originCompanyKey) {
+          priceLists = parsed;
+          const defaultPl = String(posCfg?.default_price_list_id || "").trim();
+          if (!selectedPriceListId && defaultPl) selectedPriceListId = defaultPl;
+        }
       }
       const next = _setCfgForCompanyKey(companyKey, {
         company_id: String(posCfg?.company_id || cfg.company_id || "").trim(),
