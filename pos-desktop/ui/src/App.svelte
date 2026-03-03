@@ -9448,6 +9448,9 @@
       otherCompanyKey={otherCompanyKey}
       barcodesByItemIdOrigin={barcodesByItemIdOrigin}
       barcodesByItemIdOther={barcodesByItemIdOther}
+      priceLists={priceLists}
+      selectedPriceListId={selectedPriceListId}
+      onPriceListChange={onPriceListChange}
       uomOptionsFor={uomOptionsFor}
       companyLabel={companyLabel}
       companyTone={companyTone}

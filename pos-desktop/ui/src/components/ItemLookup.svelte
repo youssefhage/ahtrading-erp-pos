@@ -12,6 +12,10 @@
   export let barcodesByItemIdOrigin = new Map();
   export let barcodesByItemIdOther = new Map();
 
+  export let priceLists = [];
+  export let selectedPriceListId = "";
+  export let onPriceListChange = (id) => {};
+
   export let uomOptionsFor = (item) => [];
   export let companyLabel = (obj) => "";
   export let companyTone = (obj) => "";
@@ -74,6 +78,7 @@
   const withVat = (v) => Math.max(0, toNum(v, 0)) * vatFactor;
   const vatAmount = (v) => Math.max(0, toNum(v, 0)) * vatRateNorm;
   const priceBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.price_lbp, 0) : toNum(it?.price_usd, 0));
+  const costBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.cost_lbp, 0) : toNum(it?.cost_usd, 0));
   const priceVat = (it) => vatAmount(priceBase(it));
   const priceTotal = (it) => withVat(priceBase(it));
 
@@ -284,7 +289,7 @@
     <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
     
     <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
-      <div class="flex items-center justify-between gap-3 mb-4">
+      <div class="flex items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-3">
           <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
           <h2 class="text-lg font-bold tracking-tight">Item Lookup</h2>
@@ -293,6 +298,21 @@
           Type to search or scan
         </div>
       </div>
+
+      {#if priceLists.length > 1}
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0">Price List</span>
+          <select
+            class="flex-1 bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none"
+            value={selectedPriceListId}
+            on:change={(e) => onPriceListChange(e.target.value)}
+          >
+            {#each priceLists as pl}
+              <option value={pl.id}>{pl.name}{pl.is_default ? " (Default)" : ""}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
       
       <div class="relative group">
         <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -388,6 +408,11 @@
                       <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
                         {fmtMoney(priceBase(it), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
                       </div>
+                      {#if costBase(it) > 0}
+                        <div class="text-[9px] num-readable mt-0.5 text-amber-400/70">
+                          Cost {fmtMoney(costBase(it), currencyPrimary)}
+                        </div>
+                      {/if}
                     </div>
                   </div>
               </div>
@@ -469,10 +494,23 @@
           <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
             <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Pricing Structure</div>
             <div class="space-y-2.5 num-readable text-sm">
+              {#if costBase(selected) > 0}
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-muted/60">Cost (Avg)</span>
+                  <span class="font-medium text-amber-400">{fmtMoney(costBase(selected), currencyPrimary)}</span>
+                </div>
+              {/if}
               <div class="flex items-center justify-between">
                 <span class="text-muted/80">Base Price (ex VAT)</span>
                 <span class="font-medium text-ink/80">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
               </div>
+              {#if costBase(selected) > 0 && priceBase(selected) > 0}
+                {@const margin = ((priceBase(selected) - costBase(selected)) / priceBase(selected) * 100)}
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-muted/60">Margin</span>
+                  <span class={`font-bold ${margin >= 0 ? "text-emerald-400" : "text-red-400"}`}>{margin.toFixed(1)}%</span>
+                </div>
+              {/if}
               <div class="flex items-center justify-between text-xs">
                 <span class="text-muted/60">VAT ({fmtVatPct(vatRateNorm)})</span>
                 <span class="font-medium text-amber-400">{fmtMoney(priceVat(selected), currencyPrimary)}</span>
