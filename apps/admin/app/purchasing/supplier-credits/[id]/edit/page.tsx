@@ -383,7 +383,7 @@ export default function SupplierCreditEditPage() {
                       quick={[0, 10, 50, 100]}
                     />
                     <MoneyInput
-                      label="Amount LL"
+                      label="Amount LBP"
                       currency="LBP"
                       value={l.amount_lbp}
                       onChange={(v) => updateLine(l.key, { amount_lbp: v })}

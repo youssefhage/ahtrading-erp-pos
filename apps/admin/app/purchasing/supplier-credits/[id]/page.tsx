@@ -339,7 +339,7 @@ export default function SupplierCreditDetailPage() {
     },
     {
       id: "amount_lbp",
-      header: "LL",
+      header: "LBP",
       sortable: true,
       align: "right",
       mono: true,
@@ -375,7 +375,7 @@ export default function SupplierCreditDetailPage() {
     },
     {
       id: "amount_lbp",
-      header: "LL",
+      header: "LBP",
       sortable: true,
       align: "right",
       mono: true,
@@ -442,7 +442,7 @@ export default function SupplierCreditDetailPage() {
                   <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
                 </div>
                 <div className="rounded-md border border-border bg-card p-3">
-                  <div className="text-sm text-muted-foreground">Remaining LL</div>
+                  <div className="text-sm text-muted-foreground">Remaining LBP</div>
                   <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
                 </div>
               </CardContent>
@@ -557,7 +557,7 @@ export default function SupplierCreditDetailPage() {
             />
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <MoneyInput label="Apply USD" currency="USD" value={applyUsd} onChange={setApplyUsd} quick={[0]} />
-              <MoneyInput label="Apply LL" currency="LBP" value={applyLbp} onChange={setApplyLbp} quick={[0]} />
+              <MoneyInput label="Apply LBP" currency="LBP" value={applyLbp} onChange={setApplyLbp} quick={[0]} />
             </div>
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setApplyOpen(false)}>Close</Button>

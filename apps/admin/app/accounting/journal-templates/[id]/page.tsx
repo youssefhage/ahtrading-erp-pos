@@ -164,7 +164,7 @@ export default function JournalTemplateDetailPage() {
       {
         id: "amount_lbp",
         accessorFn: (l) => n(l.amount_lbp),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" className="justify-end" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" className="justify-end" />,
         cell: ({ row }) => (
           <div className="text-right font-mono text-sm text-muted-foreground">
             {fmtLbp(row.original.amount_lbp)}

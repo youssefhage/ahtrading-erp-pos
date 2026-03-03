@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Printer, RefreshCw, Trash2, Plus, Save, Loader2, Package } from "lucide-react";
+import { Printer, RefreshCw, Trash2, Plus, Save, Loader2, Package, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
@@ -30,10 +30,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -201,7 +203,6 @@ export default function ItemEditPage() {
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [newBarcode, setNewBarcode] = useState("");
   const [newBarcodeUom, setNewBarcodeUom] = useState("");
-  const [newFactor, setNewFactor] = useState("1");
   const [newLabel, setNewLabel] = useState("");
   const [newPrimary, setNewPrimary] = useState(false);
 
@@ -220,6 +221,8 @@ export default function ItemEditPage() {
   const [addLastCostUsd, setAddLastCostUsd] = useState("0");
   const [addLastCostLbp, setAddLastCostLbp] = useState("0");
 
+  const [activeTab, setActiveTab] = useState("details");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
   const [priceSuggest, setPriceSuggest] = useState<PriceSuggest | null>(null);
@@ -594,20 +597,20 @@ export default function ItemEditPage() {
     if (!item) return;
     const code = newBarcode.trim();
     if (!code) return setStatus("Barcode is required.");
-    const factorRes = parseNumberInput(newFactor);
-    if (!factorRes.ok) return setStatus("Invalid qty factor.");
-    if (factorRes.value <= 0) return setStatus("qty factor must be > 0.");
+    const bcUom = (newBarcodeUom || editUom || "").trim().toUpperCase() || null;
+    // Auto-derive factor from UOM conversions
+    const conv = conversions.find((c) => String(c.uom_code || "").trim().toUpperCase() === bcUom);
+    const factor = conv ? toNum(String(conv.to_base_factor || 1)) : 1;
     setStatus("Adding barcode...");
     try {
       await apiPost(`/items/${encodeURIComponent(item.id)}/barcodes`, {
         barcode: code,
-        uom_code: (newBarcodeUom || editUom || "").trim().toUpperCase() || null,
-        qty_factor: factorRes.value,
+        uom_code: bcUom,
+        qty_factor: factor,
         label: newLabel.trim() || null,
         is_primary: Boolean(newPrimary),
       });
       setNewBarcode("");
-      setNewFactor("1");
       setNewLabel("");
       setNewPrimary(false);
       await load();
@@ -711,7 +714,7 @@ export default function ItemEditPage() {
     const usdRes = parseNumberInput(addLastCostUsd);
     const lbpRes = parseNumberInput(addLastCostLbp);
     if (!usdRes.ok) return setStatus("Invalid last cost USD.");
-    if (!lbpRes.ok) return setStatus("Invalid last cost LL.");
+    if (!lbpRes.ok) return setStatus("Invalid last cost LBP.");
     setStatus("Linking supplier...");
     try {
       await apiPost(`/suppliers/${encodeURIComponent(addSupplierId)}/items`, {
@@ -825,601 +828,658 @@ export default function ItemEditPage() {
         </Alert>
       ) : null}
 
-      {/* Pricing Card */}
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between">
-          <div>
-            <CardTitle>Pricing</CardTitle>
-            <CardDescription>Current margin and suggested sell price</CardDescription>
-          </div>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={applySuggestedPrice}
-            disabled={priceBusy || saving || !(priceSuggest?.suggested?.price_usd || priceSuggest?.suggested?.price_lbp)}
-          >
-            {priceBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Apply Suggested
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1 rounded-lg border p-3">
-              <p className="text-xs font-medium text-muted-foreground">Current Price</p>
-              <p className="font-mono text-sm font-semibold">
-                {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " / " }) : "-"}
-              </p>
-              <p className="text-xs text-muted-foreground">Target margin: {priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}</p>
-            </div>
-            <div className="space-y-1 rounded-lg border p-3">
-              <p className="text-xs font-medium text-muted-foreground">Average Cost</p>
-              <p className="font-mono text-sm font-semibold">
-                {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " / " }) : "-"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Margin: {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
-              </p>
-            </div>
-            <div className="space-y-1 rounded-lg border p-3">
-              <p className="text-xs font-medium text-muted-foreground">Suggested Price</p>
-              <p className="font-mono text-sm font-semibold">
-                {priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " / " }) : "-"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Rounding: USD {priceSuggest?.rounding?.usd_step || "-"} / LBP {priceSuggest?.rounding?.lbp_step || "-"}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* ================================================================ */}
+      {/* TABS                                                              */}
+      {/* ================================================================ */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="pricing">Pricing</TabsTrigger>
+          <TabsTrigger value="units">Units & Barcodes</TabsTrigger>
+          <TabsTrigger value="suppliers">Suppliers</TabsTrigger>
+        </TabsList>
 
-      {/* Price List Override */}
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between">
-          <div>
-            <CardTitle>Price List Override</CardTitle>
-            <CardDescription>Set prices directly on a specific list</CardDescription>
-          </div>
-          {selectedPriceListId ? (
-            <Button variant="outline" size="sm" onClick={() => router.push(`/catalog/price-lists?open=${encodeURIComponent(selectedPriceListId)}`)}>
-              Open Price List
-            </Button>
-          ) : null}
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Price List</Label>
-              <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={selectedPriceListId} onChange={(e) => setSelectedPriceListId(e.target.value)} disabled={plBusy}>
-                <option value="">(pick)</option>
-                {priceLists.map((pl) => (
-                  <option key={pl.id} value={pl.id}>{pl.code} - {pl.name}{defaultPriceListId && pl.id === defaultPriceListId ? " (default)" : ""}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1 rounded-lg border p-3">
-              <p className="text-xs font-medium text-muted-foreground">Current Effective</p>
-              <p className="font-mono text-sm font-semibold">{plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " / " }) : "-"}</p>
-              <p className="text-xs text-muted-foreground">From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}{plBusy ? " loading..." : ""}</p>
-            </div>
-          </div>
-
-          <form onSubmit={addPriceListOverride} className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <Label>Effective From</Label>
-                <Input value={plEffectiveFrom} onChange={(e) => setPlEffectiveFrom(e.target.value)} type="date" disabled={plBusy} />
-              </div>
-              <div className="space-y-1">
-                <Label>Price USD</Label>
-                <Input value={plPriceUsd} onChange={(e) => setPlPriceUsd(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
-              </div>
-              <div className="space-y-1">
-                <Label>Price LBP</Label>
-                <Input value={plPriceLbp} onChange={(e) => setPlPriceLbp(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                {selectedPriceList ? <>Writing into <span className="font-mono">{selectedPriceList.code}</span>. Most recent effective row wins.</> : "Pick a list to set a price."}
-              </p>
-              <Button type="submit" size="sm" disabled={plBusy || !selectedPriceListId}>
-                {plBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Add Price Row
-              </Button>
-            </div>
-            {plItems.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Recent: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=$${Number(r.price_usd || 0).toFixed(2)}`).join(", ")}
-              </p>
-            ) : null}
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Core Item Fields */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Item Details</CardTitle>
-          <CardDescription>Core fields used by Sales, Purchasing, and Inventory</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={save} className="space-y-6">
-            {/* Identity */}
-            <div className="grid gap-4 sm:grid-cols-6">
-              <div className="space-y-2 sm:col-span-2">
-                <Label>SKU</Label>
-                <Input value={editSku} readOnly disabled className="bg-muted cursor-not-allowed" />
-              </div>
-              <div className="space-y-2 sm:col-span-4">
-                <Label>Name <span className="text-destructive">*</span></Label>
-                <Input value={editName} onChange={(e) => setEditName(e.target.value)} disabled={saving} />
-              </div>
-            </div>
-
-            {/* Type, UOM, Tags */}
-            <div className="grid gap-4 sm:grid-cols-6">
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Type</Label>
-                <Select value={editType} onValueChange={(v) => setEditType(v as any)} disabled={saving}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stocked">Stocked</SelectItem>
-                    <SelectItem value="service">Service</SelectItem>
-                    <SelectItem value="bundle">Bundle</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>UOM <span className="text-destructive">*</span></Label>
-                <SearchableSelect value={editUom} onChange={setEditUom} disabled={saving} placeholder="Select UOM..." searchPlaceholder="Search UOMs..." options={uomOptions} />
-                <p className="text-xs text-muted-foreground">Missing UOM? Add in <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">System &rarr; UOMs</Link></p>
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Tags</Label>
-                <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="comma-separated" disabled={saving} />
-              </div>
-            </div>
-
-            {/* Tax & Category */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Tax Code</Label>
-                <SearchableSelect value={editTaxCodeId} onChange={setEditTaxCodeId} disabled={saving} searchPlaceholder="Search tax codes..." options={[{ value: "", label: "(none)" }, ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") }))]} />
-              </div>
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <SearchableSelect value={editCategoryId} onChange={setEditCategoryId} disabled={saving} searchPlaceholder="Search categories..." options={[{ value: "", label: "(none)" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
-              </div>
-            </div>
-
-            {/* Brand, Short Name */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Brand</Label>
-                <Input value={editBrand} onChange={(e) => setEditBrand(e.target.value)} disabled={saving} />
-              </div>
-              <div className="space-y-2">
-                <Label>Short Name</Label>
-                <Input value={editShortName} onChange={(e) => setEditShortName(e.target.value)} disabled={saving} />
-              </div>
-            </div>
-
-            {/* Description */}
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} disabled={saving} rows={3} />
-            </div>
-
-            <Separator />
-
-            {/* Reorder */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Reorder Point</Label>
-                <Input value={editReorderPoint} onChange={(e) => setEditReorderPoint(e.target.value)} disabled={saving} inputMode="decimal" />
-              </div>
-              <div className="space-y-2">
-                <Label>Reorder Qty</Label>
-                <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} disabled={saving} inputMode="decimal" />
-              </div>
-            </div>
-
-            {/* Toggles */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="flex items-center gap-3">
-                <Switch checked={editTrackBatches} onCheckedChange={setEditTrackBatches} disabled={saving} />
-                <Label>Track Batches</Label>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch checked={editTrackExpiry} onCheckedChange={setEditTrackExpiry} disabled={saving} />
-                <Label>Track Expiry</Label>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch checked={editActive} onCheckedChange={setEditActive} disabled={saving} />
-                <Label>Active</Label>
-              </div>
-            </div>
-
-            {/* Shelf life */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Shelf Life (days)</Label>
-                <Input value={editDefaultShelfLifeDays} onChange={(e) => setEditDefaultShelfLifeDays(e.target.value)} disabled={saving} inputMode="numeric" />
-              </div>
-              <div className="space-y-2">
-                <Label>Min Shelf Life for Sale (days)</Label>
-                <Input value={editMinShelfLifeDaysForSale} onChange={(e) => setEditMinShelfLifeDaysForSale(e.target.value)} disabled={saving} inputMode="numeric" />
-              </div>
-              <div className="space-y-2">
-                <Label>Expiry Warning (days)</Label>
-                <Input value={editExpiryWarningDays} onChange={(e) => setEditExpiryWarningDays(e.target.value)} disabled={saving} inputMode="numeric" />
-              </div>
-            </div>
-
-            {/* Negative stock */}
-            <div className="space-y-2">
-              <Label>Allow Negative Stock</Label>
-              <Select value={editAllowNegativeStock === null ? "inherit" : editAllowNegativeStock ? "true" : "false"} onValueChange={(v) => { if (v === "inherit") setEditAllowNegativeStock(null); else setEditAllowNegativeStock(v === "true"); }} disabled={saving}>
-                <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="inherit">(inherit)</SelectItem>
-                  <SelectItem value="false">No</SelectItem>
-                  <SelectItem value="true">Yes</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Separator />
-
-            {/* Tax & Compliance */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Tax Category</Label>
-                <Select value={editTaxCategory || "none"} onValueChange={(v) => setEditTaxCategory(v === "none" ? "" : v)} disabled={saving}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">(none)</SelectItem>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="zero">Zero-rated</SelectItem>
-                    <SelectItem value="exempt">Exempt</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end gap-3 pb-1">
-                <div className="flex items-center gap-3">
-                  <Switch checked={editIsExcise} onCheckedChange={setEditIsExcise} disabled={saving} />
-                  <Label>Subject to Excise</Label>
+        {/* ============================================================== */}
+        {/* DETAILS TAB                                                     */}
+        {/* ============================================================== */}
+        <TabsContent value="details" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Item Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={save} id="item-form" className="space-y-6">
+                {/* Identity */}
+                <div className="grid gap-4 sm:grid-cols-6">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>SKU</Label>
+                    <Input value={editSku} readOnly disabled className="bg-muted cursor-not-allowed" />
+                  </div>
+                  <div className="space-y-2 sm:col-span-4">
+                    <Label>Name <span className="text-destructive">*</span></Label>
+                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} disabled={saving} />
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <Separator />
+                {/* Type, Unit, Tags */}
+                <div className="grid gap-4 sm:grid-cols-6">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Type</Label>
+                    <Select value={editType} onValueChange={(v) => setEditType(v as any)} disabled={saving}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="stocked">Stocked</SelectItem>
+                        <SelectItem value="service">Service</SelectItem>
+                        <SelectItem value="bundle">Bundle</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Unit <span className="text-destructive">*</span></Label>
+                    <SearchableSelect value={editUom} onChange={setEditUom} disabled={saving} placeholder="Select unit..." searchPlaceholder="Search units..." options={uomOptions} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Tags</Label>
+                    <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="comma-separated" disabled={saving} />
+                  </div>
+                </div>
 
-            {/* UOM & Packaging */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Purchase UOM</Label>
-                <SearchableSelect value={editPurchaseUomCode} onChange={setEditPurchaseUomCode} disabled={saving} placeholder="Same as base UOM" searchPlaceholder="Search UOMs..." options={[{ value: "", label: "(same as base)" }, ...uomOptions]} />
-              </div>
-              <div className="space-y-2">
-                <Label>Sales UOM</Label>
-                <SearchableSelect value={editSalesUomCode} onChange={setEditSalesUomCode} disabled={saving} placeholder="Same as base UOM" searchPlaceholder="Search UOMs..." options={[{ value: "", label: "(same as base)" }, ...uomOptions]} />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Case Pack Qty</Label>
-                <Input type="number" min="0" step="any" value={editCasePackQty} onChange={(e) => setEditCasePackQty(e.target.value)} placeholder="Units per case" disabled={saving} />
-              </div>
-              <div className="space-y-2">
-                <Label>Inner Pack Qty</Label>
-                <Input type="number" min="0" step="any" value={editInnerPackQty} onChange={(e) => setEditInnerPackQty(e.target.value)} placeholder="Units per inner pack" disabled={saving} />
-              </div>
-            </div>
+                {/* Category, Brand */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <SearchableSelect value={editCategoryId} onChange={setEditCategoryId} disabled={saving} searchPlaceholder="Search categories..." options={[{ value: "", label: "(none)" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Brand</Label>
+                    <Input value={editBrand} onChange={(e) => setEditBrand(e.target.value)} disabled={saving} />
+                  </div>
+                </div>
 
-            <Separator />
+                {/* Tax Code, Active */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Tax Code</Label>
+                    <SearchableSelect value={editTaxCodeId} onChange={setEditTaxCodeId} disabled={saving} searchPlaceholder="Search tax codes..." options={[{ value: "", label: "(none)" }, ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") }))]} />
+                  </div>
+                  <div className="flex items-end pb-1">
+                    <div className="flex items-center gap-3">
+                      <Switch checked={editActive} onCheckedChange={setEditActive} disabled={saving} />
+                      <Label>Active</Label>
+                    </div>
+                  </div>
+                </div>
 
-            {/* Costing & Margins */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Standard Cost (USD)</Label>
-                <Input type="number" min="0" step="any" value={editStandardCostUsd} onChange={(e) => setEditStandardCostUsd(e.target.value)} placeholder="0.00" disabled={saving} />
-              </div>
-              <div className="space-y-2">
-                <Label>Standard Cost (LBP)</Label>
-                <Input type="number" min="0" step="any" value={editStandardCostLbp} onChange={(e) => setEditStandardCostLbp(e.target.value)} placeholder="0" disabled={saving} />
-              </div>
-              <div className="space-y-2">
-                <Label>Min Margin %</Label>
-                <Input type="number" min="0" max="100" step="0.1" value={editMinMarginPct} onChange={(e) => setEditMinMarginPct(e.target.value)} placeholder="e.g. 20" disabled={saving} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Costing Method</Label>
-              <Select value={editCostingMethod || "default"} onValueChange={(v) => setEditCostingMethod(v === "default" ? "" : v)} disabled={saving}>
-                <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">(company default)</SelectItem>
-                  <SelectItem value="avg">Weighted Average</SelectItem>
-                  <SelectItem value="fifo">FIFO</SelectItem>
-                  <SelectItem value="standard">Standard Cost</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                {/* Description */}
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} disabled={saving} rows={2} />
+                </div>
 
-            <Separator />
+                {/* Image inline */}
+                <Separator />
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Image</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FileInput accept="image/*" disabled={imageUploading || saving} buttonLabel="Choose image" clearAfterSelect onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) uploadImage(f); }} />
+                    <Button type="button" variant="outline" size="sm" disabled={imageUploading || saving || !editImageAttachmentId} onClick={removeImage}>Remove</Button>
+                    {editImageAttachmentId ? (
+                      <span className="text-xs text-muted-foreground">Uploaded</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No image</span>
+                    )}
+                  </div>
+                </div>
 
-            {/* Logistics & Supplier */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Weight</Label>
-                <Input type="number" min="0" step="any" value={editWeight} onChange={(e) => setEditWeight(e.target.value)} placeholder="0.00" disabled={saving} />
-              </div>
-              <div className="space-y-2">
-                <Label>Volume</Label>
-                <Input type="number" min="0" step="any" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} placeholder="0.00" disabled={saving} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Preferred Supplier</Label>
-              <SupplierTypeahead
-                value={editPreferredSupplier}
-                onSelect={(s) => setEditPreferredSupplier(s)}
-                onClear={() => setEditPreferredSupplier(null)}
-                disabled={saving}
-              />
-            </div>
+                {/* ── Advanced Settings ── */}
+                <Separator />
+                <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                  <CollapsibleTrigger asChild>
+                    <Button type="button" variant="ghost" className="flex w-full items-center justify-between px-0 hover:bg-transparent">
+                      <span className="text-sm font-medium">Advanced Settings</span>
+                      <ChevronDown className={cn("h-4 w-4 transition-transform", advancedOpen && "rotate-180")} />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-6 pt-4">
+                    {/* Short Name */}
+                    <div className="space-y-2">
+                      <Label>Short Name</Label>
+                      <Input value={editShortName} onChange={(e) => setEditShortName(e.target.value)} disabled={saving} className="max-w-sm" />
+                    </div>
 
-            <Separator />
+                    {/* Inventory */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Reorder Point</Label>
+                        <Input value={editReorderPoint} onChange={(e) => setEditReorderPoint(e.target.value)} disabled={saving} inputMode="decimal" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Reorder Qty</Label>
+                        <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} disabled={saving} inputMode="decimal" />
+                      </div>
+                    </div>
 
-            {/* Actions */}
+                    {/* Toggles */}
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="flex items-center gap-3">
+                        <Switch checked={editTrackBatches} onCheckedChange={setEditTrackBatches} disabled={saving} />
+                        <Label>Track Batches</Label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Switch checked={editTrackExpiry} onCheckedChange={setEditTrackExpiry} disabled={saving} />
+                        <Label>Track Expiry</Label>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Allow Negative Stock</Label>
+                        <Select value={editAllowNegativeStock === null ? "default" : editAllowNegativeStock ? "true" : "false"} onValueChange={(v) => { if (v === "default") setEditAllowNegativeStock(null); else setEditAllowNegativeStock(v === "true"); }} disabled={saving}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Use company default</SelectItem>
+                            <SelectItem value="false">No</SelectItem>
+                            <SelectItem value="true">Yes</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Shelf life */}
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>Shelf Life (days)</Label>
+                        <Input value={editDefaultShelfLifeDays} onChange={(e) => setEditDefaultShelfLifeDays(e.target.value)} disabled={saving} inputMode="numeric" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Min Shelf Life for Sale (days)</Label>
+                        <Input value={editMinShelfLifeDaysForSale} onChange={(e) => setEditMinShelfLifeDaysForSale(e.target.value)} disabled={saving} inputMode="numeric" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Expiry Warning (days)</Label>
+                        <Input value={editExpiryWarningDays} onChange={(e) => setEditExpiryWarningDays(e.target.value)} disabled={saving} inputMode="numeric" />
+                      </div>
+                    </div>
+
+                    {/* Tax & Compliance */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Tax Category</Label>
+                        <Select value={editTaxCategory || "none"} onValueChange={(v) => setEditTaxCategory(v === "none" ? "" : v)} disabled={saving}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">(none)</SelectItem>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="zero">Zero-rated</SelectItem>
+                            <SelectItem value="exempt">Exempt</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-end pb-1">
+                        <div className="flex items-center gap-3">
+                          <Switch checked={editIsExcise} onCheckedChange={setEditIsExcise} disabled={saving} />
+                          <Label>Subject to Excise</Label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Packaging */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Purchase Unit</Label>
+                        <SearchableSelect value={editPurchaseUomCode} onChange={setEditPurchaseUomCode} disabled={saving} placeholder="Same as base" searchPlaceholder="Search units..." options={[{ value: "", label: "(same as base)" }, ...uomOptions]} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Sales Unit</Label>
+                        <SearchableSelect value={editSalesUomCode} onChange={setEditSalesUomCode} disabled={saving} placeholder="Same as base" searchPlaceholder="Search units..." options={[{ value: "", label: "(same as base)" }, ...uomOptions]} />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Case Pack Qty</Label>
+                        <Input type="number" min="0" step="any" value={editCasePackQty} onChange={(e) => setEditCasePackQty(e.target.value)} placeholder="Units per case" disabled={saving} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Inner Pack Qty</Label>
+                        <Input type="number" min="0" step="any" value={editInnerPackQty} onChange={(e) => setEditInnerPackQty(e.target.value)} placeholder="Units per inner pack" disabled={saving} />
+                      </div>
+                    </div>
+
+                    {/* Costing & Margins */}
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>Standard Cost (USD)</Label>
+                        <Input type="number" min="0" step="any" value={editStandardCostUsd} onChange={(e) => setEditStandardCostUsd(e.target.value)} placeholder="0.00" disabled={saving} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Standard Cost (LBP)</Label>
+                        <Input type="number" min="0" step="any" value={editStandardCostLbp} onChange={(e) => setEditStandardCostLbp(e.target.value)} placeholder="0" disabled={saving} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Min Margin %</Label>
+                        <Input type="number" min="0" max="100" step="0.1" value={editMinMarginPct} onChange={(e) => setEditMinMarginPct(e.target.value)} placeholder="e.g. 20" disabled={saving} />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Costing Method</Label>
+                      <Select value={editCostingMethod || "default"} onValueChange={(v) => setEditCostingMethod(v === "default" ? "" : v)} disabled={saving}>
+                        <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">(company default)</SelectItem>
+                          <SelectItem value="avg">Weighted Average</SelectItem>
+                          <SelectItem value="fifo">FIFO</SelectItem>
+                          <SelectItem value="standard">Standard Cost</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Logistics */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Weight (kg)</Label>
+                        <Input type="number" min="0" step="any" value={editWeight} onChange={(e) => setEditWeight(e.target.value)} placeholder="0.00" disabled={saving} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Volume (L)</Label>
+                        <Input type="number" min="0" step="any" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} placeholder="0.00" disabled={saving} />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Preferred Supplier</Label>
+                      <SupplierTypeahead
+                        value={editPreferredSupplier}
+                        onSelect={(s) => setEditPreferredSupplier(s)}
+                        onClear={() => setEditPreferredSupplier(null)}
+                        disabled={saving}
+                      />
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Danger Zone — visually separated */}
+          <div className="rounded-lg border border-destructive/30 p-4">
             <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-destructive">Danger Zone</p>
+                <p className="text-xs text-muted-foreground">Permanently delete this item and all its data.</p>
+              </div>
               <Button type="button" variant="destructive" size="sm" onClick={hardDeleteItem} disabled={saving}>
-                <Trash2 className="mr-2 h-4 w-4" /> Hard Delete
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save
+                <Trash2 className="mr-2 h-4 w-4" /> Delete Item
               </Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Image */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Image</CardTitle>
-          <CardDescription>Upload an item image (stored as an attachment)</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-2">
-            <Label>Alt text</Label>
-            <Input value={editImageAlt} onChange={(e) => setEditImageAlt(e.target.value)} disabled={imageUploading || saving} />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <FileInput accept="image/*" disabled={imageUploading || saving} buttonLabel="Choose image" clearAfterSelect onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) uploadImage(f); }} />
-            <Button type="button" variant="outline" size="sm" disabled={imageUploading || saving || !editImageAttachmentId} onClick={removeImage}>Remove</Button>
-          </div>
-          {editImageAttachmentId ? (
-            <p className="text-xs text-muted-foreground">Current: <span className="font-mono">{editImageAttachmentId}</span></p>
-          ) : (
-            <p className="text-xs text-muted-foreground">No image.</p>
-          )}
-        </CardContent>
-      </Card>
+        </TabsContent>
 
-      {/* Barcodes */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Barcodes</CardTitle>
-          <CardDescription>Manage primary and alternate barcodes</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form onSubmit={addBarcode} className="grid gap-3 sm:grid-cols-12">
-            <div className="sm:col-span-4">
-              <div className="relative">
-                <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="Barcode" className="pr-20 font-mono" />
-                <div className="absolute right-1 top-1 flex items-center gap-0.5">
-                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Generate barcode" onClick={generateDraftBarcode}><RefreshCw className="h-3.5 w-3.5" /></Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Print label" onClick={() => printLabelForBarcode(newBarcode, newBarcodeUom || editUom)} disabled={!newBarcode.trim()}><Printer className="h-3.5 w-3.5" /></Button>
+        {/* ============================================================== */}
+        {/* PRICING TAB                                                     */}
+        {/* ============================================================== */}
+        <TabsContent value="pricing" className="space-y-6">
+          {/* Pricing Summary */}
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div>
+                <CardTitle>Pricing</CardTitle>
+                <CardDescription>Current margin and suggested sell price</CardDescription>
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={applySuggestedPrice}
+                disabled={priceBusy || saving || !(priceSuggest?.suggested?.price_usd || priceSuggest?.suggested?.price_lbp)}
+              >
+                {priceBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Apply Suggested
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-1 rounded-lg border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Current Price</p>
+                  <p className="font-mono text-sm font-semibold">
+                    {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " / " }) : "-"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Target margin: {priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}</p>
+                </div>
+                <div className="space-y-1 rounded-lg border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Average Cost</p>
+                  <p className="font-mono text-sm font-semibold">
+                    {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " / " }) : "-"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Margin: {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
+                  </p>
+                </div>
+                <div className="space-y-1 rounded-lg border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Suggested Price</p>
+                  <p className="font-mono text-sm font-semibold">
+                    {priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " / " }) : "-"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Rounding: USD {priceSuggest?.rounding?.usd_step || "-"} / LBP {priceSuggest?.rounding?.lbp_step || "-"}
+                  </p>
                 </div>
               </div>
-            </div>
-            <div className="sm:col-span-2">
-              <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="UOM..." options={uomOptions} />
-            </div>
-            <div className="sm:col-span-2">
-              <Input value={newFactor} onChange={(e) => setNewFactor(e.target.value)} placeholder="Factor" inputMode="decimal" />
-            </div>
-            <div className="sm:col-span-2">
-              <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Label" />
-            </div>
-            <div className="flex items-center gap-2 sm:col-span-1">
-              <Switch checked={newPrimary} onCheckedChange={setNewPrimary} />
-              <span className="text-xs">Pri</span>
-            </div>
-            <div className="flex justify-end sm:col-span-1">
-              <Button type="submit" variant="outline" size="sm"><Plus className="h-4 w-4" /></Button>
-            </div>
-          </form>
+            </CardContent>
+          </Card>
 
-          {barcodes.length > 0 ? (
-            <div className="rounded-lg border">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Barcode</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">UOM</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Factor</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Label</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Primary</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>
-                </tr></thead>
-                <tbody>
-                  {barcodes.map((b) => (
-                    <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-3 py-2 font-mono text-xs">{b.barcode}</td>
-                      <td className="px-3 py-2">
-                        <div className="min-w-[8rem]">
-                          <SearchableSelect value={String(b.uom_code || editUom || "").trim()} onChange={(v) => updateBarcode(b.id, { uom_code: String(v || "").trim().toUpperCase() || null })} searchPlaceholder="UOM..." options={uomOptions} />
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Input defaultValue={String(b.qty_factor || 1)} inputMode="decimal" className="w-20 text-right font-mono text-xs" onBlur={(e) => { const r = parseNumberInput(e.currentTarget.value); if (!r.ok || r.value <= 0) return; const prev = toNum(String(b.qty_factor || 1)); if (Math.abs(prev - r.value) < 1e-12) return; updateBarcode(b.id, { qty_factor: r.value }); }} />
-                      </td>
-                      <td className="px-3 py-2">
-                        <Input defaultValue={b.label || ""} placeholder="" className="text-xs" onBlur={(e) => { const next = (e.currentTarget.value || "").trim() || null; const prev = (b.label || "").trim() || null; if (next === prev) return; updateBarcode(b.id, { label: next }); }} />
-                      </td>
-                      <td className="px-3 py-2">{b.is_primary ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Print" onClick={() => printLabelForBarcode(b.barcode, b.uom_code)}><Printer className="h-3.5 w-3.5" /></Button>
-                          {!b.is_primary ? <Button type="button" size="sm" variant="outline" onClick={() => updateBarcode(b.id, { is_primary: true })}>Set Primary</Button> : null}
-                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteBarcode(b.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="py-4 text-center text-sm text-muted-foreground">No barcodes.</p>
-          )}
-        </CardContent>
-      </Card>
+          {/* Price List Override */}
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div>
+                <CardTitle>Price List Override</CardTitle>
+                <CardDescription>Set prices directly on a specific list</CardDescription>
+              </div>
+              {selectedPriceListId ? (
+                <Button variant="outline" size="sm" onClick={() => router.push(`/catalog/price-lists?open=${encodeURIComponent(selectedPriceListId)}`)}>
+                  Open Price List
+                </Button>
+              ) : null}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Price List</Label>
+                  <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={selectedPriceListId} onChange={(e) => setSelectedPriceListId(e.target.value)} disabled={plBusy}>
+                    <option value="">(pick)</option>
+                    {priceLists.map((pl) => (
+                      <option key={pl.id} value={pl.id}>{pl.code} - {pl.name}{defaultPriceListId && pl.id === defaultPriceListId ? " (default)" : ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1 rounded-lg border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Current Effective</p>
+                  <p className="font-mono text-sm font-semibold">{plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " / " }) : "-"}</p>
+                  <p className="text-xs text-muted-foreground">From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}{plBusy ? " loading..." : ""}</p>
+                </div>
+              </div>
 
-      {/* UOM Conversions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>UOM Conversions</CardTitle>
-          <CardDescription>
-            Factor: <span className="font-mono">base_qty = entered_qty * factor</span>. Base UOM: <span className="font-mono">{convBaseUom || editUom || "-"}</span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form onSubmit={addConversion} className="grid gap-3 sm:grid-cols-12">
-            <div className="sm:col-span-4">
-              <SearchableSelect value={newConvUom} onChange={setNewConvUom} searchPlaceholder="UOM..." options={uomOptions} />
-            </div>
-            <div className="sm:col-span-4">
-              <Input value={newConvFactor} onChange={(e) => setNewConvFactor(e.target.value)} placeholder="Factor" inputMode="decimal" />
-            </div>
-            <div className="flex items-center gap-2 sm:col-span-2">
-              <Switch checked={newConvActive} onCheckedChange={setNewConvActive} />
-              <span className="text-xs">Active</span>
-            </div>
-            <div className="flex justify-end sm:col-span-2">
-              <Button type="submit" variant="outline" size="sm">Add / Update</Button>
-            </div>
-          </form>
+              <form onSubmit={addPriceListOverride} className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label>Effective From</Label>
+                    <Input value={plEffectiveFrom} onChange={(e) => setPlEffectiveFrom(e.target.value)} type="date" disabled={plBusy} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Price USD</Label>
+                    <Input value={plPriceUsd} onChange={(e) => setPlPriceUsd(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Price LBP</Label>
+                    <Input value={plPriceLbp} onChange={(e) => setPlPriceLbp(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    {selectedPriceList ? <>Updating <span className="font-mono">{selectedPriceList.code}</span>.</> : "Pick a list to set a price."}
+                  </p>
+                  <Button type="submit" size="sm" disabled={plBusy || !selectedPriceListId}>
+                    {plBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Set Price
+                  </Button>
+                </div>
+                {plItems.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Recent: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=$${Number(r.price_usd || 0).toFixed(2)}`).join(", ")}
+                  </p>
+                ) : null}
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          {conversions.length > 0 ? (
-            <div className="rounded-lg border">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">UOM</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Factor</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Active</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>
-                </tr></thead>
-                <tbody>
+        {/* ============================================================== */}
+        {/* UNITS & BARCODES TAB                                            */}
+        {/* ============================================================== */}
+        <TabsContent value="units" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Units & Barcodes</CardTitle>
+              <CardDescription>
+                Define how this item is measured, then assign barcodes. Base unit: <span className="font-semibold">{convBaseUom || editUom || "—"}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+
+              {/* ── Unit Conversions ── */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium">Unit Conversions</h4>
+                  {conversions.length > 0 && <Badge variant="secondary" className="text-xs">{conversions.length}</Badge>}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  How many <span className="font-semibold">{convBaseUom || editUom || "base"}</span> in 1 of each unit? You can type fractions like <span className="font-mono">1/48</span>.
+                </p>
+              </div>
+
+              {/* Add conversion — sentence-style */}
+              <form onSubmit={addConversion} className="flex flex-wrap items-center gap-2">
+                <span className="flex h-9 items-center text-sm text-muted-foreground">1</span>
+                <div className="w-32">
+                  <SearchableSelect value={newConvUom} onChange={setNewConvUom} searchPlaceholder="Unit..." options={uomOptions} />
+                </div>
+                <span className="flex h-9 items-center text-sm text-muted-foreground">=</span>
+                <Input value={newConvFactor} onChange={(e) => setNewConvFactor(e.target.value)} placeholder="e.g. 48" inputMode="decimal" className="w-24 text-center font-mono" />
+                <span className="flex h-9 items-center text-sm font-semibold">{convBaseUom || editUom || "base"}</span>
+                <Button type="submit" variant="outline" size="sm"><Plus className="mr-1 h-3.5 w-3.5" />Add</Button>
+              </form>
+
+              {/* Existing conversions — card-style rows */}
+              {conversions.length > 0 ? (
+                <div className="space-y-2">
                   {conversions.map((c) => {
                     const isBase = String(c.uom_code || "").trim().toUpperCase() === String(convBaseUom || editUom || "").trim().toUpperCase();
                     return (
-                      <tr key={c.uom_code} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="px-3 py-2 font-mono text-xs">{c.uom_code}</td>
-                        <td className="px-3 py-2 text-right">
-                          <Input defaultValue={String(c.to_base_factor || 1)} inputMode="decimal" disabled={isBase} className="w-24 text-right font-mono text-xs" onBlur={(e) => { const r = parseNumberInput(e.currentTarget.value); if (!r.ok || r.value <= 0) return; const prev = toNum(String(c.to_base_factor || 1)); if (Math.abs(prev - r.value) < 1e-12) return; updateConversion(c.uom_code, { to_base_factor: r.value }); }} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <Switch checked={Boolean(c.is_active)} disabled={isBase} onCheckedChange={(v) => updateConversion(c.uom_code, { is_active: v })} />
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {!isBase ? <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteConversion(c.uom_code)}><Trash2 className="h-3.5 w-3.5" /></Button> : <span className="text-xs text-muted-foreground">Base</span>}
-                        </td>
-                      </tr>
+                      <div key={c.uom_code} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+                        <span className="whitespace-nowrap font-mono text-sm">1 {c.uom_code} =</span>
+                        <Input
+                          defaultValue={String(c.to_base_factor || 1)}
+                          inputMode="decimal"
+                          disabled={isBase}
+                          className="w-20 text-center font-mono text-sm"
+                          onBlur={(e) => { const r = parseNumberInput(e.currentTarget.value); if (!r.ok || r.value <= 0) return; const prev = toNum(String(c.to_base_factor || 1)); if (Math.abs(prev - r.value) < 1e-12) return; updateConversion(c.uom_code, { to_base_factor: r.value }); }}
+                        />
+                        <span className="text-sm font-semibold">{convBaseUom || editUom || "base"}</span>
+                        <div className="flex-1" />
+                        {!isBase && (
+                          <div className="flex items-center gap-1.5">
+                            <Switch checked={Boolean(c.is_active)} onCheckedChange={(v) => updateConversion(c.uom_code, { is_active: v })} />
+                            <span className="text-xs text-muted-foreground">Active</span>
+                          </div>
+                        )}
+                        {isBase ? (
+                          <Badge variant="secondary" className="text-xs">Base</Badge>
+                        ) : (
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteConversion(c.uom_code)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        )}
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="py-4 text-center text-sm text-muted-foreground">No conversions yet.</p>
-          )}
-        </CardContent>
-      </Card>
+                </div>
+              ) : (
+                <p className="py-3 text-center text-sm text-muted-foreground">No unit conversions yet. Add one above.</p>
+              )}
 
-      {/* Suppliers */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Suppliers</CardTitle>
-          <CardDescription>Link suppliers to this item</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form onSubmit={addSupplierLink} className="grid gap-3 sm:grid-cols-12">
-            <div className="sm:col-span-4">
-              <SearchableSelect value={addSupplierId} onChange={setAddSupplierId} searchPlaceholder="Search suppliers..." options={[{ value: "", label: "Select supplier..." }, ...suppliers.map((s) => ({ value: s.id, label: s.name, keywords: `${s.phone || ""} ${s.email || ""}`.trim() }))]} />
-            </div>
-            <div className="sm:col-span-2">
-              <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="Lead days" inputMode="numeric" />
-            </div>
-            <div className="sm:col-span-2">
-              <Input value={addMinOrderQty} onChange={(e) => setAddMinOrderQty(e.target.value)} placeholder="Min qty" inputMode="decimal" />
-            </div>
-            <div className="sm:col-span-2">
-              <Input value={addLastCostUsd} onChange={(e) => setAddLastCostUsd(e.target.value)} placeholder="USD" inputMode="decimal" />
-            </div>
-            <div className="sm:col-span-2">
-              <Input value={addLastCostLbp} onChange={(e) => setAddLastCostLbp(e.target.value)} placeholder="LBP" inputMode="decimal" />
-            </div>
-            <div className="flex items-center justify-between sm:col-span-12">
-              <div className="flex items-center gap-2">
-                <Switch checked={addIsPrimary} onCheckedChange={setAddIsPrimary} />
-                <span className="text-xs text-muted-foreground">Set as primary</span>
+              <Separator />
+
+              {/* ── Barcodes ── */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium">Barcodes</h4>
+                  {barcodes.length > 0 && <Badge variant="secondary" className="text-xs">{barcodes.length}</Badge>}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Each barcode is linked to a unit. Conversion factors sync automatically from above.
+                </p>
               </div>
-              <Button type="submit" variant="outline" size="sm">Link Supplier</Button>
-            </div>
-          </form>
 
-          {itemLinks.length > 0 ? (
-            <div className="rounded-lg border">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Supplier</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Primary</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Lead</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Min Qty</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">USD</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">LBP</th>
-                  <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>
-                </tr></thead>
-                <tbody>
-                  {itemLinks.map((l) => (
-                    <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-3 py-2 font-medium">{l.name}</td>
-                      <td className="px-3 py-2">{l.is_primary ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{l.lead_time_days || 0}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{String(l.min_order_qty || 0)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_usd || 0)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_lbp || 0)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-1">
-                          {!l.is_primary ? <Button type="button" size="sm" variant="outline" onClick={() => updateSupplierLink(l.id, { is_primary: true })}>Set Primary</Button> : null}
-                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteSupplierLink(l.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="py-4 text-center text-sm text-muted-foreground">No suppliers linked.</p>
-          )}
-        </CardContent>
-      </Card>
+              {/* Add barcode */}
+              <form onSubmit={addBarcode} className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[200px] flex-1">
+                    <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="Scan or type barcode" className="pr-16 font-mono" />
+                    <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Generate EAN-13" onClick={generateDraftBarcode}><RefreshCw className="h-3.5 w-3.5" /></Button>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Print label" onClick={() => printLabelForBarcode(newBarcode, newBarcodeUom || editUom)} disabled={!newBarcode.trim()}><Printer className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </div>
+                  <div className="w-28">
+                    <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="Unit..." options={uomOptions} />
+                  </div>
+                  <Button type="submit" variant="outline" size="sm"><Plus className="mr-1 h-3.5 w-3.5" />Add</Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 pl-0.5">
+                  <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Optional label (e.g. inner pack)" className="h-8 w-56 text-xs" />
+                  <div className="flex items-center gap-1.5">
+                    <Switch checked={newPrimary} onCheckedChange={setNewPrimary} />
+                    <span className="text-xs text-muted-foreground">Primary</span>
+                  </div>
+                </div>
+              </form>
+
+              {/* Existing barcodes */}
+              {barcodes.length > 0 ? (
+                <div className="rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b bg-muted/50">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Barcode</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Unit</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Label</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground" />
+                    </tr></thead>
+                    <tbody>
+                      {barcodes.map((b) => (
+                        <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs">{b.barcode}</span>
+                              {b.is_primary && <Badge variant="default" className="px-1.5 py-0 text-[10px]">Primary</Badge>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="w-24">
+                              <SearchableSelect value={String(b.uom_code || editUom || "").trim()} onChange={(v) => updateBarcode(b.id, { uom_code: String(v || "").trim().toUpperCase() || null })} searchPlaceholder="Unit..." options={uomOptions} />
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input defaultValue={b.label || ""} placeholder="—" className="h-8 text-xs" onBlur={(e) => { const next = (e.currentTarget.value || "").trim() || null; const prev = (b.label || "").trim() || null; if (next === prev) return; updateBarcode(b.id, { label: next }); }} />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Print label" onClick={() => printLabelForBarcode(b.barcode, b.uom_code)}><Printer className="h-3.5 w-3.5" /></Button>
+                              {!b.is_primary && <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => updateBarcode(b.id, { is_primary: true })}>Set Primary</Button>}
+                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteBarcode(b.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-3 text-center text-sm text-muted-foreground">No barcodes yet. Scan or add one above.</p>
+              )}
+
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================== */}
+        {/* SUPPLIERS TAB                                                   */}
+        {/* ============================================================== */}
+        <TabsContent value="suppliers" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Suppliers</CardTitle>
+              <CardDescription>Link suppliers to this item with cost and lead time info</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <form onSubmit={addSupplierLink} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Supplier</Label>
+                  <SearchableSelect value={addSupplierId} onChange={setAddSupplierId} searchPlaceholder="Search suppliers..." options={[{ value: "", label: "Select supplier..." }, ...suppliers.map((s) => ({ value: s.id, label: s.name, keywords: `${s.phone || ""} ${s.email || ""}`.trim() }))]} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-4">
+                  <div className="space-y-2">
+                    <Label>Lead Time (days)</Label>
+                    <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="0" inputMode="numeric" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Min Order Qty</Label>
+                    <Input value={addMinOrderQty} onChange={(e) => setAddMinOrderQty(e.target.value)} placeholder="0" inputMode="decimal" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Last Cost (USD)</Label>
+                    <Input value={addLastCostUsd} onChange={(e) => setAddLastCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Last Cost (LBP)</Label>
+                    <Input value={addLastCostLbp} onChange={(e) => setAddLastCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={addIsPrimary} onCheckedChange={setAddIsPrimary} />
+                    <span className="text-xs text-muted-foreground">Set as primary supplier</span>
+                  </div>
+                  <Button type="submit" variant="outline" size="sm">Link Supplier</Button>
+                </div>
+              </form>
+
+              {itemLinks.length > 0 ? (
+                <div className="rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b bg-muted/50">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Supplier</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Lead (days)</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Min Qty</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Cost USD</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Cost LBP</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground" />
+                    </tr></thead>
+                    <tbody>
+                      {itemLinks.map((l) => (
+                        <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{l.name}</span>
+                              {l.is_primary && <Badge variant="default" className="px-1.5 py-0 text-[10px]">Primary</Badge>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{l.lead_time_days || 0}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{String(l.min_order_qty || 0)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_usd || 0)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{String(l.last_cost_lbp || 0)}</td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex justify-end gap-1">
+                              {!l.is_primary ? <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => updateSupplierLink(l.id, { is_primary: true })}>Set Primary</Button> : null}
+                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteSupplierLink(l.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-4 text-center text-sm text-muted-foreground">No suppliers linked yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* ================================================================ */}
+      {/* STICKY SAVE BAR                                                   */}
+      {/* ================================================================ */}
+      <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto flex max-w-4xl items-center justify-end gap-3">
+          <Button variant="outline" size="sm" onClick={load} disabled={saving || loading}>Discard Changes</Button>
+          <Button type="submit" form="item-form" disabled={saving}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Save
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

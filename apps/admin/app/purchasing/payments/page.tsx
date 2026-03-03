@@ -311,7 +311,7 @@ function SupplierPaymentsInner() {
                   )}
                   <MoneyInput className="col-span-3" label="Amount Paid" currency="USD" value={amountUsd}
                     onChange={setAmountUsd} placeholder="0" quick={[0, 1, 10]} disabled={creating} />
-                  <MoneyInput className="col-span-3" label="Amount Paid" currency="LBP" displayCurrency="LL"
+                  <MoneyInput className="col-span-3" label="Amount Paid" currency="LBP" displayCurrency="LBP"
                     value={amountLbp} onChange={setAmountLbp} placeholder="0" quick={[0, 1, 10]} disabled={creating} />
                   {selectedInvoice && (
                     <div className="col-span-6 text-xs text-muted-foreground">
@@ -346,7 +346,7 @@ function SupplierPaymentsInner() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-semibold tabular-nums">
-              {totals.amount_lbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL
+              {totals.amount_lbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LBP
             </p>
           </CardContent>
         </Card>

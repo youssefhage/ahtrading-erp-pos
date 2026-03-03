@@ -112,7 +112,7 @@ export default function ItemsListPage() {
     },
     {
       accessorKey: "unit_of_measure",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
       cell: ({ row }) => row.original.unit_of_measure || "-",
     },
     {

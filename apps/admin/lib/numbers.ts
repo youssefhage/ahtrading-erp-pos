@@ -15,6 +15,16 @@ export function parseNumberInput(raw: unknown): ParsedNumber {
   if (typeof raw !== "string") return { ok: false, reason: "invalid" };
   const trimmed = raw.trim();
   if (!trimmed) return { ok: false, reason: "empty" };
+  // Support fraction notation like "1/48", "48/1", "3/4"
+  const fractionMatch = trimmed.match(/^([0-9.,\s]+)\/([0-9.,\s]+)$/);
+  if (fractionMatch) {
+    const num = Number(cleanNumberString(fractionMatch[1]));
+    const den = Number(cleanNumberString(fractionMatch[2]));
+    if (Number.isFinite(num) && Number.isFinite(den) && den !== 0) {
+      return { ok: true, value: num / den };
+    }
+    return { ok: false, reason: "invalid" };
+  }
   const n = Number(cleanNumberString(trimmed));
   if (!Number.isFinite(n)) return { ok: false, reason: "invalid" };
   return { ok: true, value: n };

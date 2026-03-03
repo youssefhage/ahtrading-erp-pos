@@ -608,7 +608,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
     if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LBP unit cost.");
     const uom = String(addUom || (addItem as any).unit_of_measure || "").trim().toUpperCase() || null;
-    if (!uom) return setStatus("UOM is required.");
+    if (!uom) return setStatus("Unit is required.");
     setLines((prev) => [
       {
         item_id: addItem.id,
@@ -1412,8 +1412,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                         setAddQtyFactor(String(f > 0 ? f : 1));
                       }}
                       disabled={loading || !addItem}
-                      placeholder="UOM..."
-                      searchPlaceholder="Search UOM..."
+                      placeholder="Unit..."
+                      searchPlaceholder="Search units..."
                       options={addUomOptions}
                     />
                   </div>
@@ -1511,8 +1511,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                       patchLine(idx, { uom: u, qty_factor: String(f > 0 ? f : 1) });
                                     }}
                                     disabled={loading || saving}
-                                    placeholder="UOM..."
-                                    searchPlaceholder="Search UOM..."
+                                    placeholder="Unit..."
+                                    searchPlaceholder="Search units..."
                                     options={uomOptions}
                                   />
                                 </div>

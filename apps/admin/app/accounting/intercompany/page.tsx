@@ -174,7 +174,7 @@ export default function IntercompanyPage() {
       {
         id: "amount_lbp",
         accessorFn: (s) => n(s.amount_lbp),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" className="justify-end" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" className="justify-end" />,
         cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_lbp)} currency="LBP" />,
       },
       {
@@ -332,7 +332,7 @@ export default function IntercompanyPage() {
               <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} inputMode="decimal" />
             </div>
             <div className="space-y-2">
-              <Label>Amount LL</Label>
+              <Label>Amount LBP</Label>
               <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} inputMode="decimal" />
             </div>
             <div className="space-y-2">

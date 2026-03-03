@@ -111,7 +111,7 @@ export function PostInvoiceDialog({
     const warnings: string[] = [];
 
     if (!lineCount) blocking.push("Add at least one line.");
-    if (exchangeRate <= 0) blocking.push("Exchange rate is missing (USD→LL).");
+    if (exchangeRate <= 0) blocking.push("Exchange rate is missing (USD→LBP).");
 
     if (recordPayment) {
       if (!hasPaymentMethodMappings) {
@@ -162,7 +162,7 @@ export function PostInvoiceDialog({
       const usdRes = parseNumberInput(postUsd);
       const lbpRes = parseNumberInput(postLbp);
       if (!usdRes.ok && usdRes.reason === "invalid") return onError("Invalid payment USD amount.");
-      if (!lbpRes.ok && lbpRes.reason === "invalid") return onError("Invalid payment LL amount.");
+      if (!lbpRes.ok && lbpRes.reason === "invalid") return onError("Invalid payment LBP amount.");
       usd = usdRes.ok ? usdRes.value : 0;
       lbp = lbpRes.ok ? lbpRes.value : 0;
     }
@@ -318,7 +318,7 @@ export function PostInvoiceDialog({
               <MoneyInput
                 label="Amount"
                 currency="LBP"
-                displayCurrency="LL"
+                displayCurrency="LBP"
                 value={postLbp}
                 onChange={setPostLbp}
                 quick={[0, 100000, 500000, 1000000]}

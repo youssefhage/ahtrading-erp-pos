@@ -243,7 +243,7 @@ export default function JournalTemplateEditPage() {
         </Card>
       )}
 
-      <form onSubmit={save} className="space-y-6">
+      <form id="template-edit-form" onSubmit={save} className="space-y-6">
         {/* Header fields */}
         <Card>
           <CardHeader>
@@ -348,7 +348,7 @@ export default function JournalTemplateEditPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Amount LL</Label>
+                  <Label className="text-xs">Amount LBP</Label>
                   <Input
                     className="h-9 font-mono"
                     value={l.amount_lbp}
@@ -401,20 +401,23 @@ export default function JournalTemplateEditPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/30 px-4 py-3 text-xs">
               <div className="text-muted-foreground">
                 Debits: <span className="font-mono">{fmt(totals.dUsd, 4)} USD</span> /{" "}
-                <span className="font-mono">{fmt(totals.dLbp, 2)} LL</span>
+                <span className="font-mono">{fmt(totals.dLbp, 2)} LBP</span>
                 {"  "}Credits: <span className="font-mono">{fmt(totals.cUsd, 4)} USD</span> /{" "}
-                <span className="font-mono">{fmt(totals.cLbp, 2)} LL</span>
+                <span className="font-mono">{fmt(totals.cLbp, 2)} LBP</span>
               </div>
               <div className={balanced ? "text-muted-foreground" : "text-destructive"}>
                 Diff: <span className="font-mono">{fmt(totals.diffUsd, 4)} USD</span> /{" "}
-                <span className="font-mono">{fmt(totals.diffLbp, 2)} LL</span>
+                <span className="font-mono">{fmt(totals.diffLbp, 2)} LBP</span>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Actions */}
-        <div className="flex items-center justify-end gap-3">
+      </form>
+
+      {/* ---- Sticky Save Bar ---- */}
+      <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto flex max-w-5xl items-center justify-end gap-3">
           <Button
             type="button"
             variant="outline"
@@ -423,12 +426,12 @@ export default function JournalTemplateEditPage() {
             <X className="mr-2 h-4 w-4" />
             Cancel
           </Button>
-          <Button type="submit" disabled={saving || loading}>
+          <Button type="submit" form="template-edit-form" disabled={saving || loading}>
             <Save className="mr-2 h-4 w-4" />
             {saving ? "Saving..." : "Save Changes"}
           </Button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

@@ -205,7 +205,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
       if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
     }
-    if (unitUsd === 0 && unitLbp === 0) return setErr("Set USD or LL unit cost.");
+    if (unitUsd === 0 && unitLbp === 0) return setErr("Set USD or LBP unit cost.");
 
     setLines((prev) => [
       ...prev,
@@ -248,7 +248,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       const unitLbp = toNum(l.unit_cost_lbp);
       if (!l.item_id) continue;
       if (qty <= 0) return setErr(`Qty must be > 0 (item ${i + 1}).`);
-      if (unitUsd === 0 && unitLbp === 0) return setErr(`Set USD or LL unit cost (item ${i + 1}).`);
+      if (unitUsd === 0 && unitLbp === 0) return setErr(`Set USD or LBP unit cost (item ${i + 1}).`);
       linesOut.push({ item_id: l.item_id, qty, unit_cost_usd: unitUsd, unit_cost_lbp: unitLbp });
     }
 
@@ -340,7 +340,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD→LL)</label>
+              <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD→LBP)</label>
               <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading || saving} />
             </div>
           </div>
@@ -373,7 +373,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
               <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} disabled={loading || saving} />
             </div>
             <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Unit LL</label>
+              <label className="text-xs font-medium text-muted-foreground">Unit LBP</label>
               <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} disabled={loading || saving} />
             </div>
             <div className="md:col-span-12 flex justify-end">
@@ -390,7 +390,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
                   <th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2 text-right">Qty</th>
                   <th className="px-3 py-2 text-right">Unit USD</th>
-                  <th className="px-3 py-2 text-right">Unit LL</th>
+                  <th className="px-3 py-2 text-right">Unit LBP</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>

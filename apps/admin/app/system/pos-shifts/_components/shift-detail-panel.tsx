@@ -206,7 +206,7 @@ export function ShiftDetailPanel({
       {
         id: "amount_lbp",
         accessorFn: (m) => toNumber(m.amount_lbp),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
         cell: ({ row }) => (
           <span className="font-mono text-xs">{toNumber(row.original.amount_lbp).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
         ),

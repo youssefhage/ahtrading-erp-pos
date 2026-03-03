@@ -702,7 +702,7 @@ export default function InventoryOpsPage() {
                       <Input value={adjust.unit_cost_usd} onChange={(e) => setAdjust((p) => ({ ...p, unit_cost_usd: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-muted-foreground">Unit Cost LL</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit Cost LBP</label>
                       <Input value={adjust.unit_cost_lbp} onChange={(e) => setAdjust((p) => ({ ...p, unit_cost_lbp: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-4">
@@ -823,7 +823,7 @@ export default function InventoryOpsPage() {
                       <Input value={transfer.unit_cost_usd} onChange={(e) => setTransfer((p) => ({ ...p, unit_cost_usd: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-muted-foreground">Unit Cost LL (optional)</label>
+                      <label className="text-xs font-medium text-muted-foreground">Unit Cost LBP (optional)</label>
                       <Input value={transfer.unit_cost_lbp} onChange={(e) => setTransfer((p) => ({ ...p, unit_cost_lbp: e.target.value }))} />
                     </div>
                     <div className="md:col-span-6 flex justify-end">

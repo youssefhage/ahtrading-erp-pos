@@ -415,7 +415,7 @@ export default function PriceListsPage() {
     {
       accessorFn: (li) => Number(li.price_lbp || 0),
       id: "price_lbp",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
       cell: ({ row }) => <span className="font-mono text-xs">{row.original.price_lbp}</span>,
     },
     {
@@ -506,7 +506,7 @@ export default function PriceListsPage() {
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="USD">USD</SelectItem>
-                          <SelectItem value="LBP">LL (LBP)</SelectItem>
+                          <SelectItem value="LBP">LBP</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -582,7 +582,7 @@ export default function PriceListsPage() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="LBP">LL (LBP)</SelectItem>
+                    <SelectItem value="LBP">LBP</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -672,7 +672,7 @@ export default function PriceListsPage() {
                           <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
                         </div>
                         <div className="space-y-2">
-                          <Label>Price LL</Label>
+                          <Label>Price LBP</Label>
                           <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
                         </div>
                       </div>
@@ -719,7 +719,7 @@ export default function PriceListsPage() {
                 <Input value={editUsd} onChange={(e) => setEditUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
               </div>
               <div className="space-y-2">
-                <Label>Price LL</Label>
+                <Label>Price LBP</Label>
                 <Input value={editLbp} onChange={(e) => setEditLbp(e.target.value)} placeholder="0" inputMode="decimal" />
               </div>
             </div>

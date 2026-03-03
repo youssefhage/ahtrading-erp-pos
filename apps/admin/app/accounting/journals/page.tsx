@@ -296,7 +296,7 @@ export default function JournalsPage() {
       {
         id: "debit_lbp",
         accessorFn: (e) => n(e.debit_lbp),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Debit LL" className="justify-end" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Debit LBP" className="justify-end" />,
         cell: ({ row }) => (
           <div className="text-right font-mono text-sm text-muted-foreground">
             {fmtLbp(row.original.debit_lbp)}
@@ -306,7 +306,7 @@ export default function JournalsPage() {
       {
         id: "credit_lbp",
         accessorFn: (e) => n(e.credit_lbp),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Credit LL" className="justify-end" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Credit LBP" className="justify-end" />,
         cell: ({ row }) => (
           <div className="text-right font-mono text-sm text-muted-foreground">
             {fmtLbp(row.original.credit_lbp)}
@@ -609,7 +609,7 @@ export default function JournalsPage() {
                           />
                         </div>
                         <div className="space-y-2 md:col-span-6">
-                          <Label>Exchange Rate (USD to LL)</Label>
+                          <Label>Exchange Rate (USD to LBP)</Label>
                           <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" />
                         </div>
                         <div className="space-y-2 md:col-span-12">
@@ -650,7 +650,7 @@ export default function JournalsPage() {
                             <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Side</th>
                             <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Account</th>
                             <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">USD</th>
-                            <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">LL</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-medium text-muted-foreground">LBP</th>
                             <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Memo</th>
                             <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Cost Center</th>
                             <th className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground">Project</th>
@@ -790,7 +790,7 @@ export default function JournalsPage() {
                               D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
                             </td>
                             <td className="px-3 py-2.5 text-xs text-muted-foreground" colSpan={4}>
-                              Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
+                              Diff USD {fmt(totals.diffUsd, 4)} | Diff LBP {fmt(totals.diffLbp, 2)}
                             </td>
                           </tr>
                         </tfoot>

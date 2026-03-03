@@ -381,7 +381,7 @@ export default function BankingReconciliationPage() {
       {
         id: "amount_lbp",
         accessorFn: (t) => n(t.amount_lbp),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" className="justify-end" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" className="justify-end" />,
         cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_lbp)} currency="LBP" />,
       },
       {

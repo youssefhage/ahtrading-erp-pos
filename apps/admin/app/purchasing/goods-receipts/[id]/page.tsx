@@ -443,7 +443,7 @@ export default function GoodsReceiptViewPage() {
                     <span className="text-sm font-medium">{fmtUsd(detail.receipt.total_usd)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-sm text-muted-foreground">Total LL</span>
+                    <span className="text-sm text-muted-foreground">Total LBP</span>
                     <span className="text-sm font-medium">{fmtLbp(detail.receipt.total_lbp)}</span>
                   </div>
                 </div>

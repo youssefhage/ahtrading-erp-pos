@@ -331,7 +331,7 @@ function SupplierInvoiceShowInner() {
       },
       {
         id: "line_total_lbp",
-        header: "Total LL",
+        header: "Total LBP",
         sortable: true,
         align: "right",
         mono: true,
@@ -502,8 +502,8 @@ function SupplierInvoiceShowInner() {
     const warnings: string[] = [];
 
     if (!lines.length) blocking.push("Add at least one item.");
-    if (rate <= 0) blocking.push("Exchange rate is missing (USD→LL).");
-    if (missingUom) blocking.push(`${missingUom} item(s) are missing UOM.`);
+    if (rate <= 0) blocking.push("Exchange rate is missing (USD→LBP).");
+    if (missingUom) blocking.push(`${missingUom} item(s) are missing unit.`);
 
     if (zeroCost) warnings.push(`${zeroCost} item(s) have zero unit cost.`);
     if (!String(inv?.tax_code_id || "").trim()) warnings.push("Tax code is empty (ok if this supplier invoice has no tax).");
@@ -686,7 +686,7 @@ function SupplierInvoiceShowInner() {
       const usdRes = parseNumberInput(p.amount_usd);
       const lbpRes = parseNumberInput(p.amount_lbp);
       if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid USD amount on payment row ${i + 1}.`);
-      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid LL amount on payment row ${i + 1}.`);
+      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid LBP amount on payment row ${i + 1}.`);
       const usd = usdRes.ok ? usdRes.value : 0;
       const lbp = lbpRes.ok ? lbpRes.value : 0;
       if (usd !== 0 || lbp !== 0) {
@@ -1490,7 +1490,7 @@ function SupplierInvoiceShowInner() {
                         <MoneyInput
                           label="Amount Paid"
                           currency="LBP"
-                          displayCurrency="LL"
+                          displayCurrency="LBP"
                           value={p.amount_lbp}
                           onChange={(next) => setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_lbp: next } : x)))}
                           quick={[0]}

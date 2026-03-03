@@ -648,15 +648,9 @@ export default function ItemViewPage() {
       ),
     },
     {
-      accessorFn: (b) => Number(b.qty_factor || 1),
-      id: "qty_factor",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Factor" />,
-      cell: ({ row }) => <span className="font-mono text-sm">{String(row.original.qty_factor || 1)}</span>,
-    },
-    {
       accessorFn: (b) => b.uom_code || item?.unit_of_measure || "",
       id: "uom_code",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
       cell: ({ row }) => <span className="font-mono text-sm">{row.original.uom_code || item?.unit_of_measure || "-"}</span>,
     },
     {
@@ -714,7 +708,7 @@ export default function ItemViewPage() {
   const conversionColumns = useMemo<ColumnDef<UomConversionRow>[]>(() => [
     {
       accessorKey: "uom_code",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
       cell: ({ row }) => <span className="font-mono text-sm">{row.original.uom_code}</span>,
     },
     {
@@ -838,7 +832,7 @@ export default function ItemViewPage() {
 
   /* ---- Render ---- */
   const negativeStockLabel = item.allow_negative_stock === null || item.allow_negative_stock === undefined
-    ? "inherit" : item.allow_negative_stock ? "allowed" : "blocked";
+    ? "Company default" : item.allow_negative_stock ? "Allowed" : "Blocked";
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -924,7 +918,7 @@ export default function ItemViewPage() {
 
                   {/* Classification */}
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <DetailField label="UOM" value={item.unit_of_measure || "-"} mono />
+                    <DetailField label="Unit (UOM)" value={item.unit_of_measure || "-"} mono />
                     <DetailField
                       label="Category"
                       value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"}
@@ -947,10 +941,10 @@ export default function ItemViewPage() {
 
                   <Separator />
 
-                  {/* UOM & Packaging */}
+                  {/* Units & Packaging */}
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <DetailField label="Purchase UOM" value={item.purchase_uom_code || "-"} mono />
-                    <DetailField label="Sales UOM" value={item.sales_uom_code || "-"} mono />
+                    <DetailField label="Purchase Unit" value={item.purchase_uom_code || "-"} mono />
+                    <DetailField label="Sales Unit" value={item.sales_uom_code || "-"} mono />
                     <DetailField label="Case Pack Qty" value={item.case_pack_qty != null ? String(item.case_pack_qty) : "-"} mono />
                     <DetailField label="Inner Pack Qty" value={item.inner_pack_qty != null ? String(item.inner_pack_qty) : "-"} mono />
                   </div>
@@ -961,7 +955,7 @@ export default function ItemViewPage() {
                   <div className="grid gap-4 sm:grid-cols-3">
                     <DetailField label="Track Batches" value={item.track_batches ? "On" : "Off"} />
                     <DetailField label="Track Expiry" value={item.track_expiry ? "On" : "Off"} />
-                    <DetailField label="Negative Stock" value={negativeStockLabel} />
+                    <DetailField label="Allow Negative Stock" value={negativeStockLabel} />
                   </div>
 
                   {/* Tags */}
@@ -1033,8 +1027,8 @@ export default function ItemViewPage() {
 
                   {/* Logistics */}
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <DetailField label="Weight" value={item.weight != null ? String(item.weight) : "-"} mono />
-                    <DetailField label="Volume" value={item.volume != null ? String(item.volume) : "-"} mono />
+                    <DetailField label="Weight (kg)" value={item.weight != null ? String(item.weight) : "-"} mono />
+                    <DetailField label="Volume (L)" value={item.volume != null ? String(item.volume) : "-"} mono />
                   </div>
                 </CardContent>
               </Card>
@@ -1310,18 +1304,18 @@ export default function ItemViewPage() {
         {/* BATCHES & LOGISTICS TAB                                           */}
         {/* ================================================================ */}
         <TabsContent value="batches" className="space-y-6">
-          {/* UOM Conversions */}
+          {/* Unit Conversions */}
           <Card>
             <CardHeader>
-              <CardTitle>UOM Conversions</CardTitle>
-              <CardDescription>How non-base units convert to base UOM ({uomBase || item.unit_of_measure || "-"})</CardDescription>
+              <CardTitle>Unit Conversions</CardTitle>
+              <CardDescription>How non-base units convert to the base unit ({uomBase || item.unit_of_measure || "-"})</CardDescription>
             </CardHeader>
             <CardContent>
               <DataTable
                 columns={conversionColumns}
                 data={uomConversions}
                 isLoading={loading}
-                searchPlaceholder="Search UOMs..."
+                searchPlaceholder="Search units..."
                 pageSize={10}
               />
             </CardContent>

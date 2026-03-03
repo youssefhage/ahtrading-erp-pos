@@ -533,7 +533,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     const qtyFactor = toNum(addQtyFactor || "1") || 1;
     if (qtyFactor <= 0) return setStatus("qty factor must be > 0");
     const uom = String(addUom || addItem.unit_of_measure || "").trim().toUpperCase() || null;
-    if (!uom) return setStatus("UOM is required.");
+    if (!uom) return setStatus("Unit is required.");
     let unitUsd = toNum(addUsd);
     let unitLbp = toNum(addLbp);
     const ex = toNum(exchangeRate);
@@ -893,8 +893,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                         setAddQtyFactor(String(f > 0 ? f : 1));
                       }}
                       disabled={loading || !addItem}
-                      placeholder="UOM..."
-                      searchPlaceholder="Search UOM..."
+                      placeholder="Unit..."
+                      searchPlaceholder="Search units..."
                       options={addUomOptions}
                     />
                   </div>
@@ -1076,8 +1076,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                                      patchLine(idx, { uom: u, qty_factor: String(f > 0 ? f : 1) });
 	                                    }}
 	                                    disabled={loading}
-	                                    placeholder="UOM..."
-	                                    searchPlaceholder="Search UOM..."
+	                                    placeholder="Unit..."
+	                                    searchPlaceholder="Search units..."
 	                                    options={uomOpts}
 	                                  />
 	                                </div>

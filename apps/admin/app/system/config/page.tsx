@@ -351,7 +351,7 @@ function ConfigPage() {
       {
         id: "usd_to_lbp",
         accessorFn: (r) => Number(r.usd_to_lbp || 0),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="USD to LL" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="USD to LBP" />,
         cell: ({ row }) => (
           <span className="font-mono text-sm">
             {Number(row.original.usd_to_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
@@ -1119,7 +1119,7 @@ function ConfigPage() {
                         <Select value={taxCurrency} onValueChange={setTaxCurrency}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="LBP">LL</SelectItem>
+                            <SelectItem value="LBP">LBP</SelectItem>
                             <SelectItem value="USD">USD</SelectItem>
                           </SelectContent>
                         </Select>
@@ -1155,7 +1155,7 @@ function ConfigPage() {
                       <Select value={taxEditCurrency} onValueChange={setTaxEditCurrency}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="LBP">LL</SelectItem>
+                          <SelectItem value="LBP">LBP</SelectItem>
                           <SelectItem value="USD">USD</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1177,7 +1177,7 @@ function ConfigPage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <CardTitle>Exchange Rates</CardTitle>
-                  <CardDescription>USD to LL daily rates used for dual-currency reporting.</CardDescription>
+                  <CardDescription>USD to LBP daily rates used for dual-currency reporting.</CardDescription>
                 </div>
                 <Dialog open={rateOpen} onOpenChange={setRateOpen}>
                   <DialogTrigger asChild><Button size="sm"><Plus className="mr-2 h-4 w-4" />Upsert Rate</Button></DialogTrigger>
@@ -1193,7 +1193,7 @@ function ConfigPage() {
                         <Input value={rateType} onChange={(e) => setRateType(e.target.value)} placeholder="market" />
                       </div>
                       <div className="space-y-1.5 md:col-span-2">
-                        <label className="text-xs font-medium text-muted-foreground">USD to LL</label>
+                        <label className="text-xs font-medium text-muted-foreground">USD to LBP</label>
                         <Input value={usdToLbp} onChange={(e) => setUsdToLbp(e.target.value)} />
                       </div>
                       <div className="md:col-span-4 flex justify-end"><Button type="submit" disabled={savingRate}>{savingRate ? "Saving..." : "Save"}</Button></div>
@@ -1227,7 +1227,7 @@ function ConfigPage() {
                         <Input value={pointsPerUsd} onChange={(e) => setPointsPerUsd(e.target.value)} />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-muted-foreground">Points per LL</label>
+                        <label className="text-xs font-medium text-muted-foreground">Points per LBP</label>
                         <Input value={pointsPerLbp} onChange={(e) => setPointsPerLbp(e.target.value)} />
                       </div>
                       <div className="flex justify-end"><Button type="submit" disabled={savingLoyalty}>{savingLoyalty ? "Saving..." : "Save"}</Button></div>
@@ -1239,7 +1239,7 @@ function ConfigPage() {
             <CardContent>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <FieldDisplay label="Points per USD" value={pointsPerUsd} />
-                <FieldDisplay label="Points per LL" value={pointsPerLbp} />
+                <FieldDisplay label="Points per LBP" value={pointsPerLbp} />
               </div>
             </CardContent>
           </Card>

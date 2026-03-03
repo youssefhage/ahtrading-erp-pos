@@ -335,7 +335,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD to LL)</label>
+                <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD to LBP)</label>
                 <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={saving || loading} inputMode="numeric" />
               </div>
             </div>
@@ -358,10 +358,10 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 	                    <th className="px-3 py-2">Item</th>
 	                    <th className="px-3 py-2 text-right">Qty</th>
 	                    <th className="px-3 py-2 text-right">Unit USD</th>
-	                    <th className="px-3 py-2 text-right">Unit LL</th>
+	                    <th className="px-3 py-2 text-right">Unit LBP</th>
 	                    <th className="px-3 py-2">Location</th>
 	                    <th className="px-3 py-2 text-right">Landed USD</th>
-	                    <th className="px-3 py-2 text-right">Landed LL</th>
+	                    <th className="px-3 py-2 text-right">Landed LBP</th>
 	                    <th className="px-3 py-2">Batch</th>
 	                    <th className="px-3 py-2">Expiry</th>
 	                    <th className="px-3 py-2 text-right">Actions</th>

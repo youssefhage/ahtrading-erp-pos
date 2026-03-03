@@ -254,7 +254,7 @@ export default function SupplierEditPage() {
       )}
 
       {supplier && (
-        <form onSubmit={save} className="space-y-6">
+        <form id="supplier-edit-form" onSubmit={save} className="space-y-6">
           {/* ---- Identity ---- */}
           <Card>
             <CardHeader>
@@ -272,6 +272,7 @@ export default function SupplierEditPage() {
                   disabled={saving || loading}
                   placeholder="e.g. SUP-001"
                 />
+                <p className="text-xs text-muted-foreground">Short internal reference for quick lookup.</p>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>
@@ -299,6 +300,7 @@ export default function SupplierEditPage() {
                     <SelectItem value="individual">Individual</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Affects tax treatment and document labels.</p>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Legal Name</Label>
@@ -306,7 +308,9 @@ export default function SupplierEditPage() {
                   value={legalName}
                   onChange={(e) => setLegalName(e.target.value)}
                   disabled={saving || loading}
+                  placeholder="Registered company name"
                 />
+                <p className="text-xs text-muted-foreground">Official name for legal and tax documents. Leave blank to use display name.</p>
               </div>
             </CardContent>
           </Card>
@@ -344,7 +348,9 @@ export default function SupplierEditPage() {
                   onChange={(e) => setTermsDays(e.target.value)}
                   disabled={saving || loading}
                   inputMode="numeric"
+                  placeholder="0"
                 />
+                <p className="text-xs text-muted-foreground">Net days until invoice is due. 0 = due on receipt.</p>
               </div>
 
               <div className="space-y-2">
@@ -354,6 +360,7 @@ export default function SupplierEditPage() {
                   onChange={(e) => setVatNo(e.target.value)}
                   disabled={saving || loading}
                 />
+                <p className="text-xs text-muted-foreground">VAT registration number.</p>
               </div>
               <div className="space-y-2">
                 <Label>Tax ID</Label>
@@ -362,6 +369,7 @@ export default function SupplierEditPage() {
                   onChange={(e) => setTaxId(e.target.value)}
                   disabled={saving || loading}
                 />
+                <p className="text-xs text-muted-foreground">Government-issued taxpayer ID.</p>
               </div>
 
               <div className="space-y-2 sm:col-span-2 lg:col-span-3">
@@ -371,6 +379,7 @@ export default function SupplierEditPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   rows={4}
                   disabled={saving || loading}
+                  placeholder="Internal notes about this supplier..."
                 />
               </div>
             </CardContent>
@@ -407,15 +416,18 @@ export default function SupplierEditPage() {
                   value={bankIban}
                   onChange={(e) => setBankIban(e.target.value)}
                   disabled={saving || loading}
+                  placeholder="LBxx xxxx xxxx xxxx"
                 />
+                <p className="text-xs text-muted-foreground">International Bank Account Number for wire transfers.</p>
               </div>
               <div className="space-y-2">
-                <Label>SWIFT</Label>
+                <Label>SWIFT / BIC</Label>
                 <Input
                   value={bankSwift}
                   onChange={(e) => setBankSwift(e.target.value)}
                   disabled={saving || loading}
                 />
+                <p className="text-xs text-muted-foreground">Required for international payments.</p>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Payment Instructions</Label>
@@ -424,50 +436,54 @@ export default function SupplierEditPage() {
                   onChange={(e) => setPaymentInstructions(e.target.value)}
                   rows={3}
                   disabled={saving || loading}
+                  placeholder="e.g. Always pay via bank transfer to IBAN above..."
                 />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ---- Status + Save ---- */}
-          <Card>
-            <CardContent className="flex items-center justify-between pt-6">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="is-active"
-                  checked={isActive}
-                  onCheckedChange={(v) => setIsActive(v === true)}
-                  disabled={saving || loading}
-                />
-                <Label htmlFor="is-active" className="font-normal">
-                  Active
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    router.push(
-                      `/partners/suppliers/${encodeURIComponent(id)}`,
-                    )
-                  }
-                  disabled={saving || loading}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={saving || loading}>
-                  {saving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="mr-2 h-4 w-4" />
-                  )}
-                  {saving ? "Saving..." : "Save Changes"}
-                </Button>
+                <p className="text-xs text-muted-foreground">Free-text notes shown to the AP team when processing payments.</p>
               </div>
             </CardContent>
           </Card>
         </form>
+      )}
+
+      {/* ---- Sticky Save Bar ---- */}
+      {supplier && (
+        <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="mx-auto flex max-w-4xl items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="is-active"
+                checked={isActive}
+                onCheckedChange={(v) => setIsActive(v === true)}
+                disabled={saving || loading}
+              />
+              <Label htmlFor="is-active" className="font-normal">
+                Active
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  router.push(
+                    `/partners/suppliers/${encodeURIComponent(id)}`,
+                  )
+                }
+                disabled={saving || loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" form="supplier-edit-form" disabled={saving || loading}>
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ---- Contacts & Addresses (inline, always visible) ---- */}

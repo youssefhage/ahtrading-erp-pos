@@ -146,8 +146,8 @@ export default function UomsPage() {
         cell: ({ row }) => (
           <div className="flex justify-end">
             <ConfirmDialog
-              title={`Delete UOM "${row.original.code}"?`}
-              description="Delete is only allowed when this UOM has zero references."
+              title={`Delete unit "${row.original.code}"?`}
+              description="Delete is only allowed when this unit has zero references."
               confirmLabel="Delete"
               variant="destructive"
               onConfirm={() => remove(row.original.code)}
@@ -167,7 +167,7 @@ export default function UomsPage() {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     const code = normCode(newCode);
-    if (!code) return setStatus("UOM code is required.");
+    if (!code) return setStatus("Unit code is required.");
     const name = String(newName || "").trim() || code;
 
     setCreating(true);
@@ -189,8 +189,8 @@ export default function UomsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
-        title="UOMs"
-        description="Unit of Measure is master data. Items must use a UOM from this list to prevent drift."
+        title="Units of Measure"
+        description="Units are master data. Items must use a unit from this list to prevent drift."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={load} disabled={creating || loading || statusIsBusy}>
@@ -201,12 +201,12 @@ export default function UomsPage() {
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Plus className="mr-2 h-4 w-4" />
-                  New UOM
+                  New Unit
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Create UOM</DialogTitle>
+                  <DialogTitle>Create Unit</DialogTitle>
                   <DialogDescription>Codes should be short and stable (examples: EA, KG, L, BOX, PACK).</DialogDescription>
                 </DialogHeader>
                 <form onSubmit={create} className="grid grid-cols-1 gap-4">
@@ -247,7 +247,7 @@ export default function UomsPage() {
             <Ruler className="h-4 w-4" />
             Units of Measure
           </CardTitle>
-          <CardDescription>Delete is allowed only when unused; otherwise deactivate. Historical document lines keep their stored UOM text.</CardDescription>
+          <CardDescription>Delete is allowed only when unused; otherwise deactivate. Historical document lines keep their stored unit text.</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable columns={columns} data={rows} isLoading={loading} searchPlaceholder="Search code or name..." />

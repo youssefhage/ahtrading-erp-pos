@@ -251,7 +251,7 @@ export default function PromotionsPage() {
     const usd = Number(addUsd || 0);
     const lbp = Number(addLbp || 0);
     const disc = Number(addDisc || 0);
-    if (usd <= 0 && lbp <= 0 && disc <= 0) return setErr("Set promo price (USD or LL) or discount %.");
+    if (usd <= 0 && lbp <= 0 && disc <= 0) return setErr("Set promo price (USD or LBP) or discount %.");
     if (disc < 0 || disc > 1) return setErr("Discount % must be between 0 and 1 (e.g. 0.10).");
     setAdding(true);
     setErr(null);
@@ -366,7 +366,7 @@ export default function PromotionsPage() {
     {
       accessorFn: (pi) => Number(pi.promo_price_lbp || 0),
       id: "promo_lbp",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Promo LL" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Promo LBP" />,
       cell: ({ row }) => <span className="font-mono text-xs">{Number(row.original.promo_price_lbp || 0).toLocaleString("en-US")}</span>,
     },
     {
@@ -571,7 +571,7 @@ export default function PromotionsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Add / Update Rule</CardTitle>
-                  <CardDescription>Set a promo price (USD or LL) or a discount percentage.</CardDescription>
+                  <CardDescription>Set a promo price (USD or LBP) or a discount percentage.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={addPromotionItem} className="space-y-4">
@@ -612,7 +612,7 @@ export default function PromotionsPage() {
                         <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
                       </div>
                       <div className="space-y-2">
-                        <Label>Promo Price LL</Label>
+                        <Label>Promo Price LBP</Label>
                         <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
                       </div>
                     </div>

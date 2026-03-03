@@ -224,7 +224,7 @@ export default function GoLivePage() {
       {
         id: "amount_lbp",
         accessorFn: (r) => Number(r.amount_lbp || 0),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
         cell: ({ row }) => <span className="font-mono text-sm">{row.original.amount_lbp ?? "-"}</span>,
       },
     ],
@@ -260,7 +260,7 @@ export default function GoLivePage() {
       {
         id: "amount_lbp",
         accessorFn: (r) => Number(r.amount_lbp || 0),
-        header: ({ column }) => <DataTableColumnHeader column={column} title="LL" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
         cell: ({ row }) => <span className="font-mono text-sm">{row.original.amount_lbp ?? "-"}</span>,
       },
     ],
@@ -558,7 +558,7 @@ export default function GoLivePage() {
             <Input value={rateType} onChange={(e) => setRateType(e.target.value)} placeholder="market" />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD to LL)</label>
+            <label className="text-xs font-medium text-muted-foreground">Exchange Rate (USD to LBP)</label>
             <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="89500" />
           </div>
           <div className="flex items-end gap-2">

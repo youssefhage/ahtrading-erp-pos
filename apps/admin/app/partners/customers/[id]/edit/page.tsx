@@ -280,7 +280,7 @@ export default function CustomerEditPage() {
       )}
 
       {customer && (
-        <form onSubmit={save} className="space-y-6">
+        <form id="customer-edit-form" onSubmit={save} className="space-y-6">
           {/* ---- Profile ---- */}
           <Card>
             <CardHeader>
@@ -296,6 +296,7 @@ export default function CustomerEditPage() {
                   disabled={saving}
                   placeholder="e.g. CUS-001"
                 />
+                <p className="text-xs text-muted-foreground">Short internal reference for quick lookup.</p>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>
@@ -323,6 +324,7 @@ export default function CustomerEditPage() {
                     <SelectItem value="business">Business</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Affects tax treatment and document labels.</p>
               </div>
               <div className="space-y-2">
                 <Label>Customer Type</Label>
@@ -340,6 +342,7 @@ export default function CustomerEditPage() {
                     <SelectItem value="b2b">B2B</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Determines default price list and payment terms.</p>
               </div>
               <div className="space-y-2">
                 <Label>Legal Name</Label>
@@ -347,7 +350,9 @@ export default function CustomerEditPage() {
                   value={legalName}
                   onChange={(e) => setLegalName(e.target.value)}
                   disabled={saving}
+                  placeholder="Registered company name"
                 />
+                <p className="text-xs text-muted-foreground">Official name for legal and tax documents. Leave blank to use display name.</p>
               </div>
 
               <div className="space-y-2 sm:col-span-2">
@@ -407,6 +412,7 @@ export default function CustomerEditPage() {
                   onChange={(e) => setTaxId(e.target.value)}
                   disabled={saving}
                 />
+                <p className="text-xs text-muted-foreground">Government-issued taxpayer ID.</p>
               </div>
               <div className="space-y-2">
                 <Label>VAT No</Label>
@@ -415,6 +421,7 @@ export default function CustomerEditPage() {
                   onChange={(e) => setVatNo(e.target.value)}
                   disabled={saving}
                 />
+                <p className="text-xs text-muted-foreground">VAT registration number.</p>
               </div>
 
               <div className="space-y-2 sm:col-span-2 lg:col-span-3">
@@ -424,6 +431,7 @@ export default function CustomerEditPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   disabled={saving}
                   rows={3}
+                  placeholder="Internal notes about this customer..."
                 />
               </div>
             </CardContent>
@@ -444,7 +452,9 @@ export default function CustomerEditPage() {
                   value={membershipNo}
                   onChange={(e) => setMembershipNo(e.target.value)}
                   disabled={saving}
+                  placeholder="e.g. MEM-0001"
                 />
+                <p className="text-xs text-muted-foreground">Card or badge number for loyalty tracking.</p>
               </div>
               <div className="space-y-2">
                 <Label>Expires At</Label>
@@ -454,6 +464,7 @@ export default function CustomerEditPage() {
                   onChange={(e) => setMembershipExpiresAt(e.target.value)}
                   disabled={saving}
                 />
+                <p className="text-xs text-muted-foreground">Membership automatically expires on this date.</p>
               </div>
               <div className="flex items-center space-x-2 self-end pb-2">
                 <Checkbox
@@ -463,7 +474,7 @@ export default function CustomerEditPage() {
                   disabled={saving}
                 />
                 <Label htmlFor="is-member" className="font-normal">
-                  Is Member
+                  Active Member
                 </Label>
               </div>
             </CardContent>
@@ -485,7 +496,9 @@ export default function CustomerEditPage() {
                   onChange={(e) => setTermsDays(e.target.value)}
                   disabled={saving}
                   inputMode="numeric"
+                  placeholder="0"
                 />
+                <p className="text-xs text-muted-foreground">Net days until invoice is due. 0 = due on receipt.</p>
               </div>
               <MoneyInput
                 label="Credit Limit"
@@ -501,24 +514,37 @@ export default function CustomerEditPage() {
                 onChange={setCreditLimitLbp}
                 quick={[0, 1000000, 5000000]}
               />
+              <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-3">Maximum outstanding balance before new sales are blocked. Set to 0 for no limit.</p>
             </CardContent>
           </Card>
+        </form>
+      )}
 
-          {/* ---- Status + Save ---- */}
-          <Card>
-            <CardContent className="flex items-center justify-between pt-6">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="is-active"
-                  checked={isActive}
-                  onCheckedChange={(v) => setIsActive(v === true)}
-                  disabled={saving}
-                />
-                <Label htmlFor="is-active" className="font-normal">
-                  Active
-                </Label>
-              </div>
-              <Button type="submit" disabled={saving}>
+      {/* ---- Sticky Save Bar ---- */}
+      {customer && (
+        <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="mx-auto flex max-w-4xl items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="is-active"
+                checked={isActive}
+                onCheckedChange={(v) => setIsActive(v === true)}
+                disabled={saving}
+              />
+              <Label htmlFor="is-active" className="font-normal">
+                Active
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push(`/partners/customers/${encodeURIComponent(id)}`)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" form="customer-edit-form" disabled={saving}>
                 {saving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -526,9 +552,9 @@ export default function CustomerEditPage() {
                 )}
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
-            </CardContent>
-          </Card>
-        </form>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ---- Addresses & Contacts (inline, always visible) ---- */}

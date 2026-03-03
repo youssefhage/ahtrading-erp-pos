@@ -198,7 +198,7 @@ export default function NewItemPage() {
       const errs: RequiredErrors = {};
       if (!nextSku) errs.sku = "SKU is required.";
       if (!nextName) errs.name = "Name is required.";
-      if (!nextUom) errs.uom = "Unit of measure is required.";
+      if (!nextUom) errs.uom = "Unit is required.";
       return errs;
     },
     [sku, name, uom]
@@ -445,6 +445,7 @@ export default function NewItemPage() {
       ) : null}
 
       <form
+        id="new-item-form"
         onSubmit={(e) => { e.preventDefault(); void submitCreate("open"); }}
         className="space-y-6"
       >
@@ -547,7 +548,7 @@ export default function NewItemPage() {
             {/* UOM & Barcode */}
             <div className="grid gap-4 sm:grid-cols-6">
               <div className="space-y-2 sm:col-span-2">
-                <Label>UOM <span className="text-destructive">*</span></Label>
+                <Label>Unit <span className="text-destructive">*</span></Label>
                 <SearchableSelect
                   value={uom}
                   onChange={(value) => {
@@ -555,19 +556,19 @@ export default function NewItemPage() {
                     if (!submitAttempted) return;
                     setRequiredErrors((prev) => {
                       const next = { ...prev };
-                      if (String(value || "").trim()) delete next.uom; else next.uom = "Unit of measure is required.";
+                      if (String(value || "").trim()) delete next.uom; else next.uom = "Unit is required.";
                       return next;
                     });
                   }}
                   disabled={creating || loading}
-                  placeholder="Select UOM..."
-                  searchPlaceholder="Search UOMs..."
+                  placeholder="Select unit..."
+                  searchPlaceholder="Search units..."
                   options={(uoms || []).map((x) => ({ value: x, label: x }))}
                 />
                 {uomError ? <p className="text-xs text-destructive">{uomError}</p> : null}
                 <p className="text-xs text-muted-foreground">
-                  Missing a UOM? Add it in{" "}
-                  <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">System &rarr; UOMs</Link>.
+                  Missing a unit? Add it in{" "}
+                  <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">System &rarr; Units</Link>.
                 </p>
               </div>
               <div className="space-y-2 sm:col-span-4">
@@ -725,33 +726,33 @@ export default function NewItemPage() {
 
               {/* ---- UOM & Packaging ---- */}
               <AccordionItem value="packaging">
-                <AccordionTrigger>UOM &amp; Packaging</AccordionTrigger>
+                <AccordionTrigger>Units &amp; Packaging</AccordionTrigger>
                 <AccordionContent className="space-y-4 px-1 pt-2">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Purchase UOM</Label>
+                      <Label>Purchase Unit</Label>
                       <SearchableSelect
                         value={purchaseUomCode}
                         onChange={setPurchaseUomCode}
                         disabled={creating || loading}
-                        placeholder="Same as base UOM"
-                        searchPlaceholder="Search UOMs..."
+                        placeholder="Same as base unit"
+                        searchPlaceholder="Search units..."
                         options={[
-                          { value: "", label: "(same as base)" },
+                          { value: "", label: "(same as base unit)" },
                           ...uoms.map((x) => ({ value: x, label: x })),
                         ]}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Sales UOM</Label>
+                      <Label>Sales Unit</Label>
                       <SearchableSelect
                         value={salesUomCode}
                         onChange={setSalesUomCode}
                         disabled={creating || loading}
-                        placeholder="Same as base UOM"
-                        searchPlaceholder="Search UOMs..."
+                        placeholder="Same as base unit"
+                        searchPlaceholder="Search units..."
                         options={[
-                          { value: "", label: "(same as base)" },
+                          { value: "", label: "(same as base unit)" },
                           ...uoms.map((x) => ({ value: x, label: x })),
                         ]}
                       />
@@ -822,13 +823,13 @@ export default function NewItemPage() {
                       <Label>Track Expiry</Label>
                     </div>
                     <div className="space-y-2">
-                      <Label>Negative Stock</Label>
+                      <Label>Allow Negative Stock</Label>
                       <Select value={allowNegativeStock} onValueChange={setAllowNegativeStock} disabled={creating || loading}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="inherit">Inherit (company default)</SelectItem>
+                          <SelectItem value="inherit">Use company default</SelectItem>
                           <SelectItem value="allowed">Allowed</SelectItem>
                           <SelectItem value="blocked">Blocked</SelectItem>
                         </SelectContent>
@@ -870,11 +871,11 @@ export default function NewItemPage() {
                 <AccordionContent className="space-y-4 px-1 pt-2">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Weight</Label>
+                      <Label>Weight (kg)</Label>
                       <Input type="number" min="0" step="any" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0.00" disabled={creating || loading} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Volume</Label>
+                      <Label>Volume (L)</Label>
                       <Input type="number" min="0" step="any" value={volume} onChange={(e) => setVolume(e.target.value)} placeholder="0.00" disabled={creating || loading} />
                     </div>
                   </div>
@@ -894,23 +895,26 @@ export default function NewItemPage() {
           </CardContent>
         </Card>
 
-        {/* ================================================================ */}
-        {/* ACTION BUTTONS                                                    */}
-        {/* ================================================================ */}
+      </form>
+
+      {/* ================================================================ */}
+      {/* STICKY SAVE BAR                                                  */}
+      {/* ================================================================ */}
+      <div className="sticky bottom-0 z-10 -mx-6 border-t bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")} disabled={creating}>
             Cancel
           </Button>
           <Button type="button" variant="outline" onClick={() => void submitCreate("addAnother")} disabled={submitDisabled}>
             {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-            Create &amp; Add Another
+            Create & Add Another
           </Button>
-          <Button type="submit" disabled={submitDisabled}>
+          <Button type="submit" form="new-item-form" disabled={submitDisabled}>
             {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Create
           </Button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

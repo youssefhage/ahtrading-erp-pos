@@ -174,7 +174,7 @@ function SalesPaymentsInner() {
                   <div className="space-y-1"><label className="text-xs font-medium text-muted-foreground">Payment Date</label><Input value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} type="date" /></div>
                   {showBankAccount && <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-muted-foreground">Bank Account</label><select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)}><option value="">(none)</option>{bankAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></div>}
                   <MoneyInput label="Amount Received" currency="USD" value={tenderUsd} onChange={setTenderUsd} placeholder="0" quick={[0, 1, 10]} disabled={creating} />
-                  <MoneyInput label="Amount Received" currency="LBP" displayCurrency="LL" value={tenderLbp} onChange={setTenderLbp} placeholder="0" quick={[0, 1, 10]} disabled={creating} />
+                  <MoneyInput label="Amount Received" currency="LBP" displayCurrency="LBP" value={tenderLbp} onChange={setTenderLbp} placeholder="0" quick={[0, 1, 10]} disabled={creating} />
                   <div className="flex justify-end sm:col-span-2"><Button type="submit" disabled={creating || !methodChoices.length}>{creating ? "..." : "Post Payment"}</Button></div>
                 </form>
               </DialogContent>

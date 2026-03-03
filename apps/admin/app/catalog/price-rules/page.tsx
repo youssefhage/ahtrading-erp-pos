@@ -285,7 +285,7 @@ export default function PriceRulesPage() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Rounding" />,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
-          USD {String(row.original.usd_round_step)} / LL {String(row.original.lbp_round_step)}
+          USD {String(row.original.usd_round_step)} / LBP {String(row.original.lbp_round_step)}
         </span>
       ),
     },
@@ -406,7 +406,7 @@ export default function PriceRulesPage() {
                       <Input value={usdStep} onChange={(e) => setUsdStep(e.target.value)} placeholder="0.25" inputMode="decimal" />
                     </div>
                     <div className="space-y-2">
-                      <Label>LL Round Step</Label>
+                      <Label>LBP Round Step</Label>
                       <Input value={lbpStep} onChange={(e) => setLbpStep(e.target.value)} placeholder="5000" inputMode="decimal" />
                     </div>
                     <div className="space-y-2">
@@ -498,7 +498,7 @@ export default function PriceRulesPage() {
                 <Input value={editUsdStep} onChange={(e) => setEditUsdStep(e.target.value)} placeholder="0.25" inputMode="decimal" />
               </div>
               <div className="space-y-2">
-                <Label>LL Round Step</Label>
+                <Label>LBP Round Step</Label>
                 <Input value={editLbpStep} onChange={(e) => setEditLbpStep(e.target.value)} placeholder="5000" inputMode="decimal" />
               </div>
               <div className="space-y-2">
