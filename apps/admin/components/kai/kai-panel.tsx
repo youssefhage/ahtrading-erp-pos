@@ -9,7 +9,6 @@ import { cn } from "@/lib/utils";
 import { useKaiStore, kaiAsk, getSuggestionsForPath } from "@/lib/hooks/use-kai";
 import { KaiMessage } from "./kai-message";
 import { KaiSuggestions } from "./kai-suggestions";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 /* ------------------------------------------------------------------ */
 /*  Thinking indicator                                                 */
@@ -36,7 +35,7 @@ function ThinkingDots() {
 
 export function KaiPanel() {
   const pathname = usePathname() || "/dashboard";
-  const { isOpen, messages, isThinking, close, clear } = useKaiStore();
+  const { isOpen, messages, isThinking, conversationId, close, clear, dispatch } = useKaiStore();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,26 +69,41 @@ export function KaiPanel() {
     return () => document.removeEventListener("keydown", handler);
   }, [isOpen, close]);
 
-  const { dispatch } = useKaiStore();
-
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       const q = input.trim();
       if (!q || isThinking) return;
       setInput("");
-      kaiAsk(dispatch, q, { page: pathname });
+      kaiAsk(dispatch, q, { page: pathname }, conversationId);
     },
-    [input, isThinking, pathname, dispatch]
+    [input, isThinking, pathname, dispatch, conversationId]
   );
 
   const handleSuggestion = useCallback(
     (q: string) => {
       if (isThinking) return;
       setInput("");
-      kaiAsk(dispatch, q, { page: pathname });
+      kaiAsk(dispatch, q, { page: pathname }, conversationId);
     },
-    [isThinking, pathname, dispatch]
+    [isThinking, pathname, dispatch, conversationId]
+  );
+
+  // Confirmation handlers — send "yes" or "no" through the normal chat flow
+  const handleConfirm = useCallback(
+    (confirmationId: string) => {
+      dispatch({ type: "RESOLVE_CONFIRMATION", id: confirmationId, status: "confirmed" });
+      kaiAsk(dispatch, "yes", { page: pathname }, conversationId);
+    },
+    [dispatch, pathname, conversationId]
+  );
+
+  const handleReject = useCallback(
+    (confirmationId: string) => {
+      dispatch({ type: "RESOLVE_CONFIRMATION", id: confirmationId, status: "rejected" });
+      kaiAsk(dispatch, "no", { page: pathname }, conversationId);
+    },
+    [dispatch, pathname, conversationId]
   );
 
   // Current page context label
@@ -121,7 +135,7 @@ export function KaiPanel() {
             <div className="flex-1 min-w-0">
               <h2 className="text-sm font-semibold leading-tight">Kai</h2>
               <p className="text-[11px] text-muted-foreground truncate">
-                AI Assistant — {pageLabel}
+                AI Copilot — {pageLabel}
               </p>
             </div>
             {messages.length > 0 && (
@@ -155,7 +169,12 @@ export function KaiPanel() {
             className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-[120px]"
           >
             {messages.map((msg) => (
-              <KaiMessage key={msg.id} msg={msg} />
+              <KaiMessage
+                key={msg.id}
+                msg={msg}
+                onConfirm={handleConfirm}
+                onReject={handleReject}
+              />
             ))}
             {isThinking &&
               messages[messages.length - 1]?.role !== "assistant" && (

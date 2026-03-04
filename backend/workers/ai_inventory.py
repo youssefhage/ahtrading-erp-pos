@@ -5,6 +5,11 @@ from datetime import datetime
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from notify import notify_critical_recommendation
+except ImportError:
+    notify_critical_recommendation = None
+
 DB_URL_DEFAULT = 'postgresql://localhost/ahtrading'
 
 
@@ -70,9 +75,24 @@ def run_inventory_agent(db_url: str, company_id: str):
                           (id, company_id, agent_code, recommendation_json, status)
                         VALUES
                           (gen_random_uuid(), %s, 'AI_INVENTORY', %s::jsonb, 'pending')
+                        RETURNING id
                         """,
                         (company_id, json.dumps(rec_payload)),
                     )
+                    rec_row = cur.fetchone()
+                    rec_id = str(rec_row["id"]) if rec_row else None
+
+                    # Notify for critical stock levels (below 25% of reorder point)
+                    if notify_critical_recommendation and r["reorder_point"]:
+                        threshold = float(r["reorder_point"]) * 0.25
+                        if float(r["qty_on_hand"]) <= threshold:
+                            try:
+                                notify_critical_recommendation(
+                                    conn, company_id, "AI_INVENTORY",
+                                    rec_payload, severity="critical", rec_id=rec_id,
+                                )
+                            except Exception:
+                                pass
 
 
 def main():

@@ -5,6 +5,11 @@ from datetime import datetime
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from notify import notify_critical_recommendation
+except ImportError:
+    notify_critical_recommendation = None
+
 DB_URL_DEFAULT = 'postgresql://localhost/ahtrading'
 
 
@@ -130,6 +135,17 @@ def run_purchase_agent(db_url: str, company_id: str):
                             """,
                             (company_id, rec_id, json.dumps(rec_payload)),
                         )
+
+                    # Push notification for significant reorder recommendations
+                    if notify_critical_recommendation and amount_usd >= 100:
+                        severity = "critical" if amount_usd >= 500 else "warning"
+                        try:
+                            notify_critical_recommendation(
+                                conn, company_id, "AI_PURCHASE",
+                                rec_payload, severity=severity, rec_id=str(rec_id),
+                            )
+                        except Exception:
+                            pass
 
 
 def main():

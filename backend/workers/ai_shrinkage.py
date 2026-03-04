@@ -7,6 +7,11 @@ from decimal import Decimal
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from notify import notify_critical_recommendation
+except ImportError:
+    notify_critical_recommendation = None
+
 DB_URL_DEFAULT = "postgresql://localhost/ahtrading"
 
 
@@ -87,6 +92,14 @@ def run_shrinkage_agent(db_url: str, company_id: str):
                         """,
                         (company_id, json.dumps(rec_payload)),
                     )
+                    if notify_critical_recommendation:
+                        try:
+                            notify_critical_recommendation(
+                                conn, company_id, 'AI_SHRINKAGE',
+                                rec_payload, severity="critical",
+                            )
+                        except Exception:
+                            pass
 
 
 def main():

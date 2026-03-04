@@ -4,7 +4,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useReducer,
+  useRef,
   type Dispatch,
 } from "react";
 
@@ -19,11 +21,21 @@ export type KaiMessage = {
   createdAt: string;
   isStreaming?: boolean;
   action?: KaiAction | null;
+  /** Pending write-tool confirmation attached to this message. */
+  confirmation?: KaiConfirmation | null;
 };
 
 export type KaiAction =
   | { type: "navigate"; href: string; label?: string }
   | { type: "info"; message: string };
+
+/** Represents a pending confirmation for a write operation. */
+export type KaiConfirmation = {
+  id: string;
+  toolName: string;
+  summary: string;
+  status: "pending" | "confirmed" | "rejected";
+};
 
 /* ------------------------------------------------------------------ */
 /*  Context-aware suggestion mapping                                   */
@@ -37,40 +49,45 @@ const PATH_SUGGESTIONS: Record<string, string[]> = {
   ],
   "/sales": [
     "Who are my top customers this month?",
-    "Show overdue invoices",
-    "Sales trend this week",
+    "Show today's sales summary",
+    "Any overdue invoices?",
   ],
   "/inventory": [
     "Which items are running low?",
     "Show expiring batches",
-    "Reorder suggestions",
+    "Any negative stock positions?",
   ],
   "/purchasing": [
-    "What should I reorder?",
+    "Create a PO for items running low",
     "Show supplier invoice holds",
-    "3-way match status",
+    "What should I reorder?",
   ],
   "/accounting": [
     "Period close status?",
-    "Unreconciled items",
-    "GL anomalies this month",
+    "Show AP aging",
+    "Any period locks active?",
   ],
   "/catalog": [
-    "Items with low margin",
-    "Data quality issues",
+    "Search for an item",
     "Pricing recommendations",
+    "Update a product price",
   ],
   "/automation": [
     "How many pending recommendations?",
-    "Failed AI actions today",
+    "Approve all pricing recommendations",
     "Show AI agent health",
+  ],
+  "/automation/kai-analytics": [
+    "How many conversations today?",
+    "Which tools are used most?",
+    "Show active users this week",
   ],
 };
 
 const DEFAULT_SUGGESTIONS = [
   "What needs my attention?",
-  "Show system health",
-  "Help me navigate",
+  "Show today's sales",
+  "Search for a product",
 ];
 
 export function getSuggestionsForPath(pathname: string): string[] {
@@ -100,8 +117,12 @@ type KaiActionType =
   | { type: "ADD_MESSAGE"; msg: KaiMessage }
   | { type: "UPDATE_LAST_ASSISTANT"; content: string; done?: boolean }
   | { type: "SET_ACTION"; action: KaiAction }
+  | { type: "SET_CONFIRMATION"; confirmation: KaiConfirmation }
+  | { type: "RESOLVE_CONFIRMATION"; id: string; status: "confirmed" | "rejected" }
   | { type: "SET_THINKING"; value: boolean }
-  | { type: "CLEAR" };
+  | { type: "SET_CONVERSATION_ID"; id: string }
+  | { type: "CLEAR" }
+  | { type: "RESTORE"; messages: KaiMessage[]; conversationId: string | null };
 
 export const kaiInitialState: KaiState = {
   isOpen: false,
@@ -144,12 +165,100 @@ export function kaiReducer(state: KaiState, action: KaiActionType): KaiState {
       }
       return { ...state, messages: msgs };
     }
+    case "SET_CONFIRMATION": {
+      const msgs = [...state.messages];
+      const lastIdx = msgs.findLastIndex((m) => m.role === "assistant");
+      if (lastIdx >= 0) {
+        msgs[lastIdx] = { ...msgs[lastIdx], confirmation: action.confirmation };
+      }
+      return { ...state, messages: msgs };
+    }
+    case "RESOLVE_CONFIRMATION": {
+      const msgs = state.messages.map((m) => {
+        if (m.confirmation && m.confirmation.id === action.id) {
+          return { ...m, confirmation: { ...m.confirmation, status: action.status } };
+        }
+        return m;
+      });
+      return { ...state, messages: msgs };
+    }
     case "SET_THINKING":
       return { ...state, isThinking: action.value };
+    case "SET_CONVERSATION_ID":
+      return { ...state, conversationId: action.id };
     case "CLEAR":
+      _clearPersistedSession();
       return { ...state, messages: [], conversationId: null, isThinking: false };
+    case "RESTORE":
+      return {
+        ...state,
+        messages: action.messages,
+        conversationId: action.conversationId,
+        isThinking: false,
+      };
     default:
       return state;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Persistence (easy continue)                                       */
+/* ------------------------------------------------------------------ */
+
+const _KAI_STORAGE_KEY = "kai_conversation";
+const _KAI_MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+type PersistedSession = {
+  messages: KaiMessage[];
+  conversationId: string | null;
+  savedAt: number;
+};
+
+function _persistSession(messages: KaiMessage[], conversationId: string | null) {
+  try {
+    if (typeof window === "undefined") return;
+    // Only persist completed messages (not streaming)
+    const completed = messages.filter((m) => !m.isStreaming);
+    if (completed.length === 0) {
+      localStorage.removeItem(_KAI_STORAGE_KEY);
+      return;
+    }
+    // Keep only last 30 messages to avoid bloating localStorage
+    const toSave = completed.slice(-30);
+    const session: PersistedSession = {
+      messages: toSave,
+      conversationId,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(_KAI_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // localStorage might be full or unavailable
+  }
+}
+
+function _loadPersistedSession(): PersistedSession | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem(_KAI_STORAGE_KEY);
+    if (!raw) return null;
+    const session: PersistedSession = JSON.parse(raw);
+    // Expire after 2 hours
+    if (Date.now() - session.savedAt > _KAI_MAX_AGE_MS) {
+      localStorage.removeItem(_KAI_STORAGE_KEY);
+      return null;
+    }
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function _clearPersistedSession() {
+  try {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(_KAI_STORAGE_KEY);
+  } catch {
+    // ignore
   }
 }
 
@@ -164,6 +273,8 @@ export const KaiContext = createContext<{
 
 export function useKaiStore() {
   const ctx = useContext(KaiContext);
+  const restoredRef = useRef(false);
+
   if (!ctx) {
     // Fallback for components rendered outside provider (e.g., during SSR)
     return {
@@ -176,6 +287,32 @@ export function useKaiStore() {
     };
   }
   const { state, dispatch } = ctx;
+
+  // Auto-restore from localStorage on first render
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const session = _loadPersistedSession();
+    if (session && session.messages.length > 0) {
+      dispatch({
+        type: "RESTORE",
+        messages: session.messages,
+        conversationId: session.conversationId,
+      });
+    }
+  }, [dispatch]);
+
+  // Auto-persist when messages or conversationId change
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    // Don't persist while streaming
+    const hasStreaming = state.messages.some((m) => m.isStreaming);
+    if (!hasStreaming && state.messages.length > 0) {
+      _persistSession(state.messages, state.conversationId);
+    }
+  }, [state.messages, state.conversationId]);
+
   return {
     ...state,
     open: () => dispatch({ type: "OPEN" }),
@@ -197,7 +334,8 @@ function uid() {
 export async function kaiAsk(
   dispatch: Dispatch<KaiActionType>,
   query: string,
-  context?: { page?: string }
+  context?: { page?: string },
+  conversationId?: string | null
 ) {
   // Add user message
   const userMsg: KaiMessage = {
@@ -224,6 +362,7 @@ export async function kaiAsk(
       query,
       context: context || {},
       stream: true,
+      conversation_id: conversationId || undefined,
     };
 
     const res = await fetch("/api/ai/copilot/query", {
@@ -275,6 +414,10 @@ export async function kaiAsk(
               });
             } else if (parsed.type === "done") {
               accumulated = parsed.full_answer || accumulated;
+              // Save conversation_id for multi-turn
+              if (parsed.conversation_id) {
+                dispatch({ type: "SET_CONVERSATION_ID", id: parsed.conversation_id });
+              }
               dispatch({
                 type: "UPDATE_LAST_ASSISTANT",
                 content: accumulated,
@@ -289,6 +432,16 @@ export async function kaiAsk(
               });
             } else if (parsed.type === "action" && parsed.action) {
               dispatch({ type: "SET_ACTION", action: parsed.action });
+            } else if (parsed.type === "confirmation" && parsed.confirmation) {
+              dispatch({
+                type: "SET_CONFIRMATION",
+                confirmation: {
+                  id: parsed.confirmation.id,
+                  toolName: parsed.confirmation.tool_name,
+                  summary: parsed.confirmation.summary,
+                  status: "pending",
+                },
+              });
             }
           } catch {
             // Skip unparseable lines
@@ -306,6 +459,21 @@ export async function kaiAsk(
       // Non-streaming JSON fallback
       const json = await res.json();
       const answer = json.answer || json.full_answer || JSON.stringify(json);
+      if (json.conversation_id) {
+        dispatch({ type: "SET_CONVERSATION_ID", id: json.conversation_id });
+      }
+      // Handle confirmation in non-streaming response
+      if (json.pending_confirmation) {
+        dispatch({
+          type: "SET_CONFIRMATION",
+          confirmation: {
+            id: json.pending_confirmation.id,
+            toolName: json.pending_confirmation.tool_name,
+            summary: json.pending_confirmation.summary,
+            status: "pending",
+          },
+        });
+      }
       dispatch({ type: "UPDATE_LAST_ASSISTANT", content: answer, done: true });
     }
   } catch (err) {

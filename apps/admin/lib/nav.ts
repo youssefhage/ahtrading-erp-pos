@@ -128,7 +128,9 @@ export const FULL_NAV_SECTIONS: NavSectionData[] = [
       { label: "AI Hub", href: "/automation/ai-hub" },
       { label: "AP Import Queue", href: "/automation/ap-import" },
       { label: "Copilot", href: "/automation/copilot" },
-      { label: "Ops Copilot", href: "/automation/ops-copilot" }
+      { label: "Ops Copilot", href: "/automation/ops-copilot" },
+      { label: "Kai Analytics", href: "/automation/kai-analytics" },
+      { label: "Kai Settings", href: "/automation/kai-settings" }
     ]
   },
   {

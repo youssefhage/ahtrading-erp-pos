@@ -6,6 +6,11 @@ from datetime import datetime
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from notify import notify_critical_recommendation
+except ImportError:
+    notify_critical_recommendation = None
+
 DB_URL_DEFAULT = "postgresql://localhost/ahtrading"
 
 
@@ -102,6 +107,14 @@ def run_expiry_ops_agent(db_url: str, company_id: str, days: int = 30, limit: in
                         """,
                         (company_id, json.dumps(rec_payload)),
                     )
+                    if notify_critical_recommendation:
+                        try:
+                            notify_critical_recommendation(
+                                conn, company_id, 'AI_EXPIRY_OPS',
+                                rec_payload, severity="warning",
+                            )
+                        except Exception:
+                            pass
 
 
 def main():

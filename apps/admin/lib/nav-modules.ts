@@ -301,6 +301,8 @@ export const NAV_MODULES: NavModule[] = [
           { label: "AP Import", href: "/automation/ap-import", icon: FileUp },
           { label: "Copilot", href: "/automation/copilot", icon: MessageSquare },
           { label: "Ops Copilot", href: "/automation/ops-copilot", icon: Cpu },
+          { label: "Kai Analytics", href: "/automation/kai-analytics", icon: BarChart3 },
+          { label: "Kai Settings", href: "/automation/kai-settings", icon: Settings },
         ],
       },
     ],
