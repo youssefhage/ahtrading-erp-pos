@@ -27,15 +27,18 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 // Inline script that runs before first paint to:
-// 1. Lock the company into sessionStorage (so other tabs can't override this tab)
-// 2. Apply the saved accent theme class (e.g. "theme-rose")
-// 3. Set dynamic title and favicon based on company type
-// Reads sessionStorage first (tab-scoped), falls back to localStorage.
+// 1. Read company from URL ?company=<ID>, sessionStorage, or localStorage (in that priority)
+// 2. Lock the company into sessionStorage (so other tabs can't override this tab)
+// 3. Apply the saved accent theme class (e.g. "theme-rose")
+// 4. Set dynamic title and favicon based on company type
 // Unofficial companies default to "rose" when no accent is stored.
 const COMPANY_INIT_SCRIPT = `(function(){try{
 var K="ahtrading.companyId",O="00000000-0000-0000-0000-000000000001";
-var c="";try{c=sessionStorage.getItem(K)||""}catch(e){}
-if(!c){c=localStorage.getItem(K)||"";if(c){try{sessionStorage.setItem(K,c)}catch(e){}}}
+var c="";
+try{var p=new URLSearchParams(location.search);var qc=p.get("company");if(qc)c=qc}catch(e){}
+if(!c){try{c=sessionStorage.getItem(K)||""}catch(e){}}
+if(!c){c=localStorage.getItem(K)||""}
+if(c){try{sessionStorage.setItem(K,c)}catch(e){}}
 var k=c?"admin.accentTheme."+c:"admin.accentTheme";
 var a=localStorage.getItem(k)||localStorage.getItem("admin.accentTheme")||"";
 var v=["cobalt","sky","emerald","teal","rose","slate"];
