@@ -17,6 +17,7 @@
   export let selectedPriceListId = "";
   export let onPriceListChange = (id) => {};
   export let saleMode = "sale";
+  export let priceListUpdating = false;
 
   export let uomOptionsFor = (item) => [];
   export let companyLabel = (obj) => "";
@@ -304,6 +305,11 @@
   <!-- Left: Search + Results -->
   <section class="glass-panel rounded-3xl flex flex-col overflow-hidden relative group/lookup-list">
     <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
+    {#if priceListUpdating}
+      <div class="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden rounded-t-3xl">
+        <div class="h-full bg-accent/80 animate-progress-bar"></div>
+      </div>
+    {/if}
     
     <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
       <div class="flex items-center justify-between gap-3 mb-3">
@@ -318,12 +324,20 @@
 
       {#if priceLists.length > 1}
         <div class="flex items-center gap-2 mb-3">
-          <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0">Price List</span>
+          <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0 flex items-center gap-1">
+            Price List
+            {#if priceListUpdating}
+              <svg class="w-2.5 h-2.5 animate-spin text-accent" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.3"/>
+                <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+            {/if}
+          </span>
           <select
             class="flex-1 bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none disabled:opacity-40 disabled:cursor-not-allowed"
             value={selectedPriceListId}
             on:change={(e) => onPriceListChange(e.target.value)}
-            disabled={saleMode === "return"}
+            disabled={saleMode === "return" || priceListUpdating}
           >
             {#each priceLists as pl}
               <option value={pl.id}>{pl.name}{pl.is_default ? " (Default)" : ""}</option>
@@ -419,7 +433,7 @@
                         {companyLabel(it)}
                       </span>
                     {/if}
-                    <div class="text-right leading-none mt-1">
+                    <div class={`text-right leading-none mt-1 transition-opacity duration-200 ${priceListUpdating ? "opacity-30 animate-pulse" : ""}`}>
                       <div class="font-bold text-sm text-ink num-readable tracking-tight">
                         {fmtMoney(withVatItem(priceBase(it), it), currencyPrimary)}
                       </div>
@@ -444,6 +458,11 @@
   <!-- Right: Details -->
   <section class="glass-panel rounded-3xl flex flex-col overflow-hidden relative group/lookup-details">
     <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
+    {#if priceListUpdating}
+      <div class="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden rounded-t-3xl">
+        <div class="h-full bg-accent/80 animate-progress-bar"></div>
+      </div>
+    {/if}
     
     {#if !selected}
       <div class="h-full flex flex-col items-center justify-center text-muted select-none opacity-60 z-10">
@@ -509,9 +528,14 @@
 
       <div class="relative z-10 flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
-            <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Pricing Structure</div>
-            <div class="space-y-2.5 num-readable text-sm">
+          <div class={`rounded-2xl border bg-surface-highlight/20 p-4 transition-all duration-200 ${priceListUpdating ? "border-accent/20" : "border-white/5"}`}>
+            <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80 flex items-center gap-2">
+              Pricing Structure
+              {#if priceListUpdating}
+                <span class="text-accent text-[9px] font-bold animate-pulse">Updating...</span>
+              {/if}
+            </div>
+            <div class={`space-y-2.5 num-readable text-sm transition-opacity duration-200 ${priceListUpdating ? "opacity-30 animate-pulse" : ""}`}>
               {#if dCost > 0}
                 <div class="flex items-center justify-between text-xs">
                   <span class="text-muted/60">Cost (Avg)</span>
@@ -667,4 +691,13 @@
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+  .animate-progress-bar {
+    animation: progress-bar 1.2s ease-in-out infinite;
+  }
+  @keyframes progress-bar {
+    0% { width: 0%; margin-left: 0; }
+    50% { width: 100%; margin-left: 0; }
+    100% { width: 0%; margin-left: 100%; }
+  }
 </style>

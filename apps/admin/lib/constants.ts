@@ -12,7 +12,14 @@ export const FALLBACK_FX_RATE_USD_LBP = 89500;
 export function applyCompanyMetadata(companyId: string) {
   if (typeof document === "undefined") return;
   const cid = String(companyId || "").trim();
-  const isUnofficial = !!cid && cid !== OFFICIAL_COMPANY_ID;
+
+  // No company selected — neutral title, no favicon/accent changes
+  if (!cid) {
+    document.title = "Codex Admin";
+    return;
+  }
+
+  const isUnofficial = cid !== OFFICIAL_COMPANY_ID;
 
   // Title
   document.title = isUnofficial ? "Codex Admin - Unofficial" : "Codex Admin - Official";
@@ -29,9 +36,14 @@ export function applyCompanyMetadata(companyId: string) {
   document.head.appendChild(link);
 
   // Accent class — read the stored accent or default unofficial to "rose"
+  // Keep in sync with COMPANY_INIT_SCRIPT accent list in layout.tsx
   const accentThemes = ["cobalt", "sky", "emerald", "teal", "rose", "slate"];
-  const scoped = cid ? localStorage.getItem(`admin.accentTheme.${cid}`) : null;
-  const raw = scoped ?? localStorage.getItem("admin.accentTheme") ?? "";
+  let scoped: string | null = null;
+  let raw = "";
+  try {
+    scoped = localStorage.getItem(`admin.accentTheme.${cid}`);
+    raw = scoped ?? localStorage.getItem("admin.accentTheme") ?? "";
+  } catch { /* localStorage unavailable */ }
   const accent = (raw && accentThemes.includes(raw)) ? raw : (isUnofficial ? "rose" : "");
   // Remove any existing accent class, then add the new one
   const cl = document.documentElement.classList;

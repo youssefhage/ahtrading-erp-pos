@@ -377,6 +377,129 @@ def list_items_min(
             return {"items": cur.fetchall()}
 
 
+@router.get("/catalog", dependencies=[Depends(require_permission("items:read"))])
+def product_catalog(
+    q: str = "",
+    limit: int = 0,
+    offset: int = 0,
+    include_inactive: bool = False,
+    price_list_id: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Product catalog endpoint for quick price lookup.
+
+    Returns items with barcodes, description, UOM, category, brand,
+    price from the selected (or default) price list, tax rate, and
+    total (price inclusive of tax).
+
+    Pass ``price_list_id`` to query a specific price list; omit to use
+    the company default.  Falls back to legacy item_prices when no
+    price list entry exists.
+    """
+    if limit < 0 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 0 and 500")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+    qq = (q or "").strip()
+    like = f"%{qq}%"
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # Resolve price list: explicit param → company default → None
+            pl_id = (price_list_id or "").strip() or None
+            if not pl_id:
+                cur.execute(
+                    """
+                    SELECT value_json->>'id' AS id
+                    FROM company_settings
+                    WHERE company_id = %s AND key = 'default_price_list_id'
+                    """,
+                    (company_id,),
+                )
+                srow = cur.fetchone()
+                pl_id = srow["id"] if srow else None
+
+            where = """
+                i.company_id = %s
+                AND (%s = true OR i.is_active = true)
+                AND (
+                    %s = ''
+                    OR i.sku ILIKE %s
+                    OR i.name ILIKE %s
+                    OR (i.barcode IS NOT NULL AND i.barcode ILIKE %s)
+                    OR (i.brand IS NOT NULL AND i.brand ILIKE %s)
+                    OR (i.description IS NOT NULL AND i.description ILIKE %s)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM item_barcodes b
+                        WHERE b.company_id = i.company_id
+                          AND b.item_id = i.id
+                          AND b.barcode ILIKE %s
+                    )
+                )
+            """
+            where_params = [company_id, bool(include_inactive), qq, like, like, like, like, like, like]
+
+            # Count
+            cur.execute(f"SELECT COUNT(*)::int AS n FROM items i WHERE {where}", tuple(where_params))
+            total = int((cur.fetchone() or {}).get("n") or 0)
+
+            sql = f"""
+                SELECT i.id, i.sku, i.name, i.description,
+                       i.unit_of_measure, i.category_id, i.brand,
+                       i.is_active,
+                       COALESCE(tc.name, '') AS tax_template,
+                       COALESCE(tc.rate, 0) AS tax_rate,
+                       COALESCE(plp.price_usd, p.price_usd, 0) AS price_usd,
+                       COALESCE(plp.price_lbp, p.price_lbp, 0) AS price_lbp,
+                       COALESCE(barcodes.codes, '') AS barcodes
+                FROM items i
+                LEFT JOIN tax_codes tc ON tc.id = i.tax_code_id
+                LEFT JOIN LATERAL (
+                    SELECT price_usd, price_lbp
+                    FROM price_list_items pli
+                    WHERE pli.company_id = i.company_id
+                      AND pli.price_list_id = %s::uuid
+                      AND pli.item_id = i.id
+                      AND pli.effective_from <= CURRENT_DATE
+                      AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
+                    ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
+                    LIMIT 1
+                ) plp ON (%s::uuid IS NOT NULL)
+                LEFT JOIN LATERAL (
+                    SELECT price_usd, price_lbp
+                    FROM item_prices ip
+                    WHERE ip.item_id = i.id
+                      AND ip.effective_from <= CURRENT_DATE
+                      AND (ip.effective_to IS NULL OR ip.effective_to >= CURRENT_DATE)
+                    ORDER BY ip.effective_from DESC, ip.created_at DESC
+                    LIMIT 1
+                ) p ON true
+                LEFT JOIN LATERAL (
+                    SELECT string_agg(b.barcode, ', ' ORDER BY b.barcode) AS codes
+                    FROM item_barcodes b
+                    WHERE b.company_id = i.company_id AND b.item_id = i.id
+                ) barcodes ON true
+                WHERE {where}
+                ORDER BY i.sku
+            """
+            params: list = [pl_id, pl_id] + where_params
+            if limit > 0:
+                sql += " LIMIT %s OFFSET %s"
+                params.extend([int(limit), int(offset)])
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+
+            # Compute totals (price inclusive of tax)
+            for r in rows:
+                rate = float(r.get("tax_rate") or 0)
+                r["total_usd"] = round(float(r.get("price_usd") or 0) * (1 + rate), 4)
+                r["total_lbp"] = round(float(r.get("price_lbp") or 0) * (1 + rate), 2)
+
+            return {"items": rows, "total": total}
+
+
 @router.get("/list", dependencies=[Depends(require_permission("items:read"))])
 def list_items_list(
     q: str = "",
