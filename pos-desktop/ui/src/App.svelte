@@ -5172,6 +5172,9 @@
       discount_amount_lbp: toNum(line?.discount_amount_lbp, 0),
       applied_promotion_id: line?.applied_promotion_id || null,
       applied_promotion_item_id: line?.applied_promotion_item_id || null,
+      price_override: !!line?.price_override,
+      original_list_price_usd: toNum(line?.original_list_price_usd, 0),
+      original_list_price_lbp: toNum(line?.original_list_price_lbp, 0),
     };
   };
   const reprintShiftInvoice = async (row) => {
@@ -6862,10 +6865,7 @@
     const trimmed = String(raw || "").replace(/,/g, "").trim();
     if (!trimmed) return { newPriceUsd: null, newPriceLbp: null, error: null };
     const value = Number(trimmed);
-    if (!Number.isFinite(value) || value < 0) {
-      return { newPriceUsd: null, newPriceLbp: null, error: `Enter a valid positive price in ${currency}.` };
-    }
-    if (value <= 0) {
+    if (!Number.isFinite(value) || value <= 0) {
       return { newPriceUsd: null, newPriceLbp: null, error: "Price must be greater than zero." };
     }
     let priceUsd = 0;
@@ -7049,7 +7049,17 @@
 
     if (targetIdx !== undefined && targetIdx !== index) {
       // Merge into existing line for that UOM.
+      // Preserve price_override from either line (source takes priority).
       const tgt = { ...copy[targetIdx] };
+      if (cur.price_override && !tgt.price_override) {
+        tgt.price_override = true;
+        tgt.original_list_price_usd = toNum(cur.original_list_price_usd, 0);
+        tgt.original_list_price_lbp = toNum(cur.original_list_price_lbp, 0);
+        tgt.list_price_usd = toNum(cur.list_price_usd, 0);
+        tgt.list_price_lbp = toNum(cur.list_price_lbp, 0);
+        tgt.price_usd = toNum(cur.price_usd, 0);
+        tgt.price_lbp = toNum(cur.price_lbp, 0);
+      }
       tgt.qty_entered = toNum(tgt.qty_entered, 0) + qe;
       tgt.qty = toNum(tgt.qty_entered, 0) * nextFactor;
       copy[targetIdx] = applyPromotionToLine(tgt);
@@ -7166,6 +7176,9 @@
         discount_amount_lbp: toNum(src?.discount_amount_lbp, 0),
         applied_promotion_id: src?.applied_promotion_id || null,
         applied_promotion_item_id: src?.applied_promotion_item_id || null,
+        price_override: !!src?.price_override,
+        original_list_price_usd: toNum(src?.original_list_price_usd, 0),
+        original_list_price_lbp: toNum(src?.original_list_price_lbp, 0),
       };
       merged.set(key, applyPromotionToLine(line));
     }
