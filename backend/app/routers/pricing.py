@@ -634,6 +634,33 @@ def run_derivation(derivation_id: str, data: RunDerivationIn, company_id: str = 
                     raise HTTPException(status_code=400, detail=summary["error"])
                 return {"ok": True, "summary": summary}
 
+@router.delete("/derivations/{derivation_id}", dependencies=[Depends(require_permission("items:write"))])
+def delete_derivation(derivation_id: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, target_price_list_id FROM price_list_derivations WHERE company_id = %s AND id = %s",
+                    (company_id, derivation_id),
+                )
+                d = cur.fetchone()
+                if not d:
+                    raise HTTPException(status_code=404, detail="derivation not found")
+                cur.execute(
+                    "DELETE FROM price_list_derivations WHERE company_id = %s AND id = %s",
+                    (company_id, derivation_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_derivation_delete', 'price_list_derivation', %s, '{}'::jsonb)
+                    """,
+                    (company_id, user["user_id"], derivation_id),
+                )
+                return {"ok": True}
+
+
 @router.get("/cost-changes", dependencies=[Depends(require_permission("items:read"))])
 def list_cost_changes(
     q: str = Query("", description="Search SKU/name"),

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, X, ChevronDown } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, X, ChevronDown, Trash2 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiDelete } from "@/lib/api";
 import { formatDateLike } from "@/lib/datetime";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
@@ -395,6 +395,20 @@ export default function PriceRulesPage() {
     }
   }, [load]);
 
+  const deleteRule = useCallback(async (ruleId: string) => {
+    if (!confirm("Are you sure you want to delete this price rule? This cannot be undone.")) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiDelete(`/pricing/derivations/${encodeURIComponent(ruleId)}`);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [load]);
+
   async function createRule(e: React.FormEvent) {
     e.preventDefault();
     if (!targetId) return setErr("Target list is required.");
@@ -635,11 +649,20 @@ export default function PriceRulesPage() {
             >
               {r.is_active ? "Disable" : "Enable"}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => deleteRule(r.id)}
+              disabled={busy}
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="mr-1 h-3 w-3" /> Delete
+            </Button>
           </div>
         );
       },
     },
-  ], [busy, runRule, toggleActive, openEdit, categories]);
+  ], [busy, runRule, toggleActive, deleteRule, openEdit, categories]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
