@@ -961,21 +961,23 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                             unit_usd = Decimal(str(l.unit_price_entered_usd or 0)) / qty_factor
                         if l.unit_price_entered_lbp is not None:
                             unit_lbp = Decimal(str(l.unit_price_entered_lbp or 0)) / qty_factor
+                    unit_usd = q_usd(unit_usd)
+                    unit_lbp = q_lbp(unit_lbp)
                     if unit_usd == 0 and unit_lbp == 0:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: unit price is required")
 
-                    line_usd = unit_usd * qty_base
-                    line_lbp = unit_lbp * qty_base
+                    line_usd = q_usd(unit_usd * qty_base)
+                    line_lbp = q_lbp(unit_lbp * qty_base)
                     if line_lbp == 0 and data.exchange_rate:
-                        line_lbp = line_usd * data.exchange_rate
+                        line_lbp = q_lbp(line_usd * data.exchange_rate)
                     if line_usd == 0 and data.exchange_rate:
-                        line_usd = line_lbp / data.exchange_rate
+                        line_usd = q_usd(line_lbp / data.exchange_rate)
 
-                    unit_entered_usd = (Decimal(str(l.unit_price_entered_usd or 0)) if l.unit_price_entered_usd is not None else (unit_usd * qty_factor))
-                    unit_entered_lbp = (Decimal(str(l.unit_price_entered_lbp or 0)) if l.unit_price_entered_lbp is not None else (unit_lbp * qty_factor))
+                    unit_entered_usd = q_usd(Decimal(str(l.unit_price_entered_usd or 0)) if l.unit_price_entered_usd is not None else (unit_usd * qty_factor))
+                    unit_entered_lbp = q_lbp(Decimal(str(l.unit_price_entered_lbp or 0)) if l.unit_price_entered_lbp is not None else (unit_lbp * qty_factor))
 
-                    pre_unit_usd = Decimal(str(l.pre_discount_unit_price_usd or 0))
-                    pre_unit_lbp = Decimal(str(l.pre_discount_unit_price_lbp or 0))
+                    pre_unit_usd = q_usd(Decimal(str(l.pre_discount_unit_price_usd or 0)))
+                    pre_unit_lbp = q_lbp(Decimal(str(l.pre_discount_unit_price_lbp or 0)))
                     if pre_unit_usd == 0:
                         pre_unit_usd = unit_usd
                     if pre_unit_lbp == 0:
@@ -988,16 +990,16 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                         disc_pct = Decimal("0")
                     if disc_pct > 1:
                         disc_pct = Decimal("1")
-                    disc_usd = Decimal(str(l.discount_amount_usd or 0))
-                    disc_lbp = Decimal(str(l.discount_amount_lbp or 0))
+                    disc_usd = q_usd(Decimal(str(l.discount_amount_usd or 0)))
+                    disc_lbp = q_lbp(Decimal(str(l.discount_amount_lbp or 0)))
                     if disc_usd == 0 and disc_lbp == 0:
-                        disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base)
-                        disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base)
+                        disc_usd = q_usd(max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base))
+                        disc_lbp = q_lbp(max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base))
 
                     base_usd += line_usd
                     base_lbp += line_lbp
-                    subtotal_usd += pre_unit_usd * qty_base
-                    subtotal_lbp += pre_unit_lbp * qty_base
+                    subtotal_usd += q_usd(pre_unit_usd * qty_base)
+                    subtotal_lbp += q_lbp(pre_unit_lbp * qty_base)
                     discount_total_usd += disc_usd
                     discount_total_lbp += disc_lbp
                     lines_norm.append(
@@ -1215,22 +1217,24 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                                 unit_usd = Decimal(str(l.unit_price_entered_usd or 0)) / qty_factor
                             if l.unit_price_entered_lbp is not None:
                                 unit_lbp = Decimal(str(l.unit_price_entered_lbp or 0)) / qty_factor
+                        unit_usd = q_usd(unit_usd)
+                        unit_lbp = q_lbp(unit_lbp)
                         if unit_usd == 0 and unit_lbp == 0:
                             raise HTTPException(status_code=400, detail="unit price is required")
-                        line_usd = unit_usd * qty_base
-                        line_lbp = unit_lbp * qty_base
+                        line_usd = q_usd(unit_usd * qty_base)
+                        line_lbp = q_lbp(unit_lbp * qty_base)
                         if line_lbp == 0 and exchange_rate:
-                            line_lbp = line_usd * exchange_rate
+                            line_lbp = q_lbp(line_usd * exchange_rate)
                         if line_usd == 0 and exchange_rate:
-                            line_usd = line_lbp / exchange_rate
+                            line_usd = q_usd(line_lbp / exchange_rate)
                         base_usd += line_usd
                         base_lbp += line_lbp
 
-                        unit_entered_usd = (Decimal(str(l.unit_price_entered_usd or 0)) if l.unit_price_entered_usd is not None else (unit_usd * qty_factor))
-                        unit_entered_lbp = (Decimal(str(l.unit_price_entered_lbp or 0)) if l.unit_price_entered_lbp is not None else (unit_lbp * qty_factor))
+                        unit_entered_usd = q_usd(Decimal(str(l.unit_price_entered_usd or 0)) if l.unit_price_entered_usd is not None else (unit_usd * qty_factor))
+                        unit_entered_lbp = q_lbp(Decimal(str(l.unit_price_entered_lbp or 0)) if l.unit_price_entered_lbp is not None else (unit_lbp * qty_factor))
 
-                        pre_unit_usd = Decimal(str(l.pre_discount_unit_price_usd or 0))
-                        pre_unit_lbp = Decimal(str(l.pre_discount_unit_price_lbp or 0))
+                        pre_unit_usd = q_usd(Decimal(str(l.pre_discount_unit_price_usd or 0)))
+                        pre_unit_lbp = q_lbp(Decimal(str(l.pre_discount_unit_price_lbp or 0)))
                         if pre_unit_usd == 0:
                             pre_unit_usd = unit_usd
                         if pre_unit_lbp == 0:
@@ -1242,13 +1246,13 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                             disc_pct = Decimal("0")
                         if disc_pct > 1:
                             disc_pct = Decimal("1")
-                        disc_usd = Decimal(str(l.discount_amount_usd or 0))
-                        disc_lbp = Decimal(str(l.discount_amount_lbp or 0))
+                        disc_usd = q_usd(Decimal(str(l.discount_amount_usd or 0)))
+                        disc_lbp = q_lbp(Decimal(str(l.discount_amount_lbp or 0)))
                         if disc_usd == 0 and disc_lbp == 0:
-                            disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base)
-                            disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base)
-                        subtotal_usd += pre_unit_usd * qty_base
-                        subtotal_lbp += pre_unit_lbp * qty_base
+                            disc_usd = q_usd(max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base))
+                            disc_lbp = q_lbp(max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base))
+                        subtotal_usd += q_usd(pre_unit_usd * qty_base)
+                        subtotal_lbp += q_lbp(pre_unit_lbp * qty_base)
                         discount_total_usd += disc_usd
                         discount_total_lbp += disc_lbp
 

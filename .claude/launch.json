@@ -11,9 +11,10 @@
     },
     {
       "name": "pos-ui",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "$PORT"],
       "port": 5173,
+      "autoPort": true,
       "cwd": "pos-desktop/ui"
     },
     {

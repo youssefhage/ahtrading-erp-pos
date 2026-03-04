@@ -20,6 +20,8 @@
     assertPaymentsWithinTotals,
     buildSalePaymentsForSettlement,
     normalizeSettlementCurrency,
+    roundUsd,
+    roundLbp,
     saleIdempotencyKeyForCompany,
   } from "./lib/unified-checkout.js";
   import {
@@ -2104,9 +2106,9 @@
     let u = toNum(usd, 0);
     let l = toNum(lbp, 0);
     const ex = toNum(exchangeRate, 0);
-    if (l === 0 && ex > 0 && u !== 0) l = u * ex;
-    if (u === 0 && ex > 0 && l !== 0) u = l / ex;
-    return { usd: u, lbp: l };
+    if (l === 0 && ex > 0 && u !== 0) l = roundLbp(u * ex);
+    if (u === 0 && ex > 0 && l !== 0) u = roundUsd(l / ex);
+    return { usd: roundUsd(u), lbp: roundLbp(l) };
   };
 
   const _buildSalePayloadWeb = (cartLines, cfg, payload = {}) => {
@@ -2123,9 +2125,9 @@
       const qty = Math.max(0, toNum(line.qty, 0));
       const qtyFactor = Math.max(1e-9, toNum(line.qty_factor, 1));
       const qtyEntered = line.qty_entered != null ? toNum(line.qty_entered, 0) : (qty / qtyFactor);
-      const unitUsd = toNum(line.price_usd, 0);
-      const unitLbp = toNum(line.price_lbp, 0);
-      const totals = _withDualAmounts(unitUsd * qty, unitLbp * qty, exchangeRate);
+      const unitUsd = roundUsd(toNum(line.price_usd, 0));
+      const unitLbp = roundLbp(toNum(line.price_lbp, 0));
+      const totals = _withDualAmounts(roundUsd(unitUsd * qty), roundLbp(unitLbp * qty), exchangeRate);
       baseUsd += totals.usd;
       baseLbp += totals.lbp;
       return {
@@ -2137,17 +2139,17 @@
         qty_entered: qtyEntered,
         unit_price_usd: unitUsd,
         unit_price_lbp: unitLbp,
-        unit_price_entered_usd: unitUsd * qtyFactor,
-        unit_price_entered_lbp: unitLbp * qtyFactor,
-        pre_discount_unit_price_usd: toNum(line.pre_discount_unit_price_usd, 0),
-        pre_discount_unit_price_lbp: toNum(line.pre_discount_unit_price_lbp, 0),
+        unit_price_entered_usd: roundUsd(unitUsd * qtyFactor),
+        unit_price_entered_lbp: roundLbp(unitLbp * qtyFactor),
+        pre_discount_unit_price_usd: roundUsd(toNum(line.pre_discount_unit_price_usd, 0)),
+        pre_discount_unit_price_lbp: roundLbp(toNum(line.pre_discount_unit_price_lbp, 0)),
         discount_pct: toNum(line.discount_pct, 0),
         manual_discount_mode: String(line.manual_discount_mode || "").trim().toLowerCase() || null,
         manual_discount_pct: toNum(line.manual_discount_pct, 0),
-        manual_discount_amount_usd: toNum(line.manual_discount_amount_usd, 0),
-        manual_discount_amount_lbp: toNum(line.manual_discount_amount_lbp, 0),
-        discount_amount_usd: toNum(line.discount_amount_usd, 0),
-        discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
+        manual_discount_amount_usd: roundUsd(toNum(line.manual_discount_amount_usd, 0)),
+        manual_discount_amount_lbp: roundLbp(toNum(line.manual_discount_amount_lbp, 0)),
+        discount_amount_usd: roundUsd(toNum(line.discount_amount_usd, 0)),
+        discount_amount_lbp: roundLbp(toNum(line.discount_amount_lbp, 0)),
         applied_promotion_id: line.applied_promotion_id || null,
         applied_promotion_item_id: line.applied_promotion_item_id || null,
         applied_price_list_id: _resolvedPriceListId(line.companyKey || originCompanyKey) || null,
@@ -2183,16 +2185,16 @@
       for (const [taxCodeId, b] of baseByTax.entries()) {
         let rate = Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) ? normalizeVatRate(vatCodes[taxCodeId]) : vatRate;
         if (!rate && String(defaultTaxCodeId) === taxCodeId) rate = vatRate;
-        const lineTaxLbp = b.lbp * rate;
-        const lineTaxUsd = exchangeRate > 0 ? (lineTaxLbp / exchangeRate) : 0;
+        const lineTaxLbp = roundLbp(b.lbp * rate);
+        const lineTaxUsd = exchangeRate > 0 ? roundUsd(lineTaxLbp / exchangeRate) : 0;
         taxUsd += lineTaxUsd;
         taxLbp += lineTaxLbp;
         taxBreakdown.push({
           tax_code_id: taxCodeId,
-          base_usd: b.usd,
-          base_lbp: b.lbp,
-          tax_usd: lineTaxUsd,
-          tax_lbp: lineTaxLbp,
+          base_usd: roundUsd(b.usd),
+          base_lbp: roundLbp(b.lbp),
+          tax_usd: roundUsd(lineTaxUsd),
+          tax_lbp: roundLbp(lineTaxLbp),
           tax_date: new Date().toISOString().slice(0, 10),
         });
       }

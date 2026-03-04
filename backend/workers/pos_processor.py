@@ -984,35 +984,41 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     total_cost_lbp = Decimal("0")
 
     for l in lines:
-        line_total_usd = Decimal(str(l.get("line_total_usd", 0)))
-        line_total_lbp = Decimal(str(l.get("line_total_lbp", 0)))
+        qty = Decimal(str(l.get("qty", 0)))
+        # Recompute line totals from quantized unit prices (do not trust frontend float math).
+        raw_unit_usd = q_usd(Decimal(str(l.get("unit_price_usd", 0) or 0)))
+        raw_unit_lbp = q_lbp(Decimal(str(l.get("unit_price_lbp", 0) or 0)))
+        line_total_usd = q_usd(raw_unit_usd * qty)
+        line_total_lbp = q_lbp(raw_unit_lbp * qty)
+        # Overwrite payload values so downstream code uses quantized totals.
+        l["line_total_usd"] = str(line_total_usd)
+        l["line_total_lbp"] = str(line_total_lbp)
         base_usd += line_total_usd
         base_lbp += line_total_lbp
-        qty = Decimal(str(l.get("qty", 0)))
 
         # Optional commercial metadata (backward compatible).
-        pre_unit_usd = Decimal(str(l.get("pre_discount_unit_price_usd", 0) or 0))
-        pre_unit_lbp = Decimal(str(l.get("pre_discount_unit_price_lbp", 0) or 0))
-        unit_usd = Decimal(str(l.get("unit_price_usd", 0) or 0))
-        unit_lbp = Decimal(str(l.get("unit_price_lbp", 0) or 0))
+        pre_unit_usd = q_usd(Decimal(str(l.get("pre_discount_unit_price_usd", 0) or 0)))
+        pre_unit_lbp = q_lbp(Decimal(str(l.get("pre_discount_unit_price_lbp", 0) or 0)))
+        unit_usd = q_usd(Decimal(str(l.get("unit_price_usd", 0) or 0)))
+        unit_lbp = q_lbp(Decimal(str(l.get("unit_price_lbp", 0) or 0)))
         disc_pct = Decimal(str(l.get("discount_pct", 0) or 0))
-        disc_usd = Decimal(str(l.get("discount_amount_usd", 0) or 0))
-        disc_lbp = Decimal(str(l.get("discount_amount_lbp", 0) or 0))
+        disc_usd = q_usd(Decimal(str(l.get("discount_amount_usd", 0) or 0)))
+        disc_lbp = q_lbp(Decimal(str(l.get("discount_amount_lbp", 0) or 0)))
 
         if disc_usd == 0 and disc_lbp == 0:
             if pre_unit_usd or pre_unit_lbp:
-                disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty)
-                disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty)
+                disc_usd = q_usd(max(Decimal("0"), (pre_unit_usd - unit_usd) * qty))
+                disc_lbp = q_lbp(max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty))
             elif disc_pct:
                 # unit_usd/unit_lbp are post-discount; recover pre-discount total.
                 if disc_pct < Decimal("1"):
-                    pre_disc_usd = (unit_usd * qty) / (Decimal("1") - disc_pct)
-                    pre_disc_lbp = (unit_lbp * qty) / (Decimal("1") - disc_pct)
+                    pre_disc_usd = q_usd((unit_usd * qty) / (Decimal("1") - disc_pct))
+                    pre_disc_lbp = q_lbp((unit_lbp * qty) / (Decimal("1") - disc_pct))
                 else:
-                    pre_disc_usd = unit_usd * qty
-                    pre_disc_lbp = unit_lbp * qty
-                disc_usd = max(Decimal("0"), pre_disc_usd * disc_pct)
-                disc_lbp = max(Decimal("0"), pre_disc_lbp * disc_pct)
+                    pre_disc_usd = q_usd(unit_usd * qty)
+                    pre_disc_lbp = q_lbp(unit_lbp * qty)
+                disc_usd = q_usd(max(Decimal("0"), pre_disc_usd * disc_pct))
+                disc_lbp = q_lbp(max(Decimal("0"), pre_disc_lbp * disc_pct))
 
         discount_total_usd += disc_usd
         discount_total_lbp += disc_lbp
@@ -1030,8 +1036,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             unit_cost_usd, unit_cost_lbp = get_avg_cost(cur, company_id, l.get("item_id"), warehouse_id)
         l["_resolved_unit_cost_usd"] = str(unit_cost_usd)
         l["_resolved_unit_cost_lbp"] = str(unit_cost_lbp)
-        total_cost_usd += qty * unit_cost_usd
-        total_cost_lbp += qty * unit_cost_lbp
+        total_cost_usd += q_usd(qty * unit_cost_usd)
+        total_cost_lbp += q_lbp(qty * unit_cost_lbp)
 
     tax = payload.get("tax") or None
     tax_rows: list[dict] = []
@@ -1236,10 +1242,11 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         line_id = str(uuid.uuid4())
         l["_invoice_line_id"] = line_id
         qty = Decimal(str(l.get("qty", 0) or 0))
-        unit_price_usd = Decimal(str(l.get("unit_price_usd", 0) or 0))
-        unit_price_lbp = Decimal(str(l.get("unit_price_lbp", 0) or 0))
-        line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
-        line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
+        unit_price_usd = q_usd(Decimal(str(l.get("unit_price_usd", 0) or 0)))
+        unit_price_lbp = q_lbp(Decimal(str(l.get("unit_price_lbp", 0) or 0)))
+        # Recompute line totals from quantized unit prices for consistency.
+        line_total_usd = q_usd(unit_price_usd * qty)
+        line_total_lbp = q_lbp(unit_price_lbp * qty)
         uom, qty_factor, qty_entered = _resolve_line_uom(
             line_label="sale line",
             item_id=str(l.get("item_id") or ""),
@@ -1252,14 +1259,14 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         )
 
         if l.get("unit_price_entered_usd") is not None:
-            unit_price_entered_usd = Decimal(str(l.get("unit_price_entered_usd") or 0))
+            unit_price_entered_usd = q_usd(Decimal(str(l.get("unit_price_entered_usd") or 0)))
         else:
-            unit_price_entered_usd = unit_price_usd * qty_factor
+            unit_price_entered_usd = q_usd(unit_price_usd * qty_factor)
 
         if l.get("unit_price_entered_lbp") is not None:
-            unit_price_entered_lbp = Decimal(str(l.get("unit_price_entered_lbp") or 0))
+            unit_price_entered_lbp = q_lbp(Decimal(str(l.get("unit_price_entered_lbp") or 0)))
         else:
-            unit_price_entered_lbp = unit_price_lbp * qty_factor
+            unit_price_entered_lbp = q_lbp(unit_price_lbp * qty_factor)
 
         cur.execute(
             """

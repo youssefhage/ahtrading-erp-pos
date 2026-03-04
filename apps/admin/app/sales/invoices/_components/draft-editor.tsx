@@ -81,28 +81,40 @@ function clampPct(pct: number) {
   return Math.max(0, Math.min(100, pct));
 }
 
+const USD_SCALE = 10000; // 4 decimal places — matches DB numeric(18,4)
+const LBP_SCALE = 100;   // 2 decimal places — matches DB numeric(18,2)
+const ROUND_EPS = 1e-9;  // bias toward rounding up (ROUND_HALF_UP equivalent)
+
+function roundUsd(v: number) {
+  return Math.max(0, Math.round((v + ROUND_EPS) * USD_SCALE) / USD_SCALE);
+}
+
+function roundLbp(v: number) {
+  return Math.max(0, Math.round((v + ROUND_EPS) * LBP_SCALE) / LBP_SCALE);
+}
+
 function resolveLine(l: InvoiceLineDraft, exchangeRate: number) {
   const qtyEntered = toNum(String(l.qty));
   const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
   const qtyBase = qtyEntered * qtyFactor;
-  let preUsd = toNum(String(l.pre_unit_price_usd));
-  let preLbp = toNum(String(l.pre_unit_price_lbp));
+  let preUsd = roundUsd(toNum(String(l.pre_unit_price_usd)));
+  let preLbp = roundLbp(toNum(String(l.pre_unit_price_lbp)));
   const discPctUi = clampPct(toNum(String(l.discount_pct)));
   const discFrac = discPctUi / 100;
 
   if (exchangeRate > 0) {
-    if (preUsd === 0 && preLbp > 0) preUsd = preLbp / exchangeRate;
-    if (preLbp === 0 && preUsd > 0) preLbp = preUsd * exchangeRate;
+    if (preUsd === 0 && preLbp > 0) preUsd = roundUsd(preLbp / exchangeRate);
+    if (preLbp === 0 && preUsd > 0) preLbp = roundLbp(preUsd * exchangeRate);
   }
 
-  const netUsd = preUsd * (1 - discFrac);
-  const netLbp = preLbp * (1 - discFrac);
+  const netUsd = roundUsd(preUsd * (1 - discFrac));
+  const netLbp = roundLbp(preLbp * (1 - discFrac));
 
-  const totalUsd = qtyBase * netUsd;
-  const totalLbp = qtyBase * netLbp;
+  const totalUsd = roundUsd(qtyBase * netUsd);
+  const totalLbp = roundLbp(qtyBase * netLbp);
 
-  const discountUsd = Math.max(0, qtyBase * (preUsd - netUsd));
-  const discountLbp = Math.max(0, qtyBase * (preLbp - netLbp));
+  const discountUsd = roundUsd(Math.max(0, qtyBase * (preUsd - netUsd)));
+  const discountLbp = roundLbp(Math.max(0, qtyBase * (preLbp - netLbp)));
 
   return {
     qtyEntered,
@@ -246,8 +258,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     for (const l of lines || []) {
       const r = resolveLine(l, ex);
       const vat = vatMetaFor(l.tax_code_id);
-      const lineVatLbp = r.totalLbp * vat.rate;
-      const lineVatUsd = ex > 0 ? lineVatLbp / ex : r.totalUsd * vat.rate;
+      const lineVatLbp = roundLbp(r.totalLbp * vat.rate);
+      const lineVatUsd = ex > 0 ? roundUsd(lineVatLbp / ex) : roundUsd(r.totalUsd * vat.rate);
       subtotalUsd += r.totalUsd;
       subtotalLbp += r.totalLbp;
       discountUsd += r.discountUsd;
@@ -694,16 +706,18 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       const qtyBase = qtyEntered * qtyFactor;
 
       if (ex > 0) {
-        if (preUsd === 0 && preLbp > 0) preUsd = preLbp / ex;
-        if (preLbp === 0 && preUsd > 0) preLbp = preUsd * ex;
+        if (preUsd === 0 && preLbp > 0) preUsd = roundUsd(preLbp / ex);
+        if (preLbp === 0 && preUsd > 0) preLbp = roundLbp(preUsd * ex);
       }
+      preUsd = roundUsd(preUsd);
+      preLbp = roundLbp(preLbp);
       if (preUsd === 0 && preLbp === 0) return setStatus(`Set USD or LBP unit price (line ${i + 1}).`);
 
-      let netUsd = preUsd * (1 - discFrac);
-      let netLbp = preLbp * (1 - discFrac);
+      let netUsd = roundUsd(preUsd * (1 - discFrac));
+      let netLbp = roundLbp(preLbp * (1 - discFrac));
       if (ex > 0) {
-        if (netUsd === 0 && netLbp > 0) netUsd = netLbp / ex;
-        if (netLbp === 0 && netUsd > 0) netLbp = netUsd * ex;
+        if (netUsd === 0 && netLbp > 0) netUsd = roundUsd(netLbp / ex);
+        if (netLbp === 0 && netUsd > 0) netLbp = roundLbp(netUsd * ex);
       }
 
       linesOut.push({
@@ -712,12 +726,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         uom,
         qty_factor: qtyFactor,
         qty_entered: qtyEntered,
-        unit_price_usd: netUsd,
-        unit_price_lbp: netLbp,
-        unit_price_entered_usd: netUsd * qtyFactor,
-        unit_price_entered_lbp: netLbp * qtyFactor,
-        pre_discount_unit_price_usd: preUsd,
-        pre_discount_unit_price_lbp: preLbp,
+        unit_price_usd: roundUsd(netUsd),
+        unit_price_lbp: roundLbp(netLbp),
+        unit_price_entered_usd: roundUsd(netUsd * qtyFactor),
+        unit_price_entered_lbp: roundLbp(netLbp * qtyFactor),
+        pre_discount_unit_price_usd: roundUsd(preUsd),
+        pre_discount_unit_price_lbp: roundLbp(preLbp),
         discount_pct: discFrac,
         applied_price_list_id: selectedPriceListId || null,
       });

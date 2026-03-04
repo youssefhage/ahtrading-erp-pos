@@ -7,8 +7,8 @@ const toNum = (value, fallback = 0) => {
 
 const USD_SCALE = 10000;
 const LBP_SCALE = 100;
-const roundUsd = (value) => Math.max(0, Math.round((toNum(value, 0) + EPS) * USD_SCALE) / USD_SCALE);
-const roundLbp = (value) => Math.max(0, Math.round((toNum(value, 0) + EPS) * LBP_SCALE) / LBP_SCALE);
+export const roundUsd = (value) => Math.max(0, Math.round((toNum(value, 0) + EPS) * USD_SCALE) / USD_SCALE);
+export const roundLbp = (value) => Math.max(0, Math.round((toNum(value, 0) + EPS) * LBP_SCALE) / LBP_SCALE);
 
 export function normalizeSettlementCurrency(settlementCurrency = "USD") {
   const settle = String(settlementCurrency || "USD").trim().toUpperCase();
