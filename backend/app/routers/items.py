@@ -383,14 +383,19 @@ def product_catalog(
     limit: int = 0,
     offset: int = 0,
     include_inactive: bool = False,
+    price_list_id: Optional[str] = None,
     company_id: str = Depends(get_company_id),
 ):
     """
-    Product catalog endpoint optimised for quick price lookup.
+    Product catalog endpoint for quick price lookup.
 
-    Returns items with barcodes (comma-separated), description, UOM,
-    category, brand, standard selling price (from default price list or
-    legacy item_prices), tax rate and total (price * (1 + tax_rate)).
+    Returns items with barcodes, description, UOM, category, brand,
+    price from the selected (or default) price list, tax rate, and
+    total (price inclusive of tax).
+
+    Pass ``price_list_id`` to query a specific price list; omit to use
+    the company default.  Falls back to legacy item_prices when no
+    price list entry exists.
     """
     if limit < 0 or limit > 500:
         raise HTTPException(status_code=400, detail="limit must be between 0 and 500")
@@ -401,17 +406,19 @@ def product_catalog(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            # Resolve default price list
-            cur.execute(
-                """
-                SELECT value_json->>'id' AS id
-                FROM company_settings
-                WHERE company_id = %s AND key = 'default_price_list_id'
-                """,
-                (company_id,),
-            )
-            srow = cur.fetchone()
-            pl_id = srow["id"] if srow else None
+            # Resolve price list: explicit param → company default → None
+            pl_id = (price_list_id or "").strip() or None
+            if not pl_id:
+                cur.execute(
+                    """
+                    SELECT value_json->>'id' AS id
+                    FROM company_settings
+                    WHERE company_id = %s AND key = 'default_price_list_id'
+                    """,
+                    (company_id,),
+                )
+                srow = cur.fetchone()
+                pl_id = srow["id"] if srow else None
 
             where = """
                 i.company_id = %s
@@ -444,8 +451,8 @@ def product_catalog(
                        i.is_active,
                        COALESCE(tc.name, '') AS tax_template,
                        COALESCE(tc.rate, 0) AS tax_rate,
-                       COALESCE(plp.price_usd, p.price_usd, 0) AS selling_price_usd,
-                       COALESCE(plp.price_lbp, p.price_lbp, 0) AS selling_price_lbp,
+                       COALESCE(plp.price_usd, p.price_usd, 0) AS price_usd,
+                       COALESCE(plp.price_lbp, p.price_lbp, 0) AS price_lbp,
                        COALESCE(barcodes.codes, '') AS barcodes
                 FROM items i
                 LEFT JOIN tax_codes tc ON tc.id = i.tax_code_id
@@ -484,13 +491,11 @@ def product_catalog(
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
 
-            # Compute totals (price * (1 + tax_rate)) in Python for clarity
+            # Compute totals (price inclusive of tax)
             for r in rows:
                 rate = float(r.get("tax_rate") or 0)
-                sell_usd = float(r.get("selling_price_usd") or 0)
-                sell_lbp = float(r.get("selling_price_lbp") or 0)
-                r["total_usd"] = round(sell_usd * (1 + rate), 4)
-                r["total_lbp"] = round(sell_lbp * (1 + rate), 2)
+                r["total_usd"] = round(float(r.get("price_usd") or 0) * (1 + rate), 4)
+                r["total_lbp"] = round(float(r.get("price_lbp") or 0) * (1 + rate), 2)
 
             return {"items": rows, "total": total}
 
