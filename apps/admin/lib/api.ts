@@ -135,10 +135,18 @@ function headersForm(extra?: Record<string, string>, requestId?: string) {
 function extractJsonMessage(body: unknown): string {
   if (!body || typeof body !== "object") return "";
   const b = body as Record<string, unknown>;
-  const detail = b["detail"];
-  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  // Prefer the specific "error" field (includes actual exception in dev/local)
+  // over the generic "detail" field which is always "internal error" for 500s.
   const err = b["error"];
   if (typeof err === "string" && err.trim()) return err.trim();
+  const detail = b["detail"];
+  const errorType = b["error_type"];
+  // Append error_type to generic "internal error" messages for easier debugging.
+  if (typeof detail === "string" && detail.trim()) {
+    const base = detail.trim();
+    if (typeof errorType === "string" && errorType.trim()) return `${base} (${errorType.trim()})`;
+    return base;
+  }
   const msg = b["message"];
   if (typeof msg === "string" && msg.trim()) return msg.trim();
   return "";

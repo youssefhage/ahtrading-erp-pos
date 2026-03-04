@@ -135,7 +135,7 @@ def _unhandled_exception(req: Request, exc: Exception):
         path=req.url.path,
         error=str(exc),
     )
-    content = {"detail": "internal error", "request_id": rid}
+    content = {"detail": "internal error", "request_id": rid, "error_type": type(exc).__name__}
     if settings.env in {"local", "dev"}:
         content["error"] = str(exc)
     return JSONResponse(status_code=500, content=content)
