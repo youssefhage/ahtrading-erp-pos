@@ -7,6 +7,7 @@
   export let isActive = false;
   export let currencyPrimary = "USD";
   export let vatRate = 0;
+  export let vatRateForItem = null; // (item) => normalizedRate; per-item override
 
   export let otherCompanyKey = "unofficial";
   export let barcodesByItemIdOrigin = new Map();
@@ -74,14 +75,13 @@
     return Number.isInteger(pct) ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
   };
 
-  $: vatRateNorm = normalizeVatRate(vatRate);
-  $: vatFactor = 1 + vatRateNorm;
-  const withVat = (v) => Math.max(0, toNum(v, 0)) * vatFactor;
-  const vatAmount = (v) => Math.max(0, toNum(v, 0)) * vatRateNorm;
+  $: globalVatRateNorm = normalizeVatRate(vatRate);
+  const itemVatRate = (it) => vatRateForItem ? normalizeVatRate(vatRateForItem(it)) : globalVatRateNorm;
   const priceBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.price_lbp, 0) : toNum(it?.price_usd, 0));
   const costBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.cost_lbp, 0) : toNum(it?.cost_usd, 0));
-  const priceVat = (it) => vatAmount(priceBase(it));
-  const priceTotal = (it) => withVat(priceBase(it));
+  const withVatItem = (v, it) => Math.max(0, toNum(v, 0)) * (1 + itemVatRate(it));
+  const vatAmountItem = (v, it) => Math.max(0, toNum(v, 0)) * itemVatRate(it);
+  const priceTotal = (it) => withVatItem(priceBase(it), it);
 
   // Price adjusted for selected UOM (detail panel only)
   $: displayQtyFactor = (() => {
@@ -93,9 +93,10 @@
   })();
   $: dPrice = selected ? priceBase(selected) * displayQtyFactor : 0;
   $: dCost = selected ? costBase(selected) * displayQtyFactor : 0;
-  $: dVat = vatAmount(dPrice);
-  $: dTotal = withVat(dPrice);
-  $: dUsdTotal = selected ? withVat(toNum(selected?.price_usd, 0) * displayQtyFactor) : 0;
+  $: selectedVatRate = selected ? itemVatRate(selected) : globalVatRateNorm;
+  $: dVat = dPrice * selectedVatRate;
+  $: dTotal = dPrice * (1 + selectedVatRate);
+  $: dUsdTotal = selected ? toNum(selected?.price_usd, 0) * displayQtyFactor * (1 + selectedVatRate) : 0;
 
   const normalize = (v) => String(v || "").trim().toLowerCase();
 
@@ -419,7 +420,7 @@
                     {/if}
                     <div class="text-right leading-none mt-1">
                       <div class="font-bold text-sm text-ink num-readable tracking-tight">
-                        {fmtMoney(withVat(priceBase(it)), currencyPrimary)}
+                        {fmtMoney(withVatItem(priceBase(it), it), currencyPrimary)}
                       </div>
                       <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
                         {fmtMoney(priceBase(it), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
@@ -528,7 +529,7 @@
                 </div>
               {/if}
               <div class="flex items-center justify-between text-xs">
-                <span class="text-muted/60">VAT ({fmtVatPct(vatRateNorm)})</span>
+                <span class="text-muted/60">VAT ({fmtVatPct(selectedVatRate)})</span>
                 <span class="font-medium text-amber-400">{fmtMoney(dVat, currencyPrimary)}</span>
               </div>
               <div class="flex items-center justify-between text-xs">

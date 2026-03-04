@@ -9875,6 +9875,7 @@
           collapseCatalog={toggleCatalog}
           currencyPrimary={currencyPrimary}
           vatRate={toRate(config.vat_rate)}
+          vatRateForItem={vatRateForLine}
           onScanKeyDown={handleScanKeyDown}
           companyLabel={companyLabel}
           companyTone={companyTone}
@@ -9951,6 +9952,7 @@
       isActive={activeScreen === "items"}
       currencyPrimary={currencyPrimary}
       vatRate={toRate(config.vat_rate)}
+      vatRateForItem={vatRateForLine}
       otherCompanyKey={otherCompanyKey}
       barcodesByItemIdOrigin={barcodesByItemIdOrigin}
       barcodesByItemIdOther={barcodesByItemIdOther}

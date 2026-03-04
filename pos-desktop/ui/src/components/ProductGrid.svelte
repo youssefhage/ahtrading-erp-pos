@@ -7,6 +7,7 @@
   export let collapseCatalog = () => {};
   export let currencyPrimary = "USD";
   export let vatRate = 0;
+  export let vatRateForItem = null; // (item) => normalizedRate; per-item override
   export let onScanKeyDown = (e) => false; // should return true if it handled Enter (barcode/SKU)
   export let companyLabel = (item) => ""; // e.g. "Official" / "Unofficial"
   export let companyTone = (item) => ""; // e.g. "official" / "unofficial" (CSS hook)
@@ -54,9 +55,12 @@
     return Math.max(0, n);
   };
 
-  $: vatFactor = 1 + normalizeVatRate(vatRate);
+  $: globalVatFactor = 1 + normalizeVatRate(vatRate);
   const basePrice = (item) => (currencyPrimary === "LBP" ? toNum(item?.price_lbp, 0) : toNum(item?.price_usd, 0));
-  const afterVatPrice = (item) => basePrice(item) * vatFactor;
+  const afterVatPrice = (item) => {
+    const factor = vatRateForItem ? (1 + normalizeVatRate(vatRateForItem(item))) : globalVatFactor;
+    return basePrice(item) * factor;
+  };
 
   const optValue = (o) => {
     const u = String(o?.uom || "").trim();
