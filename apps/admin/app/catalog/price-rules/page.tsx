@@ -71,10 +71,29 @@ type CategoryRow = {
   is_active: boolean;
 };
 
+type SupplierRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+};
+
 type ItemOverrideRow = {
   item_id: string;
   item_sku: string;
   item_name: string;
+  mode: "exempt" | "markup_pct" | "discount_pct";
+  pct: number;
+};
+
+type SupplierOverrideRow = {
+  supplier_id: string;
+  supplier_name: string;
+  mode: "exempt" | "markup_pct" | "discount_pct";
+  pct: number;
+};
+
+type BrandOverrideRow = {
+  brand: string;
   mode: "exempt" | "markup_pct" | "discount_pct";
   pct: number;
 };
@@ -95,6 +114,8 @@ type DerivationRow = {
   skip_if_cost_missing: boolean;
   category_overrides: { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct"; pct: number }[];
   item_overrides: ItemOverrideRow[];
+  supplier_overrides: SupplierOverrideRow[];
+  brand_overrides: BrandOverrideRow[];
   is_active: boolean;
   last_run_at?: string | null;
   last_run_summary?: unknown;
@@ -344,60 +365,269 @@ function ItemOverrides({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[380px] p-0" align="start" data-dialog-keepopen="true">
-          <Command shouldFilter={false}>
-            <CommandInput placeholder="Search by SKU or name..." value={searchQuery} onValueChange={setSearchQuery} />
-            <CommandList className="max-h-[240px]">
-              {!searchQuery.trim() ? (
-                <div className="flex flex-col items-center gap-1 px-3 py-8 text-muted-foreground">
-                  <Search className="h-5 w-5 opacity-40" />
-                  <span className="text-sm">Type to search items</span>
-                </div>
-              ) : searchLoading ? (
-                <div className="flex items-center justify-center px-3 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Searching...
-                </div>
-              ) : searchResults.length === 0 ? (
-                <CommandEmpty>No items found.</CommandEmpty>
-              ) : (
-                <CommandGroup>
-                  {searchResults.map((r) => {
-                    const isUsed = usedIds.has(r.id);
-                    const isPending = pendingIds.has(r.id);
-                    return (
-                      <CommandItem
-                        key={r.id}
-                        value={r.id}
-                        disabled={isUsed}
-                        onSelect={() => !isUsed && togglePending({ id: r.id })}
-                        className="gap-2"
+          <div className="flex items-center border-b px-3 py-2">
+            <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by SKU or name..."
+              className="flex h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+            {searchQuery && (
+              <button type="button" onClick={() => setSearchQuery("")} className="ml-1 shrink-0 text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="max-h-[240px] overflow-y-auto">
+            {!searchQuery.trim() ? (
+              <div className="flex flex-col items-center gap-1 px-3 py-8 text-muted-foreground">
+                <Search className="h-5 w-5 opacity-40" />
+                <span className="text-sm">Type to search items</span>
+              </div>
+            ) : searchLoading ? (
+              <div className="flex items-center justify-center px-3 py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Searching...
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="px-3 py-6 text-center text-sm text-muted-foreground">No items found.</div>
+            ) : (
+              <div className="p-1">
+                {searchResults.map((r) => {
+                  const isUsed = usedIds.has(r.id);
+                  const isPending = pendingIds.has(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      disabled={isUsed}
+                      onClick={() => !isUsed && togglePending({ id: r.id })}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors",
+                        isUsed ? "opacity-50" : "hover:bg-muted cursor-default"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                          isPending || isUsed
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-muted-foreground/30"
+                        )}
                       >
-                        <div
-                          className={cn(
-                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                            isPending || isUsed
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-muted-foreground/30"
-                          )}
-                        >
-                          {(isPending || isUsed) && <Check className="h-3 w-3" />}
-                        </div>
-                        <span className="font-mono text-xs font-medium shrink-0">{r.sku}</span>
-                        <span className="min-w-0 truncate text-xs text-muted-foreground">{r.name}</span>
-                        {isUsed && <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">added</span>}
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
-            </CommandList>
-            {pendingIds.size > 0 && (
-              <div className="flex items-center justify-between border-t px-3 py-2">
-                <span className="text-xs text-muted-foreground">{pendingIds.size} selected</span>
-                <Button type="button" size="sm" className="h-7 text-xs" onClick={commitPending}>
-                  Add {pendingIds.size} item{pendingIds.size !== 1 ? "s" : ""}
-                </Button>
+                        {(isPending || isUsed) && <Check className="h-3 w-3" />}
+                      </div>
+                      <span className="font-mono text-xs font-medium shrink-0">{r.sku}</span>
+                      <span className="min-w-0 truncate text-xs text-muted-foreground">{r.name}</span>
+                      {isUsed && <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">added</span>}
+                    </button>
+                  );
+                })}
               </div>
             )}
+          </div>
+          {pendingIds.size > 0 && (
+            <div className="flex items-center justify-between border-t px-3 py-2">
+              <span className="text-xs text-muted-foreground">{pendingIds.size} selected</span>
+              <Button type="button" size="sm" className="h-7 text-xs" onClick={commitPending}>
+                Add {pendingIds.size} item{pendingIds.size !== 1 ? "s" : ""}
+              </Button>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Supplier Overrides                                                        */
+/* -------------------------------------------------------------------------- */
+
+function SupplierOverrides({
+  suppliers,
+  value,
+  onChange,
+}: {
+  suppliers: SupplierRow[];
+  value: SupplierOverrideRow[];
+  onChange: (v: SupplierOverrideRow[]) => void;
+}) {
+  const [supPopoverOpen, setSupPopoverOpen] = useState(false);
+  const usedIds = new Set(value.map((o) => o.supplier_id));
+  const available = suppliers.filter((s) => s.is_active && !usedIds.has(s.id));
+  const supMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s.name])), [suppliers]);
+
+  function addSupplier(supId: string) {
+    const name = supMap.get(supId) || supId.slice(0, 8);
+    onChange([...value, { supplier_id: supId, supplier_name: name, mode: "exempt", pct: 0 }]);
+    setSupPopoverOpen(false);
+  }
+
+  function updateRow(idx: number, patch: Partial<SupplierOverrideRow>) {
+    onChange(value.map((o, i) => (i === idx ? { ...o, ...patch } : o)));
+  }
+
+  function removeRow(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.length === 0 && (
+        <p className="py-3 text-center text-xs text-muted-foreground italic">No supplier overrides.</p>
+      )}
+      {value.map((ov, idx) => (
+        <div key={idx} className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <Badge variant="outline" className="shrink-0 font-medium">
+            {supMap.get(ov.supplier_id) || ov.supplier_name || ov.supplier_id.slice(0, 8)}
+          </Badge>
+          <Select value={ov.mode} onValueChange={(v) => updateRow(idx, { mode: v as SupplierOverrideRow["mode"], pct: v === "exempt" ? 0 : ov.pct })}>
+            <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="exempt">Exempt</SelectItem>
+              <SelectItem value="markup_pct">Markup</SelectItem>
+              <SelectItem value="discount_pct">Discount</SelectItem>
+            </SelectContent>
+          </Select>
+          {ov.mode !== "exempt" && (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-8 w-[70px] text-xs"
+                value={fracToDisplay(ov.pct)}
+                onChange={(e) => updateRow(idx, { pct: displayToFrac(e.target.value) })}
+                placeholder="5"
+                inputMode="decimal"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="ml-auto h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeRow(idx)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Remove</TooltipContent>
+          </Tooltip>
+        </div>
+      ))}
+      <Popover open={supPopoverOpen} onOpenChange={setSupPopoverOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm" disabled={available.length === 0} className="gap-1.5">
+            <Plus className="h-3 w-3" /> Add Supplier
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[240px] p-0" align="start" data-dialog-keepopen="true">
+          <Command>
+            <CommandInput placeholder="Search suppliers..." />
+            <CommandList>
+              <CommandEmpty>No suppliers found.</CommandEmpty>
+              <CommandGroup>
+                {available.map((s) => (
+                  <CommandItem key={s.id} value={s.name} onSelect={() => addSupplier(s.id)}>
+                    {s.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Brand Overrides                                                           */
+/* -------------------------------------------------------------------------- */
+
+function BrandOverrides({
+  brands,
+  value,
+  onChange,
+}: {
+  brands: string[];
+  value: BrandOverrideRow[];
+  onChange: (v: BrandOverrideRow[]) => void;
+}) {
+  const [brandPopoverOpen, setBrandPopoverOpen] = useState(false);
+  const usedBrands = new Set(value.map((o) => o.brand));
+  const available = brands.filter((b) => !usedBrands.has(b));
+
+  function addBrand(brand: string) {
+    onChange([...value, { brand, mode: "exempt", pct: 0 }]);
+    setBrandPopoverOpen(false);
+  }
+
+  function updateRow(idx: number, patch: Partial<BrandOverrideRow>) {
+    onChange(value.map((o, i) => (i === idx ? { ...o, ...patch } : o)));
+  }
+
+  function removeRow(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.length === 0 && (
+        <p className="py-3 text-center text-xs text-muted-foreground italic">No brand overrides.</p>
+      )}
+      {value.map((ov, idx) => (
+        <div key={idx} className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <Badge variant="outline" className="shrink-0 font-medium">
+            {ov.brand}
+          </Badge>
+          <Select value={ov.mode} onValueChange={(v) => updateRow(idx, { mode: v as BrandOverrideRow["mode"], pct: v === "exempt" ? 0 : ov.pct })}>
+            <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="exempt">Exempt</SelectItem>
+              <SelectItem value="markup_pct">Markup</SelectItem>
+              <SelectItem value="discount_pct">Discount</SelectItem>
+            </SelectContent>
+          </Select>
+          {ov.mode !== "exempt" && (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-8 w-[70px] text-xs"
+                value={fracToDisplay(ov.pct)}
+                onChange={(e) => updateRow(idx, { pct: displayToFrac(e.target.value) })}
+                placeholder="5"
+                inputMode="decimal"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="ml-auto h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeRow(idx)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Remove</TooltipContent>
+          </Tooltip>
+        </div>
+      ))}
+      <Popover open={brandPopoverOpen} onOpenChange={setBrandPopoverOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm" disabled={available.length === 0} className="gap-1.5">
+            <Plus className="h-3 w-3" /> Add Brand
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[240px] p-0" align="start" data-dialog-keepopen="true">
+          <Command>
+            <CommandInput placeholder="Search brands..." />
+            <CommandList>
+              <CommandEmpty>No brands found.</CommandEmpty>
+              <CommandGroup>
+                {available.map((b) => (
+                  <CommandItem key={b} value={b} onSelect={() => addBrand(b)}>
+                    {b}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
@@ -412,6 +642,8 @@ function ItemOverrides({
 export default function PriceRulesPage() {
   const [lists, setLists] = useState<PriceListRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
+  const [brands, setBrands] = useState<string[]>([]);
   const [rows, setRows] = useState<DerivationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -430,6 +662,8 @@ export default function PriceRulesPage() {
   const [active, setActive] = useState(true);
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [itemOverrides, setItemOverrides] = useState<ItemOverrideRow[]>([]);
+  const [supplierOverrides, setSupplierOverrides] = useState<SupplierOverrideRow[]>([]);
+  const [brandOverrides, setBrandOverrides] = useState<BrandOverrideRow[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /* ---- Run summary ---- */
@@ -457,6 +691,8 @@ export default function PriceRulesPage() {
   const [editActive, setEditActive] = useState(true);
   const [editOverrides, setEditOverrides] = useState<Override[]>([]);
   const [editItemOverrides, setEditItemOverrides] = useState<ItemOverrideRow[]>([]);
+  const [editSupplierOverrides, setEditSupplierOverrides] = useState<SupplierOverrideRow[]>([]);
+  const [editBrandOverrides, setEditBrandOverrides] = useState<BrandOverrideRow[]>([]);
   const [editAdvancedOpen, setEditAdvancedOpen] = useState(false);
 
   /* ---- Load ---- */
@@ -464,14 +700,18 @@ export default function PriceRulesPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [pl, dr, cats] = await Promise.all([
+      const [pl, dr, cats, sups, brandRes] = await Promise.all([
         apiGet<{ lists: PriceListRow[] }>("/pricing/lists"),
         apiGet<{ derivations: DerivationRow[] }>("/pricing/derivations"),
         apiGet<{ categories: CategoryRow[] }>("/item-categories"),
+        apiGet<{ suppliers: SupplierRow[] }>("/suppliers"),
+        apiGet<{ brands: string[] }>("/items/brands"),
       ]);
       setLists(pl.lists || []);
       setRows(dr.derivations || []);
       setCategories(cats.categories || []);
+      setSuppliers(sups.suppliers || []);
+      setBrands(brandRes.brands || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -544,6 +784,8 @@ export default function PriceRulesPage() {
         is_active: Boolean(active),
         category_overrides: overrides,
         item_overrides: itemOverrides,
+        supplier_overrides: supplierOverrides,
+        brand_overrides: brandOverrides,
       });
       setCreateOpen(false);
       setTargetId("");
@@ -557,6 +799,8 @@ export default function PriceRulesPage() {
       setActive(true);
       setOverrides([]);
       setItemOverrides([]);
+      setSupplierOverrides([]);
+      setBrandOverrides([]);
       setAdvancedOpen(false);
       await load();
     } catch (e) {
@@ -588,7 +832,23 @@ export default function PriceRulesPage() {
       mode: o.mode,
       pct: Number(o.pct || 0),
     })));
-    setEditAdvancedOpen((rule.category_overrides || []).length > 0 || (rule.item_overrides || []).length > 0);
+    setEditSupplierOverrides((rule.supplier_overrides || []).map((o) => ({
+      supplier_id: o.supplier_id,
+      supplier_name: o.supplier_name,
+      mode: o.mode,
+      pct: Number(o.pct || 0),
+    })));
+    setEditBrandOverrides((rule.brand_overrides || []).map((o) => ({
+      brand: o.brand,
+      mode: o.mode,
+      pct: Number(o.pct || 0),
+    })));
+    setEditAdvancedOpen(
+      (rule.category_overrides || []).length > 0 ||
+      (rule.item_overrides || []).length > 0 ||
+      (rule.supplier_overrides || []).length > 0 ||
+      (rule.brand_overrides || []).length > 0
+    );
     setEditOpen(true);
   }, []);
 
@@ -607,6 +867,8 @@ export default function PriceRulesPage() {
         is_active: Boolean(editActive),
         category_overrides: editOverrides,
         item_overrides: editItemOverrides,
+        supplier_overrides: editSupplierOverrides,
+        brand_overrides: editBrandOverrides,
       });
       setEditOpen(false);
       await load();
@@ -676,13 +938,15 @@ export default function PriceRulesPage() {
       ),
     },
     {
-      accessorFn: (r) => (r.category_overrides || []).length + (r.item_overrides || []).length,
+      accessorFn: (r) => (r.category_overrides || []).length + (r.item_overrides || []).length + (r.supplier_overrides || []).length + (r.brand_overrides || []).length,
       id: "overrides",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Overrides" />,
       cell: ({ row }) => {
         const catOvs = row.original.category_overrides || [];
         const itemOvs = row.original.item_overrides || [];
-        const total = catOvs.length + itemOvs.length;
+        const supOvs = row.original.supplier_overrides || [];
+        const brnOvs = row.original.brand_overrides || [];
+        const total = catOvs.length + itemOvs.length + supOvs.length + brnOvs.length;
         if (total === 0) return <span className="text-xs text-muted-foreground">-</span>;
         const labels: string[] = [];
         for (const o of catOvs) {
@@ -699,6 +963,21 @@ export default function PriceRulesPage() {
           else {
             const sign = o.mode === "markup_pct" ? "+" : "-";
             labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
+          }
+        }
+        for (const o of supOvs) {
+          const name = o.supplier_name || o.supplier_id.slice(0, 6);
+          if (o.mode === "exempt") labels.push(`${name} exempt`);
+          else {
+            const sign = o.mode === "markup_pct" ? "+" : "-";
+            labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
+          }
+        }
+        for (const o of brnOvs) {
+          if (o.mode === "exempt") labels.push(`${o.brand} exempt`);
+          else {
+            const sign = o.mode === "markup_pct" ? "+" : "-";
+            labels.push(`${o.brand} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
           }
         }
         return (
@@ -868,9 +1147,9 @@ export default function PriceRulesPage() {
                       <Button variant="ghost" type="button" className="w-full justify-between px-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium">Overrides &amp; Advanced</span>
-                          {(overrides.length + itemOverrides.length) > 0 && (
+                          {(overrides.length + itemOverrides.length + supplierOverrides.length + brandOverrides.length) > 0 && (
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              {overrides.length + itemOverrides.length}
+                              {overrides.length + itemOverrides.length + supplierOverrides.length + brandOverrides.length}
                             </Badge>
                           )}
                         </div>
@@ -884,8 +1163,18 @@ export default function PriceRulesPage() {
                       </div>
                       <div className="space-y-2 rounded-lg border p-3">
                         <Label className="text-xs uppercase tracking-wide text-muted-foreground">Item Overrides</Label>
-                        <p className="text-xs text-muted-foreground">Takes priority over category overrides.</p>
+                        <p className="text-xs text-muted-foreground">Takes priority over category/supplier/brand overrides.</p>
                         <ItemOverrides value={itemOverrides} onChange={setItemOverrides} />
+                      </div>
+                      <div className="space-y-2 rounded-lg border p-3">
+                        <Label className="text-xs uppercase tracking-wide text-muted-foreground">Supplier Overrides</Label>
+                        <p className="text-xs text-muted-foreground">Applied to items from a specific primary supplier.</p>
+                        <SupplierOverrides suppliers={suppliers} value={supplierOverrides} onChange={setSupplierOverrides} />
+                      </div>
+                      <div className="space-y-2 rounded-lg border p-3">
+                        <Label className="text-xs uppercase tracking-wide text-muted-foreground">Brand Overrides</Label>
+                        <p className="text-xs text-muted-foreground">Applied to items of a specific brand.</p>
+                        <BrandOverrides brands={brands} value={brandOverrides} onChange={setBrandOverrides} />
                       </div>
                       <div className="flex items-center gap-3">
                         <Switch checked={skipIfCostMissing} onCheckedChange={setSkipIfCostMissing} />
@@ -1015,9 +1304,9 @@ export default function PriceRulesPage() {
                 <Button variant="ghost" type="button" className="w-full justify-between px-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">Overrides &amp; Advanced</span>
-                    {(editOverrides.length + editItemOverrides.length) > 0 && (
+                    {(editOverrides.length + editItemOverrides.length + editSupplierOverrides.length + editBrandOverrides.length) > 0 && (
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                        {editOverrides.length + editItemOverrides.length}
+                        {editOverrides.length + editItemOverrides.length + editSupplierOverrides.length + editBrandOverrides.length}
                       </Badge>
                     )}
                   </div>
@@ -1031,8 +1320,18 @@ export default function PriceRulesPage() {
                 </div>
                 <div className="space-y-2 rounded-lg border p-3">
                   <Label className="text-xs uppercase tracking-wide text-muted-foreground">Item Overrides</Label>
-                  <p className="text-xs text-muted-foreground">Takes priority over category overrides.</p>
+                  <p className="text-xs text-muted-foreground">Takes priority over category/supplier/brand overrides.</p>
                   <ItemOverrides value={editItemOverrides} onChange={setEditItemOverrides} />
+                </div>
+                <div className="space-y-2 rounded-lg border p-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Supplier Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Applied to items from a specific primary supplier.</p>
+                  <SupplierOverrides suppliers={suppliers} value={editSupplierOverrides} onChange={setEditSupplierOverrides} />
+                </div>
+                <div className="space-y-2 rounded-lg border p-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Brand Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Applied to items of a specific brand.</p>
+                  <BrandOverrides brands={brands} value={editBrandOverrides} onChange={setEditBrandOverrides} />
                 </div>
                 <div className="flex items-center gap-3">
                   <Switch checked={editSkipIfCostMissing} onCheckedChange={setEditSkipIfCostMissing} />
