@@ -10,7 +10,7 @@ from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 from ..account_defaults import ensure_company_account_defaults
 from backend.workers import pos_processor
-from ..journal_utils import auto_balance_journal, assert_journal_balanced, fetch_exchange_rate
+from ..journal_utils import auto_balance_journal, assert_journal_balanced, fetch_exchange_rate, q_usd, q_lbp
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -409,8 +409,8 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 qty_out = Decimal(str(move["qty_out"] or 0))
                 unit_usd = Decimal(str(move["unit_cost_usd"] or 0))
                 unit_lbp = Decimal(str(move["unit_cost_lbp"] or 0))
-                amt_usd = (qty_in if qty_in > 0 else qty_out) * unit_usd
-                amt_lbp = (qty_in if qty_in > 0 else qty_out) * unit_lbp
+                amt_usd = q_usd((qty_in if qty_in > 0 else qty_out) * unit_usd)
+                amt_lbp = q_lbp((qty_in if qty_in > 0 else qty_out) * unit_lbp)
 
                 fx_rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
                 fx_rate = fx_rate or Decimal("0")
@@ -759,8 +759,8 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                         ),
                     )
 
-                    total_usd += qty * unit_usd
-                    total_lbp += qty * unit_lbp
+                    total_usd += q_usd(qty * unit_usd)
+                    total_lbp += q_lbp(qty * unit_lbp)
                     created += 1
 
                 if created == 0:
@@ -1389,8 +1389,8 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                     qout = Decimal(str(move["qty_out"] or 0))
                     u_usd = Decimal(str(move["unit_cost_usd"] or 0))
                     u_lbp = Decimal(str(move["unit_cost_lbp"] or 0))
-                    value_usd = (qin if qin > 0 else qout) * u_usd
-                    value_lbp = (qin if qin > 0 else qout) * u_lbp
+                    value_usd = q_usd((qin if qin > 0 else qout) * u_usd)
+                    value_lbp = q_lbp((qin if qin > 0 else qout) * u_lbp)
                     if qin > 0:
                         inc_usd += value_usd
                         inc_lbp += value_lbp

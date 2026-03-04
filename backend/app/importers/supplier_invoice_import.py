@@ -349,11 +349,11 @@ def apply_extracted_purchase_invoice_to_draft(
         if line_currency not in {"USD", "LBP"}:
             line_currency = "USD"  # safe default (we keep the raw supplier name/code anyway)
 
-        unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
-        unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
+        unit_usd = unit_price if line_currency == "USD" else (q_usd(unit_price / ex) if ex else Decimal("0"))
+        unit_lbp = unit_price if line_currency == "LBP" else q_lbp(unit_price * ex)
         unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
-        line_total_usd = qty * unit_usd
-        line_total_lbp = qty * unit_lbp
+        line_total_usd = q_usd(qty * unit_usd)
+        line_total_lbp = q_lbp(qty * unit_lbp)
 
         supplier_item_code = (ln.get("supplier_item_code") or "").strip() or None
         supplier_item_name = (ln.get("supplier_item_name") or "").strip() or None
@@ -569,10 +569,10 @@ def apply_extracted_purchase_invoice_to_draft(
         r = cur.fetchone()
         if r:
             tax_rate = Decimal(str(r["rate"] or 0))
-    tax_lbp = base_lbp * tax_rate
-    tax_usd = (tax_lbp / ex) if ex else Decimal("0")
-    total_usd = base_usd + tax_usd
-    total_lbp = base_lbp + tax_lbp
+    tax_lbp = q_lbp(base_lbp * tax_rate)
+    tax_usd = q_usd(tax_lbp / ex) if ex else Decimal("0")
+    total_usd = q_usd(base_usd + tax_usd)
+    total_lbp = q_lbp(base_lbp + tax_lbp)
 
     cur.execute(
         """
@@ -785,8 +785,8 @@ def build_supplier_invoice_import_review_lines(
         if line_currency not in {"USD", "LBP"}:
             line_currency = "USD"
 
-        unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
-        unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
+        unit_usd = unit_price if line_currency == "USD" else (q_usd(unit_price / ex) if ex else Decimal("0"))
+        unit_lbp = unit_price if line_currency == "LBP" else q_lbp(unit_price * ex)
         unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
 
         supplier_item_code = (ln.get("supplier_item_code") or "").strip() or None

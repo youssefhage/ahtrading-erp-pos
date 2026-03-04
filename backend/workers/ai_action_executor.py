@@ -201,7 +201,7 @@ def execute_pricing_action(cur, company_id: str, action_id: str, payload: dict):
 
     # Mirror into LBP using the latest rate (pricing in USD is the primary contract).
     rate = latest_rate(cur, company_id)
-    price_lbp = (price_usd * rate) if rate else Decimal("0")
+    price_lbp = q_lbp(price_usd * rate) if rate else Decimal("0")
 
     cur.execute(
         """

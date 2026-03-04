@@ -290,12 +290,12 @@ def import_sales_invoice_bundle(
                     unit_price_entered_lbp = l.get("unit_price_entered_lbp")
                     if unit_price_entered_usd is None:
                         try:
-                            unit_price_entered_usd = float(l.get("unit_price_usd") or 0) * factor
+                            unit_price_entered_usd = round(float(l.get("unit_price_usd") or 0) * factor, 4)
                         except Exception:
                             unit_price_entered_usd = 0.0
                     if unit_price_entered_lbp is None:
                         try:
-                            unit_price_entered_lbp = float(l.get("unit_price_lbp") or 0) * factor
+                            unit_price_entered_lbp = round(float(l.get("unit_price_lbp") or 0) * factor, 2)
                         except Exception:
                             unit_price_entered_lbp = 0.0
 

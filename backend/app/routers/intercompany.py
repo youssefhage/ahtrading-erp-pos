@@ -7,7 +7,7 @@ from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
 from ..account_defaults import ensure_company_account_defaults
-from ..journal_utils import auto_balance_journal, assert_journal_balanced
+from ..journal_utils import auto_balance_journal, assert_journal_balanced, q_usd, q_lbp
 
 router = APIRouter(prefix="/intercompany", tags=["intercompany"])
 
@@ -71,8 +71,8 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
     total_cost_usd = Decimal("0")
     total_cost_lbp = Decimal("0")
     for l in data.lines:
-        total_cost_usd += l.qty * l.unit_cost_usd
-        total_cost_lbp += l.qty * l.unit_cost_lbp
+        total_cost_usd += q_usd(l.qty * l.unit_cost_usd)
+        total_cost_lbp += q_lbp(l.qty * l.unit_cost_lbp)
 
     # Create intercompany document
     with get_conn() as conn:

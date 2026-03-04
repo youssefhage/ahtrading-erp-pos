@@ -1337,10 +1337,10 @@ def apply_supplier_invoice_import_lines(
                     r = cur.fetchone()
                     if r:
                         tax_rate = Decimal(str(r["rate"] or 0))
-                tax_lbp = base_lbp * tax_rate
-                tax_usd = (tax_lbp / ex) if ex else Decimal("0")
-                total_usd = base_usd + tax_usd
-                total_lbp = base_lbp + tax_lbp
+                tax_lbp = q_lbp(base_lbp * tax_rate)
+                tax_usd = q_usd(tax_lbp / ex) if ex else Decimal("0")
+                total_usd = q_usd(base_usd + tax_usd)
+                total_lbp = q_lbp(base_lbp + tax_lbp)
 
                 cur.execute(
                     """
@@ -3476,10 +3476,10 @@ def create_supplier_invoice_draft_from_receipt(
                         raise HTTPException(status_code=400, detail="invalid tax_code_id")
                     tax_rate = Decimal(str(r["rate"] or 0))
 
-                tax_lbp = base_lbp * tax_rate
-                tax_usd = (tax_lbp / ex) if ex else Decimal("0")
-                total_usd = base_usd + tax_usd
-                total_lbp = base_lbp + tax_lbp
+                tax_lbp = q_lbp(base_lbp * tax_rate)
+                tax_usd = q_usd(tax_lbp / ex) if ex else Decimal("0")
+                total_usd = q_usd(base_usd + tax_usd)
+                total_lbp = q_lbp(base_lbp + tax_lbp)
 
                 # Drafts can be created even if the period is locked; posting enforces the lock.
                 inv_date = data.invoice_date or date.today()
@@ -3814,11 +3814,11 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                         raise HTTPException(status_code=400, detail='invalid tax_code_id')
                     tax_rate = Decimal(str(r['rate'] or 0))
 
-                tax_lbp = base_lbp * tax_rate
+                tax_lbp = q_lbp(base_lbp * tax_rate)
                 ex = Decimal(str(exchange_rate or 0))
-                tax_usd = (tax_lbp / ex) if ex else Decimal('0')
-                total_usd = base_usd + tax_usd
-                total_lbp = base_lbp + tax_lbp
+                tax_usd = q_usd(tax_lbp / ex) if ex else Decimal('0')
+                total_usd = q_usd(base_usd + tax_usd)
+                total_lbp = q_lbp(base_lbp + tax_lbp)
 
                 cur.execute(
                     """
@@ -3886,11 +3886,11 @@ def supplier_invoice_post_preview(invoice_id: str, company_id: str = Depends(get
                 r = cur.fetchone()
                 tax_rate = Decimal(str(r['rate'] or 0)) if r else Decimal('0')
 
-            tax_lbp = base_lbp * tax_rate
+            tax_lbp = q_lbp(base_lbp * tax_rate)
             ex = Decimal(str(inv['exchange_rate'] or 0))
-            tax_usd = (tax_lbp / ex) if ex else Decimal('0')
-            total_usd = base_usd + tax_usd
-            total_lbp = base_lbp + tax_lbp
+            tax_usd = q_usd(tax_lbp / ex) if ex else Decimal('0')
+            total_usd = q_usd(base_usd + tax_usd)
+            total_lbp = q_lbp(base_lbp + tax_lbp)
 
             return {
                 'base_usd': float(base_usd),
@@ -4178,7 +4178,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                             trow = cur.fetchone() or {}
                             inv_rate = Decimal(str(trow.get("rate") or 0))
                             base_lbp = sum([Decimal(str(l.get("line_total_lbp") or 0)) for l in lines])
-                            inv_tax_lbp = base_lbp * inv_rate
+                            inv_tax_lbp = q_lbp(base_lbp * inv_rate)
                             item_ids = sorted({str(l.get("item_id")) for l in lines if l.get("item_id")})
                             if item_ids and base_lbp > 0:
                                 cur.execute(
@@ -4213,7 +4213,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                             )
                                     # If item doesn't have an explicit tax code, assume invoice rate (avoids false positives).
                                     eff_rate = item_rate if item_tax_code_id else inv_rate
-                                    expected_tax_lbp += Decimal(str(l.get("line_total_lbp") or 0)) * eff_rate
+                                    expected_tax_lbp += q_lbp(Decimal(str(l.get("line_total_lbp") or 0)) * eff_rate)
 
                                 diff = abs(expected_tax_lbp - inv_tax_lbp)
                                 pct = (diff / base_lbp) if base_lbp else Decimal("0")

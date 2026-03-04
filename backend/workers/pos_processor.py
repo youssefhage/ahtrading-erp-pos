@@ -1758,8 +1758,8 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             pct = Decimal("0")
         if pct > 1:
             pct = Decimal("1")
-        restock_fee_usd = (base_usd * pct)
-        restock_fee_lbp = (base_lbp * pct)
+        restock_fee_usd = q_usd(base_usd * pct)
+        restock_fee_lbp = q_lbp(base_lbp * pct)
 
     restock_fee_usd, restock_fee_lbp = normalize_dual_amounts(restock_fee_usd, restock_fee_lbp, exchange_rate)
     if restock_fee_usd < 0:
@@ -2100,7 +2100,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 amt_usd, amt_lbp = normalize_dual_amounts(amt_usd, amt_lbp, exchange_rate)
                 total_paid_usd += amt_usd
                 total_paid_lbp += amt_lbp
-                score = amt_usd + (amt_lbp / exchange_rate if exchange_rate else Decimal("0"))
+                score = amt_usd + (q_usd(amt_lbp / exchange_rate) if exchange_rate else Decimal("0"))
                 if score > best_amount:
                     best_amount = score
                     best_method = m
@@ -2413,8 +2413,8 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
             base_uom_by_item=base_uom_by_item,
             factors_by_item=factors_by_item,
         )
-        unit_cost_entered_usd = unit_cost_usd * qty_factor
-        unit_cost_entered_lbp = unit_cost_lbp * qty_factor
+        unit_cost_entered_usd = q_usd(unit_cost_usd * qty_factor)
+        unit_cost_entered_lbp = q_lbp(unit_cost_lbp * qty_factor)
         cur.execute(
             """
             INSERT INTO goods_receipt_lines
@@ -2688,8 +2688,8 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
             base_uom_by_item=base_uom_by_item,
             factors_by_item=factors_by_item,
         )
-        unit_cost_entered_usd = unit_cost_usd * qty_factor
-        unit_cost_entered_lbp = unit_cost_lbp * qty_factor
+        unit_cost_entered_usd = q_usd(unit_cost_usd * qty_factor)
+        unit_cost_entered_lbp = q_lbp(unit_cost_lbp * qty_factor)
         cur.execute(
             """
             INSERT INTO supplier_invoice_lines
