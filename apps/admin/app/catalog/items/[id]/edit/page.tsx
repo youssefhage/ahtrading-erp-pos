@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Printer, RefreshCw, Trash2, Plus, Save, Loader2, Package, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -166,6 +166,24 @@ type PriceListItemRow = {
   created_at: string;
 };
 
+type PriceByListRow = {
+  list_id: string;
+  list_code: string;
+  list_name: string;
+  currency: string;
+  is_default: boolean;
+  price_usd: string | number | null;
+  price_lbp: string | number | null;
+  effective_from: string | null;
+};
+
+type PriceEditDraft = {
+  usd: string;
+  lbp: string;
+  dirty: boolean;
+  saving: boolean;
+};
+
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -220,7 +238,11 @@ export default function ItemEditPage() {
   const [addLastCostUsd, setAddLastCostUsd] = useState("0");
   const [addLastCostLbp, setAddLastCostLbp] = useState("0");
 
-  const [activeTab, setActiveTab] = useState("details");
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = searchParams?.get("tab") || "";
+    return ["details", "pricing", "units", "suppliers"].includes(t) ? t : "details";
+  });
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
@@ -229,13 +251,12 @@ export default function ItemEditPage() {
 
   const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
   const [defaultPriceListId, setDefaultPriceListId] = useState<string>("");
-  const [selectedPriceListId, setSelectedPriceListId] = useState<string>("");
-  const [plItems, setPlItems] = useState<PriceListItemRow[]>([]);
-  const [plEffective, setPlEffective] = useState<PriceListItemRow | null>(null);
+  const [pricesByList, setPricesByList] = useState<PriceByListRow[]>([]);
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, PriceEditDraft>>({});
+  const [priceEffFrom, setPriceEffFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [plBusy, setPlBusy] = useState(false);
-  const [plEffectiveFrom, setPlEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
-  const [plPriceUsd, setPlPriceUsd] = useState("");
-  const [plPriceLbp, setPlPriceLbp] = useState("");
+  // Keep legacy state for backward compatibility with existing hooks
+  const [selectedPriceListId, setSelectedPriceListId] = useState<string>("");
 
   // Editable fields
   const [editSku, setEditSku] = useState("");
@@ -309,11 +330,24 @@ export default function ItemEditPage() {
       const defIdFromFlag = String((lists.find((l) => l.is_default)?.id as any) || "");
       const defId = defIdFromSetting || defIdFromFlag || "";
       setDefaultPriceListId(defId);
-      setSelectedPriceListId((prev) => {
-        if (prev && lists.some((l) => l.id === prev)) return prev;
-        if (defId && lists.some((l) => l.id === defId)) return defId;
-        return lists[0]?.id || "";
-      });
+
+      // Fetch all prices for this item across all lists (single call)
+      const pbl = await apiGet<{ prices: PriceByListRow[] }>(
+        `/pricing/items/${encodeURIComponent(id)}/prices-by-list`
+      ).catch(() => ({ prices: [] as PriceByListRow[] }));
+      const prices = pbl.prices || [];
+      setPricesByList(prices);
+      // Initialize drafts from current effective prices
+      const drafts: Record<string, PriceEditDraft> = {};
+      for (const p of prices) {
+        drafts[p.list_id] = {
+          usd: p.price_usd != null && Number(p.price_usd) > 0 ? String(Number(p.price_usd)) : "",
+          lbp: p.price_lbp != null && Number(p.price_lbp) > 0 ? String(Number(p.price_lbp)) : "",
+          dirty: false,
+          saving: false,
+        };
+      }
+      setPriceDrafts(drafts);
 
       if (row) {
         setEditSku(row.sku || "");
@@ -377,50 +411,54 @@ export default function ItemEditPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  /* ---- Price list rows ---- */
-  const loadPriceListRows = useCallback(async () => {
-    if (!id || !selectedPriceListId) {
-      setPlItems([]);
-      setPlEffective(null);
-      return;
-    }
-    setPlBusy(true);
-    try {
-      const res = await apiGet<{ items: PriceListItemRow[]; effective: PriceListItemRow | null }>(
-        `/pricing/lists/${encodeURIComponent(selectedPriceListId)}/items/by-item/${encodeURIComponent(id)}`
-      );
-      setPlItems(res.items || []);
-      setPlEffective(res.effective || null);
-    } catch {
-      setPlItems([]);
-      setPlEffective(null);
-    } finally {
-      setPlBusy(false);
-    }
-  }, [id, selectedPriceListId]);
+  /* ---- Price list inline editing ---- */
+  function updateDraft(listId: string, field: "usd" | "lbp", value: string) {
+    setPriceDrafts((prev) => ({
+      ...prev,
+      [listId]: { ...prev[listId], [field]: value, dirty: true },
+    }));
+  }
 
-  useEffect(() => { loadPriceListRows(); }, [loadPriceListRows]);
-
-  async function addPriceListOverride(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedPriceListId) return setStatus("Pick a price list first.");
-    if (!plEffectiveFrom) return setStatus("effective_from is required.");
-    setPlBusy(true);
-    setStatus("Saving price list override...");
+  async function savePriceForList(listId: string) {
+    if (!id || !listId) return;
+    if (!priceEffFrom) return setStatus("Effective from date is required.");
+    const draft = priceDrafts[listId];
+    if (!draft) return;
+    setPriceDrafts((prev) => ({ ...prev, [listId]: { ...prev[listId], saving: true } }));
+    setStatus("");
     try {
-      await apiPost(`/pricing/lists/${encodeURIComponent(selectedPriceListId)}/items`, {
+      await apiPost(`/pricing/lists/${encodeURIComponent(listId)}/items`, {
         item_id: id,
-        price_usd: toNum(plPriceUsd),
-        price_lbp: toNum(plPriceLbp),
-        effective_from: plEffectiveFrom,
+        price_usd: toNum(draft.usd),
+        price_lbp: toNum(draft.lbp),
+        effective_from: priceEffFrom,
         effective_to: null,
       });
-      setPlPriceUsd("");
-      setPlPriceLbp("");
-      await loadPriceListRows();
-      setStatus("");
+      // Refresh all prices
+      const pbl = await apiGet<{ prices: PriceByListRow[] }>(
+        `/pricing/items/${encodeURIComponent(id)}/prices-by-list`
+      ).catch(() => ({ prices: [] as PriceByListRow[] }));
+      const prices = pbl.prices || [];
+      setPricesByList(prices);
+      // Reset this draft to new effective values
+      const updated = prices.find((p) => p.list_id === listId);
+      setPriceDrafts((prev) => ({
+        ...prev,
+        [listId]: {
+          usd: updated?.price_usd != null && Number(updated.price_usd) > 0 ? String(Number(updated.price_usd)) : "",
+          lbp: updated?.price_lbp != null && Number(updated.price_lbp) > 0 ? String(Number(updated.price_lbp)) : "",
+          dirty: false,
+          saving: false,
+        },
+      }));
+      // Also refresh suggested price
+      try {
+        const ps = await apiGet<PriceSuggest>(`/pricing/items/${encodeURIComponent(id)}/suggested-price`);
+        setPriceSuggest(ps || null);
+      } catch { /* ignore */ }
     } catch (e2) {
       setStatus(e2 instanceof Error ? e2.message : String(e2));
+      setPriceDrafts((prev) => ({ ...prev, [listId]: { ...prev[listId], saving: false } }));
     } finally {
       setPlBusy(false);
     }
@@ -1142,67 +1180,94 @@ export default function ItemEditPage() {
             </CardContent>
           </Card>
 
-          {/* Price List Override */}
+          {/* Set Prices — all lists inline */}
           <Card>
             <CardHeader className="flex flex-row items-start justify-between">
               <div>
-                <CardTitle>Price List Override</CardTitle>
-                <CardDescription>Set prices directly on a specific list</CardDescription>
+                <CardTitle>Set Prices</CardTitle>
+                <CardDescription>
+                  Edit prices across all lists
+                  {item?.unit_of_measure ? <> · per <span className="font-mono font-medium">{item.unit_of_measure}</span></> : null}
+                </CardDescription>
               </div>
-              {selectedPriceListId ? (
-                <Button variant="outline" size="sm" onClick={() => router.push(`/catalog/price-lists?open=${encodeURIComponent(selectedPriceListId)}`)}>
-                  Open Price List
-                </Button>
-              ) : null}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">Effective from</Label>
+                <Input className="w-[150px] h-8 text-xs" value={priceEffFrom} onChange={(e) => setPriceEffFrom(e.target.value)} type="date" />
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Price List</Label>
-                  <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={selectedPriceListId} onChange={(e) => setSelectedPriceListId(e.target.value)} disabled={plBusy}>
-                    <option value="">(pick)</option>
-                    {priceLists.map((pl) => (
-                      <option key={pl.id} value={pl.id}>{pl.code} - {pl.name}{defaultPriceListId && pl.id === defaultPriceListId ? " (default)" : ""}</option>
-                    ))}
-                  </select>
+            <CardContent>
+              {pricesByList.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No price lists found.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="pb-2 pr-3 text-left font-medium">List</th>
+                        <th className="pb-2 pr-3 text-right font-medium w-[100px]">Current USD</th>
+                        <th className="pb-2 pr-3 text-right font-medium w-[100px]">Current LBP</th>
+                        <th className="pb-2 pr-1 text-left font-medium w-[120px]">New USD</th>
+                        <th className="pb-2 pr-1 text-left font-medium w-[120px]">New LBP</th>
+                        <th className="pb-2 font-medium w-[70px]"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricesByList.map((p) => {
+                        const draft = priceDrafts[p.list_id] || { usd: "", lbp: "", dirty: false, saving: false };
+                        return (
+                          <tr key={p.list_id} className={cn("border-b last:border-0", p.is_default && "bg-muted/50")}>
+                            <td className="py-2 pr-3">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-medium">{p.list_code}</span>
+                                {p.is_default ? <Badge variant="default" className="text-[10px] px-1.5 py-0">Default</Badge> : null}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{p.list_name}</p>
+                            </td>
+                            <td className="py-2 pr-3 text-right font-mono text-xs text-muted-foreground">
+                              {p.price_usd != null && Number(p.price_usd) > 0 ? `$${Number(p.price_usd).toFixed(2)}` : "—"}
+                            </td>
+                            <td className="py-2 pr-3 text-right font-mono text-xs text-muted-foreground">
+                              {p.price_lbp != null && Number(p.price_lbp) > 0 ? Number(p.price_lbp).toLocaleString() : "—"}
+                            </td>
+                            <td className="py-2 pr-1">
+                              <Input
+                                className="h-8 text-xs font-mono w-[110px]"
+                                value={draft.usd}
+                                onChange={(e) => updateDraft(p.list_id, "usd", e.target.value)}
+                                placeholder="0.00"
+                                inputMode="decimal"
+                                disabled={draft.saving}
+                              />
+                            </td>
+                            <td className="py-2 pr-1">
+                              <Input
+                                className="h-8 text-xs font-mono w-[110px]"
+                                value={draft.lbp}
+                                onChange={(e) => updateDraft(p.list_id, "lbp", e.target.value)}
+                                placeholder="0"
+                                inputMode="decimal"
+                                disabled={draft.saving}
+                              />
+                            </td>
+                            <td className="py-2 text-right">
+                              <Button
+                                type="button"
+                                variant={draft.dirty ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => savePriceForList(p.list_id)}
+                                disabled={draft.saving || !draft.dirty}
+                              >
+                                {draft.saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="space-y-1 rounded-lg border p-3">
-                  <p className="text-xs font-medium text-muted-foreground">Current Effective</p>
-                  <p className="font-mono text-sm font-semibold">{plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " / " }) : "-"}</p>
-                  <p className="text-xs text-muted-foreground">From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}{plBusy ? " loading..." : ""}</p>
-                </div>
-              </div>
-
-              <form onSubmit={addPriceListOverride} className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label>Effective From</Label>
-                    <Input value={plEffectiveFrom} onChange={(e) => setPlEffectiveFrom(e.target.value)} type="date" disabled={plBusy} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Price USD</Label>
-                    <Input value={plPriceUsd} onChange={(e) => setPlPriceUsd(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Price LBP</Label>
-                    <Input value={plPriceLbp} onChange={(e) => setPlPriceLbp(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground">
-                    {selectedPriceList ? <>Updating <span className="font-mono">{selectedPriceList.code}</span>.</> : "Pick a list to set a price."}
-                  </p>
-                  <Button type="submit" size="sm" disabled={plBusy || !selectedPriceListId}>
-                    {plBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Set Price
-                  </Button>
-                </div>
-                {plItems.length > 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Recent: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=$${Number(r.price_usd || 0).toFixed(2)}`).join(", ")}
-                  </p>
-                ) : null}
-              </form>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

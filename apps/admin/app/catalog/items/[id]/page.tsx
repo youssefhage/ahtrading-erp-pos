@@ -140,6 +140,17 @@ type PriceListItemRow = {
   created_at: string;
 };
 
+type PriceByListRow = {
+  list_id: string;
+  list_code: string;
+  list_name: string;
+  currency: string;
+  is_default: boolean;
+  price_usd: string | number | null;
+  price_lbp: string | number | null;
+  effective_from: string | null;
+};
+
 type CategoryRow = { id: string; name: string; parent_id: string | null; is_active: boolean; updated_at: string };
 type WarehouseRow = { id: string; name: string };
 
@@ -332,8 +343,7 @@ export default function ItemViewPage() {
   const [priceSuggest, setPriceSuggest] = useState<PriceSuggest | null>(null);
   const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
   const [defaultPriceListId, setDefaultPriceListId] = useState<string>("");
-  const [wholesaleEffective, setWholesaleEffective] = useState<PriceListItemRow | null>(null);
-  const [retailEffective, setRetailEffective] = useState<PriceListItemRow | null>(null);
+  const [pricesByList, setPricesByList] = useState<PriceByListRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [stock, setStock] = useState<StockRow[]>([]);
@@ -399,23 +409,11 @@ export default function ItemViewPage() {
       const defId = defIdFromSetting || defIdFromFlag || "";
       setDefaultPriceListId(defId);
 
-      // Fetch WHOLESALE / RETAIL effective overrides
-      const w = lists.find((l) => String(l.code || "").toUpperCase() === "WHOLESALE");
-      const r = lists.find((l) => String(l.code || "").toUpperCase() === "RETAIL");
-      const [wEff, rEff] = await Promise.all([
-        w
-          ? apiGet<{ effective: PriceListItemRow | null }>(
-              `/pricing/lists/${encodeURIComponent(w.id)}/items/by-item/${encodeURIComponent(id)}`
-            ).catch(() => ({ effective: null as any }))
-          : Promise.resolve({ effective: null as any }),
-        r
-          ? apiGet<{ effective: PriceListItemRow | null }>(
-              `/pricing/lists/${encodeURIComponent(r.id)}/items/by-item/${encodeURIComponent(id)}`
-            ).catch(() => ({ effective: null as any }))
-          : Promise.resolve({ effective: null as any }),
-      ]);
-      setWholesaleEffective((wEff as any)?.effective || null);
-      setRetailEffective((rEff as any)?.effective || null);
+      // Fetch effective price for this item across ALL price lists (single call)
+      const pbl = await apiGet<{ prices: PriceByListRow[] }>(
+        `/pricing/items/${encodeURIComponent(id)}/prices-by-list`
+      ).catch(() => ({ prices: [] as PriceByListRow[] }));
+      setPricesByList(pbl.prices || []);
 
       // Batch stock
       const tracked = Boolean(it.item?.track_batches || it.item?.track_expiry);
@@ -440,8 +438,7 @@ export default function ItemViewPage() {
       setPriceSuggest(null);
       setPriceLists([]);
       setDefaultPriceListId("");
-      setWholesaleEffective(null);
-      setRetailEffective(null);
+      setPricesByList([]);
       setCategories([]);
       setWarehouses([]);
       setStock([]);
@@ -1155,16 +1152,19 @@ export default function ItemViewPage() {
             />
           </div>
 
-          {/* WHOLESALE / RETAIL overrides */}
+          {/* All price lists */}
           <Card>
             <CardHeader className="flex flex-row items-start justify-between">
               <div>
-                <CardTitle>Price List Overrides</CardTitle>
-                <CardDescription>Effective WHOLESALE and RETAIL prices for this item</CardDescription>
+                <CardTitle>Prices Across Lists</CardTitle>
+                <CardDescription>
+                  Effective price in each list
+                  {item.unit_of_measure ? <> · per <span className="font-mono font-medium">{item.unit_of_measure}</span></> : null}
+                </CardDescription>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" asChild>
-                  <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit Prices</Link>
+                  <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit?tab=pricing`}>Edit Prices</Link>
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <Link href="/catalog/price-lists">Price Lists</Link>
@@ -1172,30 +1172,52 @@ export default function ItemViewPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-6 sm:grid-cols-2">
-                <div className="space-y-2 rounded-lg border p-4">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">WHOLESALE</p>
-                  <p className="font-mono text-lg font-semibold">
-                    {wholesaleEffective
-                      ? `${fmtUsdMaybe(wholesaleEffective.price_usd, { dashIfZero: true })} / ${fmtLbpMaybe(wholesaleEffective.price_lbp, { dashIfZero: true })}`
-                      : "-"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
-                  </p>
+              {pricesByList.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No price lists found.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="pb-2 pr-4 text-left font-medium">List</th>
+                        <th className="pb-2 pr-4 text-right font-medium">USD</th>
+                        <th className="pb-2 pr-4 text-right font-medium">LBP</th>
+                        <th className="pb-2 pr-4 text-left font-medium">From</th>
+                        <th className="pb-2 text-right font-medium"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricesByList.map((p) => (
+                        <tr key={p.list_id} className={cn("border-b last:border-0", p.is_default && "bg-muted/50")}>
+                          <td className="py-2.5 pr-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-medium">{p.list_code}</span>
+                              <span className="text-muted-foreground">{p.list_name}</span>
+                              {p.is_default ? <Badge variant="default" className="text-[10px] px-1.5 py-0">Default</Badge> : null}
+                            </div>
+                          </td>
+                          <td className="py-2.5 pr-4 text-right font-mono">
+                            {p.price_usd != null && Number(p.price_usd) > 0 ? fmtUsdMaybe(p.price_usd, { dashIfZero: true }) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="py-2.5 pr-4 text-right font-mono">
+                            {p.price_lbp != null && Number(p.price_lbp) > 0 ? fmtLbpMaybe(p.price_lbp, { dashIfZero: true }) : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="py-2.5 pr-4 text-xs text-muted-foreground">
+                            {p.effective_from ? String(p.effective_from).slice(0, 10) : "—"}
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+                              <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit?tab=pricing&list=${encodeURIComponent(p.list_id)}`}>
+                                Edit
+                              </Link>
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">RETAIL</p>
-                  <p className="font-mono text-lg font-semibold">
-                    {retailEffective
-                      ? `${fmtUsdMaybe(retailEffective.price_usd, { dashIfZero: true })} / ${fmtLbpMaybe(retailEffective.price_lbp, { dashIfZero: true })}`
-                      : "-"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
-                  </p>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1224,30 +1246,7 @@ export default function ItemViewPage() {
             </Card>
           ) : null}
 
-          {/* Legacy Prices */}
-          {legacyPrices.length ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Legacy Item Prices</CardTitle>
-                <CardDescription>Historical item_prices rows. Modern pricing uses price lists.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {legacyPrices.slice(0, 25).map((p) => (
-                    <div key={p.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {String(p.effective_from).slice(0, 10)}
-                        {p.effective_to ? ` -> ${String(p.effective_to).slice(0, 10)}` : ""}
-                      </span>
-                      <span className="font-mono text-sm">
-                        {fmtUsdLbp(p.price_usd, p.price_lbp, { sep: " / " })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
+          {/* Legacy item_prices hidden – modern pricing uses price lists */}
         </TabsContent>
 
         {/* ================================================================ */}

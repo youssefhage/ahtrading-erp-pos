@@ -751,6 +751,64 @@ def list_price_changes(
             cur.execute(sql, params)
             return {"changes": cur.fetchall()}
 
+@router.get("/items/{item_id}/prices-by-list", dependencies=[Depends(require_permission("items:read"))])
+def prices_by_list(item_id: str, company_id: str = Depends(get_company_id)):
+    """Return effective price for this item in every price list (single query, no N+1)."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM items WHERE company_id=%s AND id=%s", (company_id, item_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="item not found")
+
+            # Get default price list id
+            cur.execute(
+                "SELECT value_json->>'id' AS id FROM company_settings WHERE company_id=%s AND key='default_price_list_id'",
+                (company_id,),
+            )
+            srow = cur.fetchone()
+            default_pl_id = srow["id"] if srow else None
+
+            cur.execute(
+                """
+                SELECT pl.id AS list_id, pl.code AS list_code, pl.name AS list_name,
+                       pl.currency,
+                       eff.price_usd, eff.price_lbp, eff.effective_from
+                FROM price_lists pl
+                LEFT JOIN LATERAL (
+                    SELECT pli.price_usd, pli.price_lbp, pli.effective_from
+                    FROM price_list_items pli
+                    WHERE pli.company_id = pl.company_id
+                      AND pli.price_list_id = pl.id
+                      AND pli.item_id = %s::uuid
+                      AND pli.effective_from <= CURRENT_DATE
+                      AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
+                    ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
+                    LIMIT 1
+                ) eff ON true
+                WHERE pl.company_id = %s
+                ORDER BY pl.code
+                """,
+                (item_id, company_id),
+            )
+            rows = cur.fetchall() or []
+            return {
+                "prices": [
+                    {
+                        "list_id": str(r["list_id"]),
+                        "list_code": r["list_code"],
+                        "list_name": r["list_name"],
+                        "currency": r["currency"],
+                        "is_default": str(r["list_id"]) == default_pl_id if default_pl_id else False,
+                        "price_usd": r["price_usd"],
+                        "price_lbp": r["price_lbp"],
+                        "effective_from": str(r["effective_from"]) if r["effective_from"] else None,
+                    }
+                    for r in rows
+                ]
+            }
+
+
 @router.get("/items/{item_id}/suggested-price", dependencies=[Depends(require_permission("items:read"))])
 def suggested_price(
     item_id: str,

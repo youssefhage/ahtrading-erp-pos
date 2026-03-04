@@ -46,7 +46,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 /*  Types                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type ItemRow = { id: string; sku: string; name: string; barcode: string | null; all_barcodes?: string };
+type ItemRow = { id: string; sku: string; name: string; barcode: string | null; all_barcodes?: string; unit_of_measure?: string };
 
 type PriceListRow = {
   id: string;
@@ -395,9 +395,14 @@ export default function PriceListsPage() {
       cell: ({ row }) => {
         const it = itemById.get(row.original.item_id);
         return (
-          <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-medium text-primary hover:underline">
-            {it?.name || row.original.item_id}
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-medium text-primary hover:underline">
+              {it?.name || row.original.item_id}
+            </Link>
+            {it?.unit_of_measure ? (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono shrink-0">{it.unit_of_measure}</Badge>
+            ) : null}
+          </div>
         );
       },
       sortingFn: (rowA, rowB) => {
@@ -655,7 +660,10 @@ export default function PriceListsPage() {
                           </datalist>
                           {addItemId ? (
                             <p className="text-xs text-muted-foreground">
-                              Item: {itemById.get(addItemId)?.name || addItemId}
+                              {itemById.get(addItemId)?.name || addItemId}
+                              {itemById.get(addItemId)?.unit_of_measure ? (
+                                <span className="ml-1 font-mono font-medium"> · {itemById.get(addItemId)?.unit_of_measure}</span>
+                              ) : null}
                             </p>
                           ) : (
                             <p className="text-xs text-muted-foreground">Pick a valid SKU.</p>

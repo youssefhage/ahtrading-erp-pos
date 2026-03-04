@@ -358,7 +358,7 @@ def list_items_min(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.sku, i.name, i.barcode,
+                SELECT i.id, i.sku, i.name, i.barcode, i.unit_of_measure,
                        COALESCE(
                          (
                            SELECT string_agg(b.barcode, ' ' ORDER BY b.barcode)
