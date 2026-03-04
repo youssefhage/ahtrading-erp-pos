@@ -64,6 +64,22 @@
     --glass-surface-opacity: 0.92;
     --glass-border-opacity: 0.11;
   }
+
+  /* ── Red accent (unofficial company) ──────────────────────────── */
+  :root[data-accent="red"] {
+    --color-accent: 239 68 68;
+    /* #ef4444 - Red 500 */
+    --color-accent-hover: 220 38 38;
+    /* #dc2626 - Red 600 */
+    --color-accent-content: 255 255 255;
+  }
+
+  :root[data-accent="red"][data-theme="light"] {
+    --color-accent: 185 28 28;
+    /* #b91c1c - Red 700 */
+    --color-accent-hover: 153 27 27;
+    /* #991b1b - Red 800 */
+  }
 }
 
 @layer base {

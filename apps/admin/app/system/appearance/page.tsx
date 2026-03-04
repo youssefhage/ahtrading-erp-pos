@@ -7,6 +7,7 @@ import { Moon, Sun, Palette } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/business/page-header";
 import { apiGet, getCompanyId } from "@/lib/api";
+import { OFFICIAL_COMPANY_ID, applyCompanyMetadata } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -45,13 +46,19 @@ function scopeKey(companyId: string) {
   return cid ? `${ACCENT_THEME_STORAGE_KEY}.${cid}` : ACCENT_THEME_STORAGE_KEY;
 }
 
+function isUnofficialCompany(companyId: string): boolean {
+  const cid = String(companyId || "").trim();
+  return !!cid && cid !== OFFICIAL_COMPANY_ID;
+}
+
 function readAccent(companyId: string): AccentTheme {
   try {
     const scoped = localStorage.getItem(scopeKey(companyId));
     const raw = scoped ?? localStorage.getItem(ACCENT_THEME_STORAGE_KEY);
     if (raw && ACCENT_CLASSES.includes(raw as AccentTheme)) return raw as AccentTheme;
     if (raw === "default") return "default";
-    return "default";
+    // Unofficial companies default to rose (red) when no accent is stored
+    return isUnofficialCompany(companyId) ? "rose" : "default";
   } catch {
     return "default";
   }
@@ -104,6 +111,7 @@ export default function AppearanceSettingsPage() {
     const cid = getCompanyId();
     setCompanyId(cid);
     setAccentTheme(readAccent(cid));
+    applyCompanyMetadata(cid);
     if (cid) {
       apiGet<{ companies: Array<{ id: string; name: string }> }>("/companies")
         .then((res) => {
@@ -121,6 +129,7 @@ export default function AppearanceSettingsPage() {
         const cid = getCompanyId();
         setCompanyId(cid);
         setAccentTheme(readAccent(cid));
+        applyCompanyMetadata(cid);
         return;
       }
       if (e.key && e.key.startsWith(ACCENT_THEME_STORAGE_KEY)) {

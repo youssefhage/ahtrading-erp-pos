@@ -88,6 +88,11 @@ export function apiUrl(path: string): string {
 
 export function getCompanyId(): string {
   if (typeof window === "undefined") return "";
+  // sessionStorage first so each tab can hold its own company
+  try {
+    const session = window.sessionStorage.getItem(storageKeys.companyId);
+    if (session) return session;
+  } catch { /* ignore */ }
   return window.localStorage.getItem(storageKeys.companyId) || "";
 }
 
@@ -109,13 +114,17 @@ export function setSession(login: LoginResponse) {
   window.localStorage.setItem(storageKeys.companies, JSON.stringify(login.companies || []));
   const currentCompany = getCompanyId();
   const nextCompany = currentCompany || (login.active_company_id || "") || (login.companies?.[0] || "");
-  if (nextCompany) window.localStorage.setItem(storageKeys.companyId, nextCompany);
+  if (nextCompany) {
+    window.localStorage.setItem(storageKeys.companyId, nextCompany);
+    try { window.sessionStorage.setItem(storageKeys.companyId, nextCompany); } catch { /* ignore */ }
+  }
 }
 
 export function clearSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(storageKeys.companyId);
   window.localStorage.removeItem(storageKeys.companies);
+  try { window.sessionStorage.removeItem(storageKeys.companyId); } catch { /* ignore */ }
 }
 
 function headers(extra?: Record<string, string>, requestId?: string) {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Building2, Search } from "lucide-react";
 
 import { apiGet, apiPost, getCompanies } from "@/lib/api";
+import { applyCompanyMetadata } from "@/lib/constants";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,8 +33,10 @@ export default function CompanySelectPage() {
 
   async function selectCompany(id: string) {
     window.localStorage.setItem("ahtrading.companyId", id);
+    try { window.sessionStorage.setItem("ahtrading.companyId", id); } catch { /* ignore */ }
     const match = companies.find((c) => c.id === id);
     if (match) window.localStorage.setItem("ahtrading.companyName", match.name);
+    applyCompanyMetadata(id);
     try {
       await apiPost("/auth/select-company", { company_id: id });
     } catch {

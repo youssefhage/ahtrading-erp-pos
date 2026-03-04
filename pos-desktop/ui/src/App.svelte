@@ -38,7 +38,12 @@
   const VAT_DISPLAY_MODE_STORAGE_KEY = "pos_ui_vat_display_mode";
   const PRICE_DISPLAY_CONTROLS_STORAGE_KEY = "pos_ui_price_display_controls";
   const LINKED_OPS_MODE_STORAGE_KEY = "pos_ui_linked_ops_mode";
-  const THEME_STORAGE_KEY = "pos_ui_theme";
+  const THEME_STORAGE_KEY = "pos_ui_theme"; // legacy (migration fallback)
+  const THEME_OFFICIAL_STORAGE_KEY = "pos_ui_theme_official";
+  const THEME_UNOFFICIAL_STORAGE_KEY = "pos_ui_theme_unofficial";
+  const ACCENT_OFFICIAL_STORAGE_KEY = "pos_ui_accent_official";
+  const ACCENT_UNOFFICIAL_STORAGE_KEY = "pos_ui_accent_unofficial";
+  const TAB_COMPANY_FOCUS_SESSION_KEY = "pos_tab_company_focus";
   const SCREEN_STORAGE_KEY = "pos_ui_screen";
   const WEB_CONFIG_OFFICIAL_STORAGE_KEY = "pos_web_config_official";
   const WEB_CONFIG_UNOFFICIAL_STORAGE_KEY = "pos_web_config_unofficial";
@@ -642,8 +647,13 @@
   let _customerRemoteTimer = null;
   const CUSTOMER_REMOTE_SEARCH_DEBOUNCE_MS = 180;
 
-  // Theme
-  let theme = "dark"; // "dark" | "light"
+  // Theme — per-company, driven by tab focus
+  let theme = "dark"; // "dark" | "light" (active for this tab)
+  let themeOfficial = "dark";
+  let themeUnofficial = "dark";
+  let accentOfficial = "teal"; // "teal" (default official)
+  let accentUnofficial = "red"; // "red" (default unofficial)
+  let tabCompanyFocus = "official"; // which company this tab is themed for
 
   // Screens
   let activeScreen = "pos"; // "pos" | "items" | "settings"
@@ -6562,9 +6572,40 @@
     catalogCollapsed = !catalogCollapsed;
   };
 
+  const _faviconSvg = (color) =>
+    `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="${color}"/></svg>`)}`;
+
+  const _applyCompanyMetadata = (focus) => {
+    try {
+      const isUnofficial = focus === "unofficial";
+      document.title = isUnofficial ? "POS - Unofficial" : "POS - Official";
+      const iconColor = isUnofficial ? "#ef4444" : "#2dd4bf";
+      const link = document.querySelector('link[rel="icon"][sizes="any"]') || document.querySelector('link[rel="icon"]');
+      if (link) link.href = _faviconSvg(iconColor);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = isUnofficial ? "#1c1111" : "#0f0f11";
+    } catch (_) {}
+  };
+
+  const _applyThemeAndAccent = (focus) => {
+    const isUnofficial = focus === "unofficial";
+    theme = isUnofficial ? themeUnofficial : themeOfficial;
+    const accent = isUnofficial ? accentUnofficial : accentOfficial;
+    try {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = accent;
+    } catch (_) {}
+  };
+
   const toggleTheme = () => {
     theme = theme === "light" ? "dark" : "light";
-    try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (_) {}
+    if (tabCompanyFocus === "unofficial") {
+      themeUnofficial = theme;
+      _writeStorage(THEME_UNOFFICIAL_STORAGE_KEY, theme);
+    } else {
+      themeOfficial = theme;
+      _writeStorage(THEME_OFFICIAL_STORAGE_KEY, theme);
+    }
     try { document.documentElement.dataset.theme = theme; } catch (_) {}
   };
 
@@ -9439,9 +9480,37 @@
     linkedOpsMode = _readStorage(LINKED_OPS_MODE_STORAGE_KEY, "1") !== "0";
     selectedPriceListId = _readStorage("pos.selectedPriceListId", "") || "";
 
-    theme = _readStorage(THEME_STORAGE_KEY, "dark") || "dark";
-    if (theme !== "light" && theme !== "dark") theme = "dark";
-    try { document.documentElement.dataset.theme = theme; } catch (_) {}
+    // ── Tab-specific company focus (multi-tab support) ──
+    {
+      let focus = "";
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const qc = String(params.get("company") || "").trim().toLowerCase();
+        if (qc === "official" || qc === "unofficial") focus = qc;
+      } catch (_) {}
+      if (!focus) {
+        try { focus = sessionStorage.getItem(TAB_COMPANY_FOCUS_SESSION_KEY) || ""; } catch (_) {}
+      }
+      tabCompanyFocus = (focus === "unofficial") ? "unofficial" : "official";
+      try { sessionStorage.setItem(TAB_COMPANY_FOCUS_SESSION_KEY, tabCompanyFocus); } catch (_) {}
+    }
+
+    // ── Per-company theme + accent (with legacy migration) ──
+    {
+      const legacyTheme = _readStorage(THEME_STORAGE_KEY, "");
+      const hasPerCompany = !!_readStorage(THEME_OFFICIAL_STORAGE_KEY, "");
+      if (!hasPerCompany && legacyTheme) {
+        _writeStorage(THEME_OFFICIAL_STORAGE_KEY, legacyTheme);
+        _writeStorage(THEME_UNOFFICIAL_STORAGE_KEY, legacyTheme);
+      }
+      const _norm = (v) => (v === "light" || v === "dark") ? v : "dark";
+      themeOfficial = _norm(_readStorage(THEME_OFFICIAL_STORAGE_KEY, "dark"));
+      themeUnofficial = _norm(_readStorage(THEME_UNOFFICIAL_STORAGE_KEY, "dark"));
+      accentOfficial = _readStorage(ACCENT_OFFICIAL_STORAGE_KEY, "teal") || "teal";
+      accentUnofficial = _readStorage(ACCENT_UNOFFICIAL_STORAGE_KEY, "red") || "red";
+    }
+    _applyThemeAndAccent(tabCompanyFocus);
+    _applyCompanyMetadata(tabCompanyFocus);
 
     const storedScreen = _readStorage(SCREEN_STORAGE_KEY, "pos");
     activeScreen = (storedScreen === "items") ? "items" : "pos";
@@ -9945,6 +10014,18 @@
               type="button"
             >
               Theme: {theme === "light" ? "Light" : "Dark"}
+            </button>
+            <button
+              class={moreBtnBase}
+              on:click={() => {
+                showTopMoreActions = false;
+                const other = tabCompanyFocus === "unofficial" ? "official" : "unofficial";
+                window.open(`${window.location.origin}${window.location.pathname}?company=${other}`, '_blank');
+              }}
+              title={tabCompanyFocus === "unofficial" ? "Open Official company in a new tab" : "Open Unofficial company in a new tab"}
+              type="button"
+            >
+              Open {tabCompanyFocus === "unofficial" ? "Official" : "Unofficial"} Tab
             </button>
             <button
               class={moreBtnBase}

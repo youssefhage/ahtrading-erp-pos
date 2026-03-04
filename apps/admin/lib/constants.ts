@@ -7,3 +7,24 @@ export const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
  * the real market rate so financial displays are never absurdly wrong.
  */
 export const FALLBACK_FX_RATE_USD_LBP = 89500;
+
+/** Update page title and favicon to reflect the active company type. */
+export function applyCompanyMetadata(companyId: string) {
+  if (typeof document === "undefined") return;
+  const cid = String(companyId || "").trim();
+  const isUnofficial = !!cid && cid !== OFFICIAL_COMPANY_ID;
+  document.title = isUnofficial ? "Codex Admin - Unofficial" : "Codex Admin - Official";
+  const color = isUnofficial ? "#e11d48" : "#0d9488";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${color}"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-family="sans-serif" font-weight="bold">A</text></svg>`;
+  const href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/svg+xml";
+    const existing = document.querySelector('link[rel="icon"]');
+    if (existing) existing.remove();
+    document.head.appendChild(link);
+  }
+  link.href = href;
+}
