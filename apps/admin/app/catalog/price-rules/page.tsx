@@ -42,6 +42,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/searchable-select";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -61,6 +62,14 @@ type CategoryRow = {
   is_active: boolean;
 };
 
+type ItemOverrideRow = {
+  item_id: string;
+  item_sku: string;
+  item_name: string;
+  mode: "exempt" | "markup_pct" | "discount_pct";
+  pct: number;
+};
+
 type DerivationRow = {
   id: string;
   target_price_list_id: string;
@@ -76,6 +85,7 @@ type DerivationRow = {
   min_margin_pct: string | number | null;
   skip_if_cost_missing: boolean;
   category_overrides: { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct"; pct: number }[];
+  item_overrides: ItemOverrideRow[];
   is_active: boolean;
   last_run_at?: string | null;
   last_run_summary?: unknown;
@@ -167,6 +177,120 @@ function CategoryOverrides({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Item Overrides                                                            */
+/* -------------------------------------------------------------------------- */
+
+function ItemOverrides({
+  value,
+  onChange,
+}: {
+  value: ItemOverrideRow[];
+  onChange: (v: ItemOverrideRow[]) => void;
+}) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ id: string; sku: string; name: string }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const usedIds = new Set(value.map((o) => o.item_id));
+
+  // Debounced server-side search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiGet<{ items: { id: string; sku: string; name: string }[] }>(
+          `/items/typeahead?q=${encodeURIComponent(searchQuery.trim())}&limit=20`
+        );
+        setSearchResults(res.items || []);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const searchOptions: SearchableSelectOption[] = useMemo(
+    () =>
+      searchResults
+        .filter((r) => !usedIds.has(r.id))
+        .map((r) => ({ value: r.id, label: `${r.sku} — ${r.name}`, keywords: r.sku })),
+    [searchResults, usedIds]
+  );
+
+  function addItem(itemId: string) {
+    const found = searchResults.find((r) => r.id === itemId);
+    if (!found) return;
+    onChange([...value, { item_id: found.id, item_sku: found.sku, item_name: found.name, mode: "exempt", pct: 0 }]);
+  }
+
+  function updateRow(idx: number, patch: Partial<ItemOverrideRow>) {
+    const next = value.map((o, i) => (i === idx ? { ...o, ...patch } : o));
+    onChange(next);
+  }
+
+  function removeRow(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+
+  return (
+    <div className="space-y-3">
+      {value.map((ov, idx) => (
+        <div key={ov.item_id} className="flex items-center gap-2">
+          {/* Item label */}
+          <div className="w-[200px] truncate text-sm" title={`${ov.item_sku} — ${ov.item_name}`}>
+            <span className="font-mono text-xs font-medium">{ov.item_sku}</span>
+            <span className="ml-1 text-xs text-muted-foreground">{ov.item_name}</span>
+          </div>
+          {/* Mode */}
+          <Select value={ov.mode} onValueChange={(v) => updateRow(idx, { mode: v as ItemOverrideRow["mode"], pct: v === "exempt" ? 0 : ov.pct })}>
+            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="exempt">Exempt</SelectItem>
+              <SelectItem value="markup_pct">Markup (%)</SelectItem>
+              <SelectItem value="discount_pct">Discount (%)</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* Pct input (only when not exempt) */}
+          {ov.mode !== "exempt" ? (
+            <Input
+              className="w-[90px]"
+              value={ov.pct}
+              onChange={(e) => updateRow(idx, { pct: Number(e.target.value) || 0 })}
+              placeholder="0.05"
+              inputMode="decimal"
+            />
+          ) : (
+            <div className="w-[90px]" />
+          )}
+          {/* Remove */}
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeRow(idx)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      {/* Add item via search */}
+      <div className="max-w-[360px]">
+        <SearchableSelect
+          value=""
+          onChange={addItem}
+          options={searchOptions}
+          placeholder="Search items to add..."
+          searchPlaceholder="Type SKU or name..."
+          loading={searchLoading}
+          onSearchQueryChange={setSearchQuery}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -190,6 +314,7 @@ export default function PriceRulesPage() {
   const [skipIfCostMissing, setSkipIfCostMissing] = useState(true);
   const [active, setActive] = useState(true);
   const [overrides, setOverrides] = useState<Override[]>([]);
+  const [itemOverrides, setItemOverrides] = useState<ItemOverrideRow[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /* ---- Run summary ---- */
@@ -215,6 +340,7 @@ export default function PriceRulesPage() {
   const [editSkipIfCostMissing, setEditSkipIfCostMissing] = useState(true);
   const [editActive, setEditActive] = useState(true);
   const [editOverrides, setEditOverrides] = useState<Override[]>([]);
+  const [editItemOverrides, setEditItemOverrides] = useState<ItemOverrideRow[]>([]);
   const [editAdvancedOpen, setEditAdvancedOpen] = useState(false);
 
   /* ---- Load ---- */
@@ -287,6 +413,7 @@ export default function PriceRulesPage() {
         skip_if_cost_missing: Boolean(skipIfCostMissing),
         is_active: Boolean(active),
         category_overrides: overrides,
+        item_overrides: itemOverrides,
       });
       setCreateOpen(false);
       setTargetId("");
@@ -299,6 +426,7 @@ export default function PriceRulesPage() {
       setSkipIfCostMissing(true);
       setActive(true);
       setOverrides([]);
+      setItemOverrides([]);
       setAdvancedOpen(false);
       await load();
     } catch (e) {
@@ -323,7 +451,14 @@ export default function PriceRulesPage() {
       mode: o.mode,
       pct: Number(o.pct || 0),
     })));
-    setEditAdvancedOpen((rule.category_overrides || []).length > 0);
+    setEditItemOverrides((rule.item_overrides || []).map((o) => ({
+      item_id: o.item_id,
+      item_sku: o.item_sku,
+      item_name: o.item_name,
+      mode: o.mode,
+      pct: Number(o.pct || 0),
+    })));
+    setEditAdvancedOpen((rule.category_overrides || []).length > 0 || (rule.item_overrides || []).length > 0);
     setEditOpen(true);
   }, []);
 
@@ -341,6 +476,7 @@ export default function PriceRulesPage() {
         skip_if_cost_missing: Boolean(editSkipIfCostMissing),
         is_active: Boolean(editActive),
         category_overrides: editOverrides,
+        item_overrides: editItemOverrides,
       });
       setEditOpen(false);
       await load();
@@ -410,21 +546,34 @@ export default function PriceRulesPage() {
       ),
     },
     {
-      accessorFn: (r) => (r.category_overrides || []).length,
+      accessorFn: (r) => (r.category_overrides || []).length + (r.item_overrides || []).length,
       id: "overrides",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Overrides" />,
       cell: ({ row }) => {
-        const ovs = row.original.category_overrides || [];
-        if (ovs.length === 0) return <span className="text-xs text-muted-foreground">-</span>;
-        const labels = ovs.map((o) => {
+        const catOvs = row.original.category_overrides || [];
+        const itemOvs = row.original.item_overrides || [];
+        const total = catOvs.length + itemOvs.length;
+        if (total === 0) return <span className="text-xs text-muted-foreground">-</span>;
+        const labels: string[] = [];
+        for (const o of catOvs) {
           const name = categories.find((c) => c.id === o.category_id)?.name || o.category_id.slice(0, 6);
-          if (o.mode === "exempt") return `${name} exempt`;
-          const sign = o.mode === "markup_pct" ? "+" : "-";
-          return `${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`;
-        });
+          if (o.mode === "exempt") labels.push(`${name} exempt`);
+          else {
+            const sign = o.mode === "markup_pct" ? "+" : "-";
+            labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
+          }
+        }
+        for (const o of itemOvs) {
+          const name = o.item_sku || o.item_id.slice(0, 6);
+          if (o.mode === "exempt") labels.push(`${name} exempt`);
+          else {
+            const sign = o.mode === "markup_pct" ? "+" : "-";
+            labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
+          }
+        }
         return (
           <span className="text-xs text-muted-foreground" title={labels.join(", ")}>
-            {labels.length <= 2 ? labels.join(", ") : `${labels.length} overrides`}
+            {labels.length <= 2 ? labels.join(", ") : `${total} overrides`}
           </span>
         );
       },
@@ -582,6 +731,11 @@ export default function PriceRulesPage() {
                         <p className="text-xs text-muted-foreground">Customize pricing for specific categories (exempt, custom markup, or custom discount).</p>
                         <CategoryOverrides categories={categories} value={overrides} onChange={setOverrides} />
                       </div>
+                      <div className="space-y-2">
+                        <Label>Item Overrides</Label>
+                        <p className="text-xs text-muted-foreground">Override pricing for specific items (takes priority over category overrides).</p>
+                        <ItemOverrides value={itemOverrides} onChange={setItemOverrides} />
+                      </div>
                       <div className="flex items-center gap-3">
                         <Switch checked={skipIfCostMissing} onCheckedChange={setSkipIfCostMissing} />
                         <Label>Skip / hold discount when cost is missing</Label>
@@ -710,6 +864,11 @@ export default function PriceRulesPage() {
                   <Label>Category Overrides</Label>
                   <p className="text-xs text-muted-foreground">Customize pricing for specific categories (exempt, custom markup, or custom discount).</p>
                   <CategoryOverrides categories={categories} value={editOverrides} onChange={setEditOverrides} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Item Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Override pricing for specific items (takes priority over category overrides).</p>
+                  <ItemOverrides value={editItemOverrides} onChange={setEditItemOverrides} />
                 </div>
                 <div className="flex items-center gap-3">
                   <Switch checked={editSkipIfCostMissing} onCheckedChange={setEditSkipIfCostMissing} />
