@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronDown,
+  Layers,
 } from "lucide-react";
 import { ApiError, apiGet } from "@/lib/api";
 import { hasPermission } from "@/lib/permissions";
@@ -284,6 +285,13 @@ export default function DashboardPage() {
               icon={Plus}
               label="New Invoice"
               href="/sales/invoices"
+            />
+          )}
+          {canCatalog && (
+            <QuickActionCard
+              icon={Layers}
+              label="Product Catalog"
+              href="/catalog/products"
             />
           )}
           {canCatalog && (

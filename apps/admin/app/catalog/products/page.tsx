@@ -7,12 +7,10 @@ import { Search, Plus, RefreshCw, Package } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet } from "@/lib/api";
-import { formatDateLike } from "@/lib/datetime";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
 import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
-import { StatusBadge } from "@/components/business/status-badge";
 import { EmptyState } from "@/components/business/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,16 +28,22 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 /*  Types                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type ProductRow = {
+type CatalogRow = {
   id: string;
   sku: string;
   name: string;
-  barcode: string | null;
-  barcode_count?: number;
+  description: string | null;
   unit_of_measure: string;
   category_id?: string | null;
+  brand: string | null;
   is_active?: boolean;
-  updated_at?: string | null;
+  tax_template: string;
+  tax_rate: number;
+  selling_price_usd: number;
+  selling_price_lbp: number;
+  total_usd: number;
+  total_lbp: number;
+  barcodes: string;
 };
 
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
@@ -52,6 +56,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 }
 
+function fmtUsd(v: number | null | undefined): string {
+  if (v == null || v === 0) return "-";
+  return `$ ${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Component                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -59,14 +68,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export default function ProductCatalogPage() {
   const router = useRouter();
 
-  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [items, setItems] = useState<CatalogRow[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize] = useState(50);
   const [page, setPage] = useState(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -75,15 +84,15 @@ export default function ProductCatalogPage() {
   const query = useMemo(() => ({ q: trimmedQ, includeInactive, pageSize, offset }), [trimmedQ, includeInactive, pageSize, offset]);
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
-  const rankedProducts = useMemo(() => {
-    if (!trimmedQ) return products;
-    return filterAndRankByFuzzy(products, trimmedQ, (p) => {
+  const rankedItems = useMemo(() => {
+    if (!trimmedQ) return items;
+    return filterAndRankByFuzzy(items, trimmedQ, (p) => {
       const category = categoryNameById.get(String(p.category_id || "")) || "";
-      return `${p.sku} ${p.name} ${p.barcode || ""} ${category}`;
+      return `${p.sku} ${p.name} ${p.barcodes || ""} ${p.brand || ""} ${category} ${p.description || ""}`;
     });
-  }, [products, trimmedQ, categoryNameById]);
+  }, [items, trimmedQ, categoryNameById]);
 
-  const topMatch = rankedProducts.length ? rankedProducts[0] : null;
+  const topMatch = rankedItems.length ? rankedItems[0] : null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,11 +103,11 @@ export default function ProductCatalogPage() {
       params.set("offset", String(query.offset));
       if (query.q) params.set("q", query.q);
       if (query.includeInactive) params.set("include_inactive", "true");
-      const res = await apiGet<{ items: ProductRow[]; total?: number }>(`/items/list?${params.toString()}`);
-      setProducts(res.items || []);
+      const res = await apiGet<{ items: CatalogRow[]; total?: number }>(`/items/catalog?${params.toString()}`);
+      setItems(res.items || []);
       setTotal(typeof res.total === "number" ? res.total : null);
     } catch (e) {
-      setProducts([]);
+      setItems([]);
       setTotal(null);
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -130,69 +139,76 @@ export default function ProductCatalogPage() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const columns = useMemo<ColumnDef<ProductRow>[]>(() => [
+  const columns = useMemo<ColumnDef<CatalogRow>[]>(() => [
     {
       accessorKey: "sku",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="SKU" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item Code" />,
       cell: ({ row }) => (
-        <Link href={`/catalog/items/${encodeURIComponent(row.original.id)}`} className="font-mono text-xs text-primary hover:underline">
+        <Link href={`/catalog/items/${encodeURIComponent(row.original.id)}`} className="font-mono text-xs text-primary hover:underline whitespace-nowrap">
           {row.original.sku}
         </Link>
       ),
     },
     {
-      accessorKey: "name",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Product" />,
+      accessorFn: (r) => r.barcodes || "",
+      id: "barcodes",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Barcode" />,
       cell: ({ row }) => (
-        <Link href={`/catalog/items/${encodeURIComponent(row.original.id)}`} className="font-medium hover:underline">
-          {row.original.name}
-        </Link>
+        <span className="font-mono text-xs max-w-[200px] truncate block" title={row.original.barcodes || ""}>
+          {row.original.barcodes || "-"}
+        </span>
       ),
     },
     {
-      accessorFn: (p) => p.barcode || "",
-      id: "barcode",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Barcode" />,
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.barcode || "-"}</span>,
-    },
-    {
-      accessorFn: (p) => Number(p.barcode_count || 0),
-      id: "barcode_count",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Codes" />,
-      cell: ({ row }) => <Badge variant="secondary">{row.original.barcode_count || 0}</Badge>,
+      accessorFn: (r) => r.description || r.name,
+      id: "description",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
+      cell: ({ row }) => (
+        <span className="max-w-[250px] truncate block" title={row.original.description || row.original.name}>
+          {row.original.description || row.original.name}
+        </span>
+      ),
     },
     {
       accessorKey: "unit_of_measure",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Unit" />,
-      cell: ({ row }) => row.original.unit_of_measure || "-",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
+      cell: ({ row }) => <span className="whitespace-nowrap">{row.original.unit_of_measure || "-"}</span>,
     },
     {
-      accessorFn: (p) => categoryNameById.get(String(p.category_id || "")) || "",
-      id: "category",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
-      cell: ({ row }) => categoryNameById.get(String(row.original.category_id || "")) || "-",
-    },
-    {
-      accessorFn: (p) => (p.is_active === false ? "inactive" : "active"),
-      id: "status",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-      cell: ({ row }) => <StatusBadge status={row.original.is_active === false ? "inactive" : "active"} />,
-    },
-    {
-      accessorFn: (p) => p.updated_at || "",
-      id: "updated_at",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Updated" />,
-      cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDateLike(row.original.updated_at, "-")}</span>,
-    },
-    {
-      id: "actions",
-      enableHiding: false,
+      accessorFn: (r) => r.total_usd,
+      id: "total",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total" />,
       cell: ({ row }) => (
-        <div className="flex justify-end">
-          <Button size="sm" variant="outline" asChild>
-            <Link href={`/catalog/items/${encodeURIComponent(row.original.id)}/edit`}>Edit</Link>
-          </Button>
-        </div>
+        <span className="font-mono text-xs whitespace-nowrap text-right block">
+          {fmtUsd(row.original.total_usd)}
+        </span>
+      ),
+    },
+    {
+      accessorFn: (r) => categoryNameById.get(String(r.category_id || "")) || "",
+      id: "item_group",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Item Group" />,
+      cell: ({ row }) => {
+        const name = categoryNameById.get(String(row.original.category_id || ""));
+        return name ? <span className="max-w-[150px] truncate block" title={name}>{name}</span> : "-";
+      },
+    },
+    {
+      accessorFn: (r) => r.brand || "",
+      id: "brand",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Brand" />,
+      cell: ({ row }) => row.original.brand ? (
+        <Badge variant="outline" className="text-xs whitespace-nowrap">{row.original.brand}</Badge>
+      ) : "-",
+    },
+    {
+      accessorFn: (r) => r.selling_price_usd,
+      id: "selling_price",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Standard Selling" />,
+      cell: ({ row }) => (
+        <span className="font-mono text-xs whitespace-nowrap text-right block">
+          {fmtUsd(row.original.selling_price_usd)}
+        </span>
       ),
     },
   ], [categoryNameById]);
@@ -201,11 +217,11 @@ export default function ProductCatalogPage() {
     <div className="mx-auto max-w-7xl space-y-6 p-6">
       <PageHeader
         title="Product Catalog"
-        description="Search products by SKU, name, or barcode. Press / anywhere to focus search."
+        description="Quick price lookup and item information. Press / to focus search."
         actions={
           <>
             <Button variant="outline" onClick={load} disabled={loading}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
             </Button>
             <Button variant="outline" asChild>
               <Link href="/catalog/items/list">Advanced List</Link>
@@ -219,11 +235,11 @@ export default function ProductCatalogPage() {
 
       {/* Search */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardTitle>Quick Search</CardTitle>
           <CardDescription>
-            {total != null ? `${total.toLocaleString("en-US")} matching products` : `${rankedProducts.length} shown`}
-            {loading ? " -- searching..." : ""}
+            {total != null ? `${total.toLocaleString("en-US")} matching products` : `${rankedItems.length} shown`}
+            {loading ? " — searching..." : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -240,7 +256,7 @@ export default function ProductCatalogPage() {
                     router.push(`/catalog/items/${encodeURIComponent(topMatch.id)}`);
                   }
                 }}
-                placeholder="Start typing SKU, product name, or barcode..."
+                placeholder="Start typing SKU, product name, barcode, or brand..."
                 className="pl-9"
               />
             </div>
@@ -258,7 +274,8 @@ export default function ProductCatalogPage() {
             <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
               <span className="font-medium">Top match:</span>{" "}
               <Link href={`/catalog/items/${encodeURIComponent(topMatch.id)}`} className="font-medium text-primary hover:underline">
-                {topMatch.sku} -- {topMatch.name}
+                {topMatch.sku} — {topMatch.name}
+                {topMatch.total_usd ? ` — ${fmtUsd(topMatch.total_usd)}` : ""}
               </Link>
             </div>
           ) : null}
@@ -267,7 +284,7 @@ export default function ProductCatalogPage() {
 
       {err ? <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert> : null}
 
-      {!loading && rankedProducts.length === 0 ? (
+      {!loading && rankedItems.length === 0 ? (
         <Card>
           <CardContent className="py-12">
             <EmptyState
@@ -283,14 +300,14 @@ export default function ProductCatalogPage() {
         </Card>
       ) : (
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-3">
             <CardTitle>Results</CardTitle>
-            <CardDescription>Hit Enter in search to open the top result instantly.</CardDescription>
+            <CardDescription>Hit Enter in search to open the top result. For comparison, use &gt;5, &lt;10 or =324.</CardDescription>
           </CardHeader>
           <CardContent>
             <DataTable
               columns={columns}
-              data={rankedProducts}
+              data={rankedItems}
               isLoading={loading}
               searchPlaceholder="Filter results..."
               onRowClick={(r) => router.push(`/catalog/items/${encodeURIComponent(r.id)}`)}
