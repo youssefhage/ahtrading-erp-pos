@@ -1588,8 +1588,8 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     for l in lines:
                         qty = Decimal(str(l["qty"] or 0))
                         unit_cost_usd, unit_cost_lbp = pos_processor.get_avg_cost(cur, company_id, l["item_id"], inv["warehouse_id"])
-                        total_cost_usd += qty * unit_cost_usd
-                        total_cost_lbp += qty * unit_cost_lbp
+                        total_cost_usd += q_usd(qty * unit_cost_usd)
+                        total_cost_lbp += q_lbp(qty * unit_cost_lbp)
                         resolved_lines.append({**l, "_unit_cost_usd": unit_cost_usd, "_unit_cost_lbp": unit_cost_lbp})
 
                     # Stock moves (FEFO allocation).

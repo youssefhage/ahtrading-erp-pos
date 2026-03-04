@@ -9,6 +9,7 @@ import json
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..validation import CurrencyCode
+from ..journal_utils import q_usd, q_lbp
 
 router = APIRouter(prefix="/pricing", tags=["pricing"])
 
@@ -471,6 +472,8 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         d_usd = _round_to_step(d_usd, usd_step)
         if lbp_step and lbp_step > 0:
             d_lbp = _round_to_step(d_lbp, lbp_step)
+        else:
+            d_lbp = q_lbp(d_lbp)
 
         # Margin guard (USD only for now; LBP follows same multiplier/rounding).
         if min_margin is not None and min_margin > 0:
@@ -504,6 +507,8 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
                                 d_lbp = d_usd * ratio
                                 if lbp_step and lbp_step > 0:
                                     d_lbp = _round_to_step(d_lbp, lbp_step)
+                                else:
+                                    d_lbp = q_lbp(d_lbp)
                             blocked_by_margin += 1
 
         cur.execute(
