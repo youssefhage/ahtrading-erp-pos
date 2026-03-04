@@ -5795,7 +5795,9 @@
     ln.list_price_usd = listUsd;
     ln.list_price_lbp = listLbp;
 
-    const best = _bestPromoForLine(ln);
+    // When a manager has explicitly overridden the price, skip automatic promotions
+    // to avoid a promo reverting the override to a higher price.
+    const best = ln.price_override ? null : _bestPromoForLine(ln);
     if (!best) {
       // Clear promo metadata and revert unit prices to list.
       ln.price_usd = listUsd;
