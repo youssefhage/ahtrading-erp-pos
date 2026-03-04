@@ -2626,6 +2626,97 @@
     return win;
   };
 
+  // ── Verification receipt (pre-checkout cart printout) ──────────────────
+  const printCartVerification = () => {
+    if (!cart.length) return;
+    const dateStr = new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const customerName = String(activeCustomer?.name || "Walk-in").trim();
+    const cashier = String(cashierOfficialName || "").trim();
+
+    const metaRows = [];
+    metaRows.push(`<div class="mr"><span>Customer</span><span class="val">${_escapeHtml(customerName)}</span></div>`);
+    if (cashier) metaRows.push(`<div class="mr"><span>Cashier</span><span class="val">${_escapeHtml(cashier)}</span></div>`);
+
+    const itemRows = cart.map((ln) => {
+      const name = _lineNameForPrint(ln);
+      const sku = _lineSkuForPrint(ln);
+      const qtyEntered = toNum(ln?.qty_entered ?? ln?.qty, 0);
+      const qtyStr = qtyEntered.toLocaleString("en-US", { maximumFractionDigits: 3 });
+      const uom = String(ln?.uom || ln?.unit_of_measure || "").trim();
+      const uomHtml = uom ? `<span class="uom">${_escapeHtml(uom)}</span>` : "";
+      const factor = toNum(ln?.qty_factor, 1) || 1;
+      const unitPrice = toNum(ln?.price_usd, 0) * factor;
+      const lineTotal = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+      return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div></td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(unitPrice, 2))}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(lineTotal, 2))}</td></tr>`;
+    }).join("");
+
+    const totalUsd = cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
+    const totalLbp = cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
+    const itemCount = cart.reduce((s, ln) => s + toNum(ln?.qty_entered ?? ln?.qty, 0), 0);
+
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Order Verification</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;color:#000}
+    body{max-width:80mm;margin:0 auto;padding:8px 8px 16px;color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.4;font-weight:900;-webkit-print-color-adjust:exact}
+    .mono{font-variant-numeric:tabular-nums}
+    header{text-align:center;margin-bottom:12px}
+    h1{font-size:18px;font-weight:900;letter-spacing:-0.025em;text-transform:uppercase}
+    .doc-date{margin-top:4px;font-size:10px}
+    .meta{margin-bottom:12px}
+    .mr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:1px 0}
+    .mr .val{text-align:right}
+    .sep{border-top:1px dashed #000;margin:12px 0}
+    table.items{width:100%;border-collapse:collapse}
+    table.items thead th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:4px 0;font-weight:900}
+    table.items thead th:first-child{text-align:left}
+    table.items thead th:not(:first-child){text-align:right}
+    table.items tbody tr{border-top:1px solid #000}
+    .td-item{padding:4px 8px 4px 0;vertical-align:top}
+    .td-r{padding:4px 0;vertical-align:top;text-align:right;font-size:10px;white-space:nowrap}
+    .iname{font-size:11px;word-break:break-word}
+    .sku{font-size:10px}
+    .uom{margin-left:3px}
+    .totals{margin-top:4px}
+    .tr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}
+    .total-main{padding-top:4px;font-size:14px}
+    .total-lbp{font-size:11px}
+    .warn{margin-top:12px;padding:6px;border:2px solid #000;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+    @media print{@page{margin:0}body{width:100%;padding:0 4px}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Order Verification</h1>
+    <div class="doc-date">${_escapeHtml(dateStr)}</div>
+  </header>
+  <div class="meta">${metaRows.join("")}</div>
+  <div class="sep"></div>
+  <table class="items">
+    <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+  <div class="sep"></div>
+  <section class="totals">
+    <div class="tr"><span>Items</span><span class="mono">${itemCount}</span></div>
+    <div class="tr total-main"><span>Total USD</span><span class="mono">${_escapeHtml(_fmtMoney(totalUsd, 2))}</span></div>
+    ${totalLbp ? `<div class="tr total-lbp"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(totalLbp, 0))}</span></div>` : ""}
+  </section>
+  <div class="warn">Not a receipt — for verification only</div>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
+</body>
+</html>`;
+    try {
+      _openPrintWindowWithHtml(html);
+    } catch (e) {
+      console.error("[printCartVerification]", e);
+    }
+  };
+
   const _lineSkuForPrint = (line) => {
     const candidates = [
       line?.item_sku,
@@ -9769,6 +9860,7 @@
           canPriceOverrideLine={canPriceOverrideLine}
           clearCart={clearCartAll}
           saveDraft={saveCurrentCartToDraft}
+          printVerification={printCartVerification}
           companyLabelForLine={companyLabel}
           companyToneForLine={companyTone}
         />

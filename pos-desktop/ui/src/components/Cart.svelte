@@ -13,6 +13,7 @@
   export let canPriceOverrideLine = (line) => false;
   export let clearCart = () => {};
   export let saveDraft = () => {};
+  export let printVerification = () => {};
   export let companyLabelForLine = (line) => "";
   export let companyToneForLine = (line) => "";
 
@@ -209,6 +210,18 @@
               : 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/10'}"
         >
           {confirmingClear ? 'Confirm?' : 'Clear'}
+        </button>
+        <button
+          type="button"
+          on:click={printVerification}
+          class="h-6 w-6 inline-flex items-center justify-center rounded-md bg-accent/15 hover:bg-accent/25 border border-accent/25 text-accent transition-colors active:scale-95"
+          title="Print verification"
+          aria-label="Print order verification receipt"
+        >
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            <rect x="6" y="14" width="12" height="8" rx="1" stroke-width="2" />
+          </svg>
         </button>
         <button
           type="button"
