@@ -83,6 +83,20 @@
   const priceVat = (it) => vatAmount(priceBase(it));
   const priceTotal = (it) => withVat(priceBase(it));
 
+  // Price adjusted for selected UOM (detail panel only)
+  $: displayQtyFactor = (() => {
+    if (!selected) return 1;
+    const opts = uomOptionsFor(selected) || [];
+    if (!opts.length) return 1;
+    const idx = Math.max(0, Math.min(opts.length - 1, uomIdx));
+    return toNum(opts[idx]?.qty_factor, 1) || 1;
+  })();
+  $: dPrice = selected ? priceBase(selected) * displayQtyFactor : 0;
+  $: dCost = selected ? costBase(selected) * displayQtyFactor : 0;
+  $: dVat = vatAmount(dPrice);
+  $: dTotal = withVat(dPrice);
+  $: dUsdTotal = selected ? withVat(toNum(selected?.price_usd, 0) * displayQtyFactor) : 0;
+
   const normalize = (v) => String(v || "").trim().toLowerCase();
 
   const itemBarcodes = (item) => {
@@ -496,18 +510,18 @@
           <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
             <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Pricing Structure</div>
             <div class="space-y-2.5 num-readable text-sm">
-              {#if costBase(selected) > 0}
+              {#if dCost > 0}
                 <div class="flex items-center justify-between text-xs">
                   <span class="text-muted/60">Cost (Avg)</span>
-                  <span class="font-medium text-amber-400">{fmtMoney(costBase(selected), currencyPrimary)}</span>
+                  <span class="font-medium text-amber-400">{fmtMoney(dCost, currencyPrimary)}</span>
                 </div>
               {/if}
               <div class="flex items-center justify-between">
                 <span class="text-muted/80">Base Price (ex VAT)</span>
-                <span class="font-medium text-ink/80">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
+                <span class="font-medium text-ink/80">{fmtMoney(dPrice, currencyPrimary)}</span>
               </div>
-              {#if costBase(selected) > 0 && priceBase(selected) > 0}
-                {@const margin = ((priceBase(selected) - costBase(selected)) / priceBase(selected) * 100)}
+              {#if dCost > 0 && dPrice > 0}
+                {@const margin = ((dPrice - dCost) / dPrice * 100)}
                 <div class="flex items-center justify-between text-xs">
                   <span class="text-muted/60">Margin</span>
                   <span class={`font-bold ${margin >= 0 ? "text-emerald-400" : "text-red-400"}`}>{margin.toFixed(1)}%</span>
@@ -515,16 +529,16 @@
               {/if}
               <div class="flex items-center justify-between text-xs">
                 <span class="text-muted/60">VAT ({fmtVatPct(vatRateNorm)})</span>
-                <span class="font-medium text-amber-400">{fmtMoney(priceVat(selected), currencyPrimary)}</span>
+                <span class="font-medium text-amber-400">{fmtMoney(dVat, currencyPrimary)}</span>
               </div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-muted/60">Total Price (inc VAT)</span>
-                <span class="font-bold text-emerald-400">{fmtMoney(priceTotal(selected), currencyPrimary)}</span>
+                <span class="font-bold text-emerald-400">{fmtMoney(dTotal, currencyPrimary)}</span>
               </div>
               <div class="my-2 h-px bg-white/5 w-full"></div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-muted/60">{currencyPrimary === "USD" ? "USD Total (inc VAT)" : "USD Equivalent (inc VAT)"}</span>
-                <span class="font-medium text-emerald-400/80">{fmtMoney(withVat(selected?.price_usd || 0), "USD")}</span>
+                <span class="font-medium text-emerald-400/80">{fmtMoney(dUsdTotal, "USD")}</span>
               </div>
             </div>
           </div>

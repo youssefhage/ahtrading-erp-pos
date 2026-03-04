@@ -252,7 +252,8 @@
         {@const lineAmountInc = lineTotalAmount(line, true)}
         {@const lineAmountPrimary = vatMode === "ex" ? lineAmountEx : lineAmountInc}
         {@const unitPricePrimary = vatMode === "ex" ? selectedUomUnitPrice(line, false) : selectedUomUnitPrice(line, true)}
-        {@const preDiscBase = currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd, 0) : toNum(line.pre_discount_unit_price_lbp, 0)}
+        {@const preDiscBaseRaw = currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd, 0) : toNum(line.pre_discount_unit_price_lbp, 0)}
+        {@const preDiscBase = preDiscBaseRaw * (Math.max(1e-9, toNum(line?.qty_factor, 1) || 1))}
         <div class="group relative cart-grid cart-line p-2.5 rounded-xl bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-white/10 transition-all duration-200 shadow-sm hover:shadow-md">
           <div class="cart-name min-w-0 pr-1">
             <h4
