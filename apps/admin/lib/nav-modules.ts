@@ -194,7 +194,7 @@ export const NAV_MODULES: NavModule[] = [
     prefixes: ["/catalog", "/partners"],
     sections: [
       {
-        label: "Products",
+        label: "Product Catalog",
         items: [
           { label: "Items", href: "/catalog/items/list", icon: Package },
           { label: "Categories", href: "/catalog/item-categories", icon: Tag },
