@@ -310,6 +310,9 @@ class SaleLine(BaseModel):
     line_total_lbp: Decimal
     unit_cost_usd: Optional[Decimal] = None
     unit_cost_lbp: Optional[Decimal] = None
+    price_override: bool = False
+    original_list_price_usd: Decimal = Decimal("0")
+    original_list_price_lbp: Decimal = Decimal("0")
 
 
 class TaxBlock(BaseModel):
@@ -688,7 +691,8 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                        l.pre_discount_unit_price_usd, l.pre_discount_unit_price_lbp,
                        l.discount_pct, l.discount_amount_usd, l.discount_amount_lbp,
                        l.applied_promotion_id, l.applied_promotion_item_id, l.applied_price_list_id,
-                       l.line_total_usd, l.line_total_lbp
+                       l.line_total_usd, l.line_total_lbp,
+                       l.price_override, l.original_list_price_usd, l.original_list_price_lbp
                 FROM sales_invoice_lines l
                 LEFT JOIN items it
                   ON it.company_id = %s AND it.id = l.item_id
@@ -760,6 +764,9 @@ class SalesInvoiceDraftLineIn(BaseModel):
     discount_pct: Decimal = Decimal("0")
     discount_amount_usd: Optional[Decimal] = None
     discount_amount_lbp: Optional[Decimal] = None
+    price_override: bool = False
+    original_list_price_usd: Decimal = Decimal("0")
+    original_list_price_lbp: Decimal = Decimal("0")
 
 class SalesInvoiceDraftIn(BaseModel):
     customer_id: Optional[str] = None
@@ -1011,6 +1018,9 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                             "discount_amount_lbp": disc_lbp,
                             "line_total_usd": line_usd,
                             "line_total_lbp": line_lbp,
+                            "price_override": bool(getattr(l, "price_override", False)),
+                            "original_list_price_usd": Decimal(str(getattr(l, "original_list_price_usd", 0) or 0)),
+                            "original_list_price_lbp": Decimal(str(getattr(l, "original_list_price_lbp", 0) or 0)),
                         }
                     )
 
@@ -1070,14 +1080,16 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                            unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
                            pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                            discount_pct, discount_amount_usd, discount_amount_lbp,
-                           line_total_usd, line_total_lbp)
+                           line_total_usd, line_total_lbp,
+                           price_override, original_list_price_usd, original_list_price_lbp)
                         VALUES
                           (gen_random_uuid(), %s, %s,
                            %s, %s, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s,
                            %s, %s, %s,
-                           %s, %s)
+                           %s, %s,
+                           %s, %s, %s)
                         """,
                         (
                             invoice_id,
@@ -1097,6 +1109,9 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                             l["discount_amount_lbp"],
                             l["line_total_usd"],
                             l["line_total_lbp"],
+                            l["price_override"],
+                            l["original_list_price_usd"],
+                            l["original_list_price_lbp"],
                         ),
                     )
 
@@ -1245,14 +1260,16 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                                unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
                                pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                                discount_pct, discount_amount_usd, discount_amount_lbp,
-                               line_total_usd, line_total_lbp)
+                               line_total_usd, line_total_lbp,
+                               price_override, original_list_price_usd, original_list_price_lbp)
                             VALUES
                               (gen_random_uuid(), %s, %s,
                                %s, %s, %s, %s,
                                %s, %s, %s, %s,
                                %s, %s,
                                %s, %s, %s,
-                               %s, %s)
+                               %s, %s,
+                               %s, %s, %s)
                             """,
                             (
                                 invoice_id,
@@ -1272,6 +1289,9 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                                 disc_lbp,
                                 line_usd,
                                 line_lbp,
+                                bool(getattr(l, "price_override", False)),
+                                Decimal(str(getattr(l, "original_list_price_usd", 0) or 0)),
+                                Decimal(str(getattr(l, "original_list_price_lbp", 0) or 0)),
                             ),
                         )
                     # Update totals alongside other fields.
