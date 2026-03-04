@@ -1526,7 +1526,9 @@ def catalog(
                         SUM(iwc.on_hand_qty * iwc.avg_cost_lbp) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
                     ) AS avg_cost_lbp
                     FROM item_warehouse_costs iwc
-                    WHERE iwc.company_id = i.company_id AND iwc.item_id = i.id
+                    WHERE iwc.company_id = i.company_id
+                      AND iwc.item_id = i.id
+                      AND iwc.on_hand_qty > 0
                 ) icost ON true
                 WHERE i.is_active = true
                 ORDER BY i.sku
@@ -1686,7 +1688,9 @@ def catalog_delta(
                           SUM(iwc.on_hand_qty * iwc.avg_cost_lbp) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
                       ) AS avg_cost_lbp
                       FROM item_warehouse_costs iwc
-                      WHERE iwc.company_id = i.company_id AND iwc.item_id = i.id
+                      WHERE iwc.company_id = i.company_id
+                        AND iwc.item_id = i.id
+                        AND iwc.on_hand_qty > 0
                   ) icost ON true
                   WHERE i.is_active = true
                     AND (
