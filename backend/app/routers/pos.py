@@ -1879,6 +1879,59 @@ def list_item_batches(
             return {"batches": out, "server_time": datetime.now(timezone.utc).isoformat()}
 
 
+class PosItemPriceOverrideIn(BaseModel):
+    price_usd: Decimal
+    price_lbp: Decimal
+    effective_from: date
+    effective_to: Optional[date] = None
+
+
+@router.post("/items/{item_id}/prices")
+def pos_add_item_price(
+    item_id: str,
+    data: PosItemPriceOverrideIn,
+    device=Depends(require_device),
+):
+    """
+    POS manager price override: insert a new effective price for an item.
+    """
+    company_id = device["company_id"]
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM items WHERE company_id=%s AND id=%s",
+                    (company_id, item_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="item not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, 'pos_override', gen_random_uuid())
+                    RETURNING id
+                    """,
+                    (item_id, data.price_usd, data.price_lbp, data.effective_from, data.effective_to),
+                )
+                price_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_price_added_pos', 'item', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        str(device.get("device_id", "")),
+                        item_id,
+                        json.dumps({"item_price_id": str(price_id), "source": "pos_price_override", **{k: str(v) for k, v in data.model_dump().items()}}, default=str),
+                    ),
+                )
+                return {"id": str(price_id)}
+
+
 @router.get("/config")
 def pos_config(device=Depends(require_device)):
     """

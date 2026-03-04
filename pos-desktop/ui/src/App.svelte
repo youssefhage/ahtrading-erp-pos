@@ -664,6 +664,16 @@
   let discountModalValue = "";
   let discountModalError = "";
   let discountModalCurrency = "USD";
+  // Price Override modals
+  let showPriceOverrideModal = false;
+  let priceOverrideModalIndex = -1;
+  let priceOverrideModalValue = "";
+  let priceOverrideModalError = "";
+  let priceOverrideModalCurrency = "USD";
+  let showPriceOverrideConfirmModal = false;
+  let priceOverrideConfirmIndex = -1;
+  let priceOverrideConfirmNewPriceUsd = 0;
+  let priceOverrideConfirmNewPriceLbp = 0;
   let showTopMoreActions = false;
   let topMoreActionsButtonEl = null;
   let topMoreMenuEl = null;
@@ -2123,6 +2133,9 @@
         unit_cost_lbp: 0,
         batch_no: line.batch_no || null,
         expiry_date: line.expiry_date || null,
+        price_override: !!line.price_override,
+        original_list_price_usd: line.price_override ? toNum(line.original_list_price_usd, 0) : null,
+        original_list_price_lbp: line.price_override ? toNum(line.original_list_price_lbp, 0) : null,
       };
     });
 
@@ -4599,6 +4612,11 @@
       return await _printInvoiceByEventWeb(companyKey, eventId, null, { thermal: companyKey !== "official" });
     }
 
+    // Price override from POS
+    if (method === "POST" && /^\/items\/[^/]+\/prices$/.test(pathname)) {
+      return await _webPosCall(companyKey, `/pos${pathname}`, { method: "POST", body });
+    }
+
     throw new Error(`Unsupported web POS route: ${method} ${pathname}`);
   };
 
@@ -5937,6 +5955,9 @@
       discount_amount_lbp: 0,
       applied_promotion_id: null,
       applied_promotion_item_id: null,
+      price_override: false,
+      original_list_price_usd: 0,
+      original_list_price_lbp: 0,
     };
     return applyPromotionToLine(ln);
   };
@@ -6772,19 +6793,33 @@
   const _resumePendingManagerAction = async (action) => {
     if (!action || typeof action !== "object") return;
     const kind = String(action?.kind || "").trim();
-    if (kind !== "line-discount") return;
-    const idx = _lineIndexByKey(action?.lineKey, action?.companyKey);
-    if (idx < 0) {
-      reportError("Discount target is no longer in cart.");
-      return;
+    if (kind === "line-discount") {
+      const idx = _lineIndexByKey(action?.lineKey, action?.companyKey);
+      if (idx < 0) {
+        reportError("Discount target is no longer in cart.");
+        return;
+      }
+      const line = cart[idx] || {};
+      const companyKey = normalizeCompanyKey(line?.companyKey || action?.companyKey || "official");
+      if (!_discountAllowedForCompany(companyKey)) {
+        reportError("Manager approval is still required.");
+        return;
+      }
+      _openManagerDiscountPromptAtLine(idx);
+    } else if (kind === "price-override") {
+      const idx = _lineIndexByKey(action?.lineKey, action?.companyKey);
+      if (idx < 0) {
+        reportError("Price edit target is no longer in cart.");
+        return;
+      }
+      const line = cart[idx] || {};
+      const companyKey = normalizeCompanyKey(line?.companyKey || action?.companyKey || "official");
+      if (!_discountAllowedForCompany(companyKey)) {
+        reportError("Manager approval is still required.");
+        return;
+      }
+      _openPriceOverridePromptAtLine(idx);
     }
-    const line = cart[idx] || {};
-    const companyKey = normalizeCompanyKey(line?.companyKey || action?.companyKey || "official");
-    if (!_discountAllowedForCompany(companyKey)) {
-      reportError("Manager approval is still required.");
-      return;
-    }
-    _openManagerDiscountPromptAtLine(idx);
   };
 
   const requestLineManagerDiscount = (index) => {
@@ -6811,6 +6846,197 @@
   const canManagerDiscountLine = (line) => {
     const companyKey = normalizeCompanyKey(line?.companyKey || "official");
     return _discountAllowedForCompany(companyKey);
+  };
+
+  // ── Price Override (manager-only) ──────────────────────────────────────
+
+  const canPriceOverrideLine = (line) => {
+    const companyKey = normalizeCompanyKey(line?.companyKey || "official");
+    return _discountAllowedForCompany(companyKey);
+  };
+
+  const _openPriceOverridePromptAtLine = (index) => {
+    const safeIdx = Math.trunc(toNum(index, -1));
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) {
+      reportError("Line not found.");
+      return;
+    }
+    const ln = cart[safeIdx] || {};
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    priceOverrideModalCurrency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
+    priceOverrideModalIndex = safeIdx;
+    const currentPrice = priceOverrideModalCurrency === "LBP"
+      ? toNum(ln.list_price_lbp, toNum(ln.price_lbp, 0))
+      : toNum(ln.list_price_usd, toNum(ln.price_usd, 0));
+    priceOverrideModalValue = priceOverrideModalCurrency === "LBP"
+      ? Math.round(currentPrice).toLocaleString()
+      : currentPrice.toFixed(2);
+    priceOverrideModalError = "";
+    showPriceOverrideModal = true;
+  };
+
+  const _parsePriceOverrideInput = (line, raw) => {
+    const ln = line || {};
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const currency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
+    const ex = toNum(cfg?.exchange_rate, 0);
+    if (raw == null) return { newPriceUsd: null, newPriceLbp: null, error: null };
+    const trimmed = String(raw || "").replace(/,/g, "").trim();
+    if (!trimmed) return { newPriceUsd: null, newPriceLbp: null, error: null };
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value < 0) {
+      return { newPriceUsd: null, newPriceLbp: null, error: `Enter a valid positive price in ${currency}.` };
+    }
+    if (value <= 0) {
+      return { newPriceUsd: null, newPriceLbp: null, error: "Price must be greater than zero." };
+    }
+    let priceUsd = 0;
+    let priceLbp = 0;
+    if (currency === "LBP") {
+      priceLbp = value;
+      priceUsd = ex > 0 ? value / ex : 0;
+    } else {
+      priceUsd = value;
+      priceLbp = ex > 0 ? value * ex : 0;
+    }
+    return { newPriceUsd: priceUsd, newPriceLbp: priceLbp, error: null };
+  };
+
+  const applyPriceOverrideToLine = (index, newPriceUsd, newPriceLbp) => {
+    const safeIdx = Math.trunc(toNum(index, -1));
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) return false;
+    const copy = [...cart];
+    const current = { ...(copy[safeIdx] || {}) };
+    if (!current.price_override) {
+      current.original_list_price_usd = toNum(current.list_price_usd, 0);
+      current.original_list_price_lbp = toNum(current.list_price_lbp, 0);
+    }
+    current.list_price_usd = newPriceUsd;
+    current.list_price_lbp = newPriceLbp;
+    current.price_usd = newPriceUsd;
+    current.price_lbp = newPriceLbp;
+    current.price_override = true;
+    // Clear manual discount to avoid confusion
+    current.manual_discount_mode = "";
+    current.manual_discount_pct = 0;
+    current.manual_discount_amount_usd = 0;
+    current.manual_discount_amount_lbp = 0;
+    copy[safeIdx] = applyPromotionToLine(current);
+    cart = copy;
+    checkoutIntentId = "";
+    return true;
+  };
+
+  const handlePriceOverrideModalConfirm = () => {
+    const safeIdx = priceOverrideModalIndex;
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) {
+      showPriceOverrideModal = false;
+      reportError("Line not found.");
+      return;
+    }
+    const ln = cart[safeIdx] || {};
+    const { newPriceUsd, newPriceLbp, error } = _parsePriceOverrideInput(ln, priceOverrideModalValue);
+    if (error) {
+      priceOverrideModalError = error;
+      return;
+    }
+    if (newPriceUsd == null || newPriceLbp == null) {
+      showPriceOverrideModal = false;
+      return;
+    }
+    showPriceOverrideModal = false;
+    priceOverrideConfirmIndex = safeIdx;
+    priceOverrideConfirmNewPriceUsd = newPriceUsd;
+    priceOverrideConfirmNewPriceLbp = newPriceLbp;
+    showPriceOverrideConfirmModal = true;
+  };
+
+  const _updateInMemoryItemPrice = (companyKey, itemId, priceUsd, priceLbp) => {
+    const isOther = normalizeCompanyKey(companyKey) === otherCompanyKey;
+    const targetItems = isOther ? unofficialItems : items;
+    const idx = targetItems.findIndex((it) => String(it?.id) === String(itemId));
+    if (idx >= 0) {
+      const updated = [...targetItems];
+      updated[idx] = { ...updated[idx], price_usd: priceUsd, price_lbp: priceLbp };
+      if (isOther) {
+        unofficialItems = updated;
+      } else {
+        items = updated;
+      }
+    }
+  };
+
+  const handlePriceOverrideConfirm = async (mode) => {
+    const safeIdx = priceOverrideConfirmIndex;
+    const newPriceUsd = priceOverrideConfirmNewPriceUsd;
+    const newPriceLbp = priceOverrideConfirmNewPriceLbp;
+    showPriceOverrideConfirmModal = false;
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) {
+      reportError("Line not found.");
+      return;
+    }
+    const ln = cart[safeIdx] || {};
+    const name = String(ln?.name || ln?.sku || "item").trim() || "item";
+    const itemId = String(ln?.id || "").trim();
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    if (!applyPriceOverrideToLine(safeIdx, newPriceUsd, newPriceLbp)) {
+      reportError("Unable to apply price override.");
+      return;
+    }
+    if (_companyUsesCloudTransport(companyKey)) {
+      _appendWebAudit(companyKey, {
+        action: "cart.price_override",
+        cashier_id: cashierIdForCompany(companyKey) || null,
+        shift_id: shiftIdForCompany(companyKey) || null,
+        event_id: null,
+        status: "ok",
+        details: {
+          item_id: itemId || null,
+          item_name: name,
+          new_price_usd: newPriceUsd,
+          new_price_lbp: newPriceLbp,
+          mode,
+        },
+      });
+    }
+    if (mode === "source" && itemId) {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        await apiCallFor(companyKey, `/items/${encodeURIComponent(itemId)}/prices`, {
+          method: "POST",
+          body: { price_usd: newPriceUsd, price_lbp: newPriceLbp, effective_from: today, effective_to: null },
+        });
+        _updateInMemoryItemPrice(companyKey, itemId, newPriceUsd, newPriceLbp);
+        reportNotice(`Price updated for ${name} (saved to price list).`);
+      } catch (e) {
+        reportError(`Price applied to cart, but failed to save: ${e?.message || String(e)}`);
+      }
+    } else {
+      reportNotice(`Price override applied to ${name} (this cart only).`);
+    }
+  };
+
+  const requestLinePriceOverride = (index) => {
+    const safeIdx = Math.trunc(toNum(index, -1));
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) return;
+    const line = cart[safeIdx] || {};
+    const companyKey = normalizeCompanyKey(line?.companyKey || "official");
+    if (!ensureCashierForCompanies([companyKey], "editing item price")) return;
+    if (_discountAllowedForCompany(companyKey)) {
+      _openPriceOverridePromptAtLine(safeIdx);
+      return;
+    }
+    pendingManagerAction = {
+      kind: "price-override",
+      companyKey,
+      lineKey: String(line?.key || "").trim(),
+    };
+    managerApprovalPendingCompanies = [companyKey];
+    adminPinMode = "unlock";
+    openAdminPinModal();
+    reportNotice(`Manager approval required before price edit (${companyKey}).`);
   };
 
   const uomOptionsForLine = (line) => {
@@ -9429,6 +9655,8 @@
           removeLine={removeLine}
           requestManagerDiscount={requestLineManagerDiscount}
           canManagerDiscountLine={canManagerDiscountLine}
+          requestPriceOverride={requestLinePriceOverride}
+          canPriceOverrideLine={canPriceOverrideLine}
           clearCart={clearCartAll}
           saveDraft={saveCurrentCartToDraft}
           companyLabelForLine={companyLabel}
@@ -9608,6 +9836,67 @@
       <div class="flex gap-3">
         <button class="flex-1 py-3 rounded-xl border border-white/10 bg-surface-highlight/50 text-ink/70 font-bold hover:bg-surface-highlight/60 transition-colors" on:click={() => showDiscountModal = false}>Cancel</button>
         <button class="flex-1 py-3 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:scale-[1.02] active:scale-[0.98] transition-all" on:click={handleDiscountModalConfirm}>Apply</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showPriceOverrideModal}
+  <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <button class="absolute inset-0 bg-black/50 backdrop-blur-sm" on:click={() => showPriceOverrideModal = false} aria-label="Close"></button>
+    <div class="relative w-full max-w-sm bg-surface/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/10 p-6 z-10">
+      <h3 class="text-lg font-bold text-ink mb-1">Edit Unit Price</h3>
+      <p class="text-sm text-muted mb-4">Enter new unit price in {priceOverrideModalCurrency}</p>
+      <input
+        type="text"
+        bind:value={priceOverrideModalValue}
+        placeholder={priceOverrideModalCurrency === "LBP" ? "e.g. 50000" : "e.g. 5.00"}
+        class="w-full px-4 py-3 rounded-xl bg-surface-highlight/40 border border-white/10 focus:border-accent/50 focus:ring-2 focus:ring-accent/30 text-lg font-bold text-ink focus:outline-none mb-3"
+        on:keydown={(e) => e.key === "Enter" && handlePriceOverrideModalConfirm()}
+        autofocus
+      />
+      {#if priceOverrideModalError}
+        <p class="text-sm text-red-400 mb-3">{priceOverrideModalError}</p>
+      {/if}
+      <div class="flex gap-3">
+        <button class="flex-1 py-3 rounded-xl border border-white/10 bg-surface-highlight/50 text-ink/70 font-bold hover:bg-surface-highlight/60 transition-colors" on:click={() => showPriceOverrideModal = false}>Cancel</button>
+        <button class="flex-1 py-3 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:scale-[1.02] active:scale-[0.98] transition-all" on:click={handlePriceOverrideModalConfirm}>Apply</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showPriceOverrideConfirmModal}
+  <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <button class="absolute inset-0 bg-black/50 backdrop-blur-sm" on:click={() => showPriceOverrideConfirmModal = false} aria-label="Close"></button>
+    <div class="relative w-full max-w-sm bg-surface/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/10 p-6 z-10">
+      <h3 class="text-lg font-bold text-ink mb-1">Apply Price Change</h3>
+      <p class="text-sm text-muted mb-5">
+        New price: <span class="font-bold text-ink">
+          {priceOverrideModalCurrency === "LBP"
+            ? `${Math.round(priceOverrideConfirmNewPriceLbp).toLocaleString()} LBP`
+            : `${priceOverrideConfirmNewPriceUsd.toFixed(2)} USD`}
+        </span>
+      </p>
+      <div class="flex flex-col gap-3">
+        <button
+          class="w-full py-3 rounded-xl bg-purple-600 text-white font-bold hover:scale-[1.02] active:scale-[0.98] transition-all"
+          on:click={() => handlePriceOverrideConfirm("source")}
+        >
+          Update source price
+        </button>
+        <button
+          class="w-full py-3 rounded-xl border border-white/10 bg-surface-highlight/50 text-ink font-bold hover:bg-surface-highlight/60 transition-colors"
+          on:click={() => handlePriceOverrideConfirm("cart-only")}
+        >
+          This cart only
+        </button>
+        <button
+          class="w-full py-2 text-sm text-muted hover:text-ink transition-colors"
+          on:click={() => showPriceOverrideConfirmModal = false}
+        >
+          Cancel
+        </button>
       </div>
     </div>
   </div>
