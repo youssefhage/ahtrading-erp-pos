@@ -309,7 +309,7 @@ export default function PriceRulesPage() {
   }
 
   /* ---- Edit ---- */
-  function openEdit(rule: DerivationRow) {
+  const openEdit = useCallback((rule: DerivationRow) => {
     setEditId(rule.id);
     setEditMode(rule.mode);
     setEditPct(String(pctNum(rule.pct)));
@@ -325,7 +325,7 @@ export default function PriceRulesPage() {
     })));
     setEditAdvancedOpen((rule.category_overrides || []).length > 0);
     setEditOpen(true);
-  }
+  }, []);
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -489,7 +489,7 @@ export default function PriceRulesPage() {
         );
       },
     },
-  ], [busy, runRule, toggleActive, openEdit]);
+  ], [busy, runRule, toggleActive, openEdit, categories]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">

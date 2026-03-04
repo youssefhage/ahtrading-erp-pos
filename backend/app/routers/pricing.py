@@ -116,6 +116,22 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
         raise HTTPException(status_code=400, detail="lbp_round_step must be >= 0")
     if data.min_margin_pct is not None and (data.min_margin_pct < 0 or data.min_margin_pct > Decimal("0.90")):
         raise HTTPException(status_code=400, detail="min_margin_pct must be between 0 and 0.90")
+    # Validate category overrides
+    seen_cats: set[str] = set()
+    for idx, ov in enumerate(data.category_overrides or []):
+        cid = ov.get("category_id")
+        if not cid:
+            raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: category_id is required")
+        if cid in seen_cats:
+            raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: duplicate category_id {cid}")
+        seen_cats.add(cid)
+        ov_mode = ov.get("mode")
+        if ov_mode not in ("exempt", "markup_pct", "discount_pct"):
+            raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: mode must be exempt, markup_pct, or discount_pct")
+        if ov_mode != "exempt":
+            ov_pct = Decimal(str(ov.get("pct", 0)))
+            if ov_pct < 0 or ov_pct > Decimal("0.90"):
+                raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: pct must be between 0 and 0.90")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -195,6 +211,22 @@ def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, compa
         m = Decimal(str(patch["min_margin_pct"]))
         if m < 0 or m > Decimal("0.90"):
             raise HTTPException(status_code=400, detail="min_margin_pct must be between 0 and 0.90")
+    if "category_overrides" in patch:
+        seen_cats: set[str] = set()
+        for idx, ov in enumerate(patch["category_overrides"] or []):
+            cid = ov.get("category_id") if isinstance(ov, dict) else None
+            if not cid:
+                raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: category_id is required")
+            if cid in seen_cats:
+                raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: duplicate category_id {cid}")
+            seen_cats.add(cid)
+            ov_mode = ov.get("mode")
+            if ov_mode not in ("exempt", "markup_pct", "discount_pct"):
+                raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: mode must be exempt, markup_pct, or discount_pct")
+            if ov_mode != "exempt":
+                ov_pct = Decimal(str(ov.get("pct", 0)))
+                if ov_pct < 0 or ov_pct > Decimal("0.90"):
+                    raise HTTPException(status_code=400, detail=f"category_overrides[{idx}]: pct must be between 0 and 0.90")
 
     fields = []
     params = []
@@ -299,7 +331,9 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         except Exception:
             raw_overrides = []
     for ov in (raw_overrides or []):
-        overrides_by_cat[str(ov["category_id"])] = ov
+        cid = ov.get("category_id") if isinstance(ov, dict) else None
+        if cid:
+            overrides_by_cat[str(cid)] = ov
 
     # Validate lists exist (defensive).
     cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, target_id))
@@ -403,8 +437,8 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
 
         # Determine effective mode/pct (override or rule default)
         if override:
-            item_mode = str(override["mode"])
-            item_pct = _to_dec(override["pct"])
+            item_mode = str(override.get("mode") or mode)
+            item_pct = _to_dec(override.get("pct", pct))
         else:
             item_mode = mode
             item_pct = pct
