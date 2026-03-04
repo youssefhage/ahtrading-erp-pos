@@ -10232,6 +10232,7 @@
       selectedPriceListId={selectedPriceListId}
       onPriceListChange={onPriceListChange}
       saleMode={saleMode}
+      priceListUpdating={priceListUpdating}
       uomOptionsFor={uomOptionsFor}
       companyLabel={companyLabel}
       companyTone={companyTone}
