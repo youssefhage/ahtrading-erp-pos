@@ -3061,7 +3061,7 @@
 
     <div class="doc-footer mono">Document ID: ${_escapeHtml(inv?.id || "-")} &middot; Generated: ${new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
   </div>
-  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>{window.print();window.close();},250));</${""}script>
 </body>
 </html>`;
     }
@@ -3178,7 +3178,7 @@
   <section class="totals">${totalRows.join("")}</section>
   ${footerText ? `<div class="custom-footer">${_escapeHtml(footerText)}</div>` : ""}
   <div class="doc-footer mono">Document ID: ${_escapeHtml(inv?.id || "-")} &middot; Generated: ${new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
-  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>{window.print();window.close();},250));</${""}script>
 </body>
 </html>`;
     }
@@ -3331,7 +3331,7 @@
     ${footerText ? `<div class="custom-footer">${_escapeHtml(footerText)}</div>` : ""}
     <div class="doc-footer mono">Document ID: ${_escapeHtml(inv?.id || "-")} &middot; Generated: ${new Date().toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
   </div>
-  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>{window.print();window.close();},250));</${""}script>
 </body>
 </html>`;
   };
@@ -3585,7 +3585,7 @@
     <div class="muted" style="margin-top:8px"><strong>Refunds</strong>${refundHtml}</div>
     ${footerText ? `<div class="foot">${_escapeHtml(footerText)}</div>` : ""}
   </div>
-  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>{window.print();window.close();},250));</${""}script>
 </body>
 </html>`;
   };

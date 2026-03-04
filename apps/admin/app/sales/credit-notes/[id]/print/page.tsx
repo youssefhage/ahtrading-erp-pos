@@ -120,7 +120,7 @@ export default function SalesCreditNotePrintPage() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const qs = new URLSearchParams(window.location.search);
-      if (qs.get("autoprint") === "1") timer = setTimeout(() => window.print(), 250);
+      if (qs.get("autoprint") === "1") timer = setTimeout(() => { window.print(); window.close(); }, 250);
     } catch {
       // ignore
     }
@@ -167,7 +167,7 @@ export default function SalesCreditNotePrintPage() {
             <Button variant="outline" onClick={load} disabled={loading}>
               {loading ? "..." : "Refresh"}
             </Button>
-            <Button onClick={() => window.print()}>Print / Save PDF</Button>
+            <Button onClick={() => { window.print(); window.close(); }}>Print / Save PDF</Button>
           </div>
         </div>
       </div>

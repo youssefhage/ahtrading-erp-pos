@@ -102,7 +102,7 @@ export default function CustomerSoaPrintPage() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const qs = new URLSearchParams(window.location.search);
-      if (qs.get("autoprint") === "1") timer = setTimeout(() => window.print(), 250);
+      if (qs.get("autoprint") === "1") timer = setTimeout(() => { window.print(); window.close(); }, 250);
     } catch {
       // ignore
     }
@@ -124,7 +124,7 @@ export default function CustomerSoaPrintPage() {
             <Button variant="outline" onClick={load} disabled={!customerId}>
               Refresh
             </Button>
-            <Button onClick={() => window.print()} disabled={!customerId}>
+            <Button onClick={() => { window.print(); window.close(); }} disabled={!customerId}>
               Print / Save PDF
             </Button>
           </div>

@@ -2014,11 +2014,11 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
   <div class="doc-footer mono">Document ID: {e(receipt_row.get("id") or r.get("event_id") or "-")}</div>
 
   <div class="actions">
-    <button onclick="window.print()">Print</button>
+    <button onclick="window.print();window.close()">Print</button>
     <button onclick="window.close()">Close</button>
   </div>
   <script>
-    window.addEventListener('load', () => setTimeout(() => window.print(), 250));
+    window.addEventListener('load', () => setTimeout(() => { window.print(); window.close(); }, 250));
   </script>
 </body>
 </html>"""

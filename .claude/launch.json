@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "admin",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev"],
       "port": 3000,
+      "autoPort": true,
       "cwd": "apps/admin"
     },
     {
