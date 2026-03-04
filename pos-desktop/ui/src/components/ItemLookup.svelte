@@ -76,7 +76,13 @@
   };
 
   $: globalVatRateNorm = normalizeVatRate(vatRate);
-  const itemVatRate = (it) => vatRateForItem ? normalizeVatRate(vatRateForItem(it)) : globalVatRateNorm;
+  // Prefer item-level tax_rate from catalog (most reliable), then vatRateForItem callback, then global fallback
+  const itemVatRate = (it) => {
+    const catalogRate = toNum(it?.tax_rate, -1);
+    if (catalogRate >= 0) return normalizeVatRate(catalogRate);
+    if (vatRateForItem) return normalizeVatRate(vatRateForItem(it));
+    return globalVatRateNorm;
+  };
   const priceBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.price_lbp, 0) : toNum(it?.price_usd, 0));
   const costBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.cost_lbp, 0) : toNum(it?.cost_usd, 0));
   const withVatItem = (v, it) => Math.max(0, toNum(v, 0)) * (1 + itemVatRate(it));
@@ -543,11 +549,13 @@
                 <span class="text-muted/60">Total Price (inc VAT)</span>
                 <span class="font-bold text-emerald-400">{fmtMoney(dTotal, currencyPrimary)}</span>
               </div>
-              <div class="my-2 h-px bg-white/5 w-full"></div>
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-muted/60">{currencyPrimary === "USD" ? "USD Total (inc VAT)" : "USD Equivalent (inc VAT)"}</span>
-                <span class="font-medium text-emerald-400/80">{fmtMoney(dUsdTotal, "USD")}</span>
-              </div>
+              {#if currencyPrimary !== "USD"}
+                <div class="my-2 h-px bg-white/5 w-full"></div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-muted/60">USD Equivalent (inc VAT)</span>
+                  <span class="font-medium text-emerald-400/80">{fmtMoney(dUsdTotal, "USD")}</span>
+                </div>
+              {/if}
             </div>
           </div>
 
