@@ -7,6 +7,11 @@ from decimal import Decimal
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from notify import notify_critical_recommendation
+except ImportError:
+    notify_critical_recommendation = None
+
 DB_URL_DEFAULT = "postgresql://localhost/ahtrading"
 
 
@@ -116,6 +121,14 @@ def run_pricing_agent(db_url: str, company_id: str, min_margin_pct: Decimal = De
                         """,
                         (company_id, json.dumps(rec_payload)),
                     )
+                    if notify_critical_recommendation:
+                        try:
+                            notify_critical_recommendation(
+                                conn, company_id, 'AI_PRICING',
+                                rec_payload, severity="warning",
+                            )
+                        except Exception:
+                            pass
 
 
 def main():

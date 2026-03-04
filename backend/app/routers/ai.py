@@ -17,6 +17,14 @@ from ..ai.copilot_llm import (
     fetch_company_name,
     fetch_attention_items,
 )
+from ..ai.agent_core import (
+    agent_respond,
+    agent_stream,
+    load_user_permissions,
+    get_pending_confirmation,
+    resolve_pending_confirmation,
+    get_or_create_conversation,
+)
 
 _copilot_logger = logging.getLogger(__name__ + ".copilot")
 
@@ -383,6 +391,7 @@ class CopilotQueryIn(BaseModel):
     query: str
     context: Optional[dict] = None
     stream: bool = False
+    conversation_id: Optional[str] = None
 
 
 class JobScheduleIn(BaseModel):
@@ -949,14 +958,21 @@ def copilot_overview(company_id: str = Depends(get_company_id)):
 
 
 @router.post("/copilot/query", dependencies=[Depends(require_permission("ai:read"))])
-def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id)):
+def copilot_query(
+    data: CopilotQueryIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
     """
-    Copilot query endpoint.
+    Enhanced copilot query endpoint (v2).
 
-    When an AI provider is configured and the company policy allows external AI,
-    the query is routed to the LLM (with optional streaming).  Otherwise, the
-    original deterministic keyword-matching behaviour is used as a fallback so
-    the copilot always works even without an AI provider.
+    Routes through the unified agent core which supports:
+    - Dynamic tool registry (read + write tools)
+    - Multi-turn conversation memory
+    - Confirmation flow for write operations
+    - Streaming and non-streaming responses
+
+    Falls back to deterministic keyword matching when no AI provider is configured.
     """
     q = (data.query or "").strip()
     if not q:
@@ -966,7 +982,7 @@ def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id
     overview = copilot_overview(company_id=company_id)
 
     # ------------------------------------------------------------------
-    # Check if we can use the LLM path
+    # Check if we can use the LLM path (agent core v2)
     # ------------------------------------------------------------------
     use_llm = False
     ai_config: dict[str, Any] = {}
@@ -980,11 +996,10 @@ def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id
                     if ai_config.get("api_key") and model:
                         use_llm = True
     except Exception:
-        # If anything goes wrong checking config, fall back gracefully.
         _copilot_logger.debug("Failed to check AI config, falling back to keyword matching", exc_info=True)
 
     if use_llm:
-        return _copilot_llm_response(q, data, company_id, ai_config, overview)
+        return _copilot_agent_response(q, data, company_id, user, ai_config, overview)
 
     # ------------------------------------------------------------------
     # Fallback: deterministic keyword matching (original v1 behaviour)
@@ -992,15 +1007,15 @@ def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id
     return _copilot_keyword_response(q, company_id, overview)
 
 
-def _copilot_llm_response(
+def _copilot_agent_response(
     query: str,
     data: CopilotQueryIn,
     company_id: str,
+    user: dict[str, Any],
     ai_config: dict[str, Any],
     overview: dict[str, Any],
 ):
-    """Route the copilot query through the configured LLM provider."""
-    # Gather context for the system prompt.
+    """Route through the unified agent core (v2) with full tool support."""
     company_name = ""
     attention_items: list[dict[str, Any]] = []
     try:
@@ -1012,19 +1027,30 @@ def _copilot_llm_response(
     except Exception:
         _copilot_logger.debug("Failed to fetch copilot context", exc_info=True)
 
+    # Load user permissions for tool filtering
+    user_permissions: set[str] | None = None
+    try:
+        user_permissions = load_user_permissions(company_id, user["user_id"])
+    except Exception:
+        _copilot_logger.debug("Failed to load user permissions for copilot", exc_info=True)
+
     kwargs = dict(
         user_query=query,
         company_id=company_id,
         company_name=company_name,
+        user=user,
         ai_config=ai_config,
+        conversation_id=data.conversation_id,
+        channel="web",
         context=data.context,
         overview=overview,
         attention=attention_items,
+        user_permissions=user_permissions,
     )
 
     if data.stream:
         return StreamingResponse(
-            stream_copilot_response(**kwargs),
+            agent_stream(**kwargs),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -1032,20 +1058,21 @@ def _copilot_llm_response(
             },
         )
 
-    # Non-streaming: call the LLM synchronously and return JSON.
+    # Non-streaming
     try:
-        result = sync_copilot_response(**kwargs)
+        result = agent_respond(**kwargs)
         return {
             "query": query,
             "answer": result.get("answer", ""),
             "overview": overview,
             "cards": [],
             "actions": result.get("actions", []),
-            "source": "llm",
+            "conversation_id": result.get("conversation_id"),
+            "pending_confirmation": result.get("pending_confirmation"),
+            "source": "agent",
         }
     except Exception as exc:
-        _copilot_logger.exception("LLM copilot failed, falling back to keyword matching: %s", exc)
-        # Fall back to keyword matching so the user always gets a response.
+        _copilot_logger.exception("Agent copilot failed, falling back to keyword matching: %s", exc)
         return _copilot_keyword_response(query, company_id, overview)
 
 
@@ -1366,3 +1393,310 @@ def list_job_runs(limit: int = 200, company_id: str = Depends(get_company_id)):
                 (company_id, limit),
             )
             return {"runs": cur.fetchall()}
+
+
+# ---------------------------------------------------------------------------
+# Conversation Analytics
+# ---------------------------------------------------------------------------
+
+@router.get("/conversations/analytics", dependencies=[Depends(require_permission("ai:read"))])
+def conversation_analytics(
+    days: int = 30,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Kai conversation analytics — usage metrics, channel breakdown,
+    tool usage, and recent conversations.
+    """
+    if days < 1 or days > 365:
+        days = 30
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # Total conversations
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS total,
+                       COUNT(CASE WHEN created_at >= now() - interval '24 hours' THEN 1 END)::int AS last_24h,
+                       COUNT(CASE WHEN created_at >= now() - interval '7 days' THEN 1 END)::int AS last_7d
+                FROM ai_conversations
+                WHERE company_id = %s AND created_at >= now() - make_interval(days => %s)
+                """,
+                (company_id, days),
+            )
+            totals = cur.fetchone()
+
+            # Total messages
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS total,
+                       COUNT(CASE WHEN m.role = 'user' THEN 1 END)::int AS user_messages,
+                       COUNT(CASE WHEN m.role = 'assistant' THEN 1 END)::int AS assistant_messages,
+                       COUNT(CASE WHEN m.role = 'tool' THEN 1 END)::int AS tool_calls
+                FROM ai_conversation_messages m
+                JOIN ai_conversations c ON c.id = m.conversation_id
+                WHERE c.company_id = %s AND m.created_at >= now() - make_interval(days => %s)
+                """,
+                (company_id, days),
+            )
+            message_totals = cur.fetchone()
+
+            # By channel
+            cur.execute(
+                """
+                SELECT channel,
+                       COUNT(*)::int AS conversations,
+                       COUNT(DISTINCT user_id)::int AS unique_users
+                FROM ai_conversations
+                WHERE company_id = %s AND created_at >= now() - make_interval(days => %s)
+                GROUP BY channel
+                ORDER BY conversations DESC
+                """,
+                (company_id, days),
+            )
+            by_channel = cur.fetchall()
+
+            # Daily volume (conversations per day)
+            cur.execute(
+                """
+                SELECT created_at::date AS day,
+                       COUNT(*)::int AS conversations
+                FROM ai_conversations
+                WHERE company_id = %s AND created_at >= now() - make_interval(days => %s)
+                GROUP BY created_at::date
+                ORDER BY day
+                """,
+                (company_id, days),
+            )
+            daily_volume = cur.fetchall()
+
+            # Tool usage (most used tools)
+            cur.execute(
+                """
+                SELECT m.tool_name,
+                       COUNT(*)::int AS call_count
+                FROM ai_conversation_messages m
+                JOIN ai_conversations c ON c.id = m.conversation_id
+                WHERE c.company_id = %s
+                  AND m.role = 'tool'
+                  AND m.tool_name IS NOT NULL
+                  AND m.created_at >= now() - make_interval(days => %s)
+                GROUP BY m.tool_name
+                ORDER BY call_count DESC
+                LIMIT 20
+                """,
+                (company_id, days),
+            )
+            tool_usage = cur.fetchall()
+
+            # Confirmation stats
+            cur.execute(
+                """
+                SELECT status,
+                       COUNT(*)::int AS count
+                FROM ai_pending_confirmations
+                WHERE company_id = %s AND created_at >= now() - make_interval(days => %s)
+                GROUP BY status
+                """,
+                (company_id, days),
+            )
+            confirmation_stats = {r["status"]: r["count"] for r in cur.fetchall()}
+
+            # Active users
+            cur.execute(
+                """
+                SELECT c.user_id,
+                       u.email,
+                       c.channel,
+                       COUNT(DISTINCT c.id)::int AS conversations,
+                       MAX(c.last_message_at) AS last_active
+                FROM ai_conversations c
+                LEFT JOIN users u ON u.id = c.user_id
+                WHERE c.company_id = %s AND c.created_at >= now() - make_interval(days => %s)
+                GROUP BY c.user_id, u.email, c.channel
+                ORDER BY conversations DESC
+                LIMIT 20
+                """,
+                (company_id, days),
+            )
+            active_users = cur.fetchall()
+
+            # Linked channel users
+            cur.execute(
+                """
+                SELECT l.channel,
+                       COUNT(*)::int AS linked_users
+                FROM ai_channel_user_links l
+                WHERE l.company_id = %s AND l.is_active = true
+                GROUP BY l.channel
+                """,
+                (company_id,),
+            )
+            linked_users = cur.fetchall()
+
+            # Recent conversations (last 20)
+            cur.execute(
+                """
+                SELECT c.id, c.channel, c.user_id, u.email,
+                       c.created_at, c.last_message_at,
+                       (SELECT COUNT(*)::int FROM ai_conversation_messages WHERE conversation_id = c.id) AS message_count
+                FROM ai_conversations c
+                LEFT JOIN users u ON u.id = c.user_id
+                WHERE c.company_id = %s
+                ORDER BY c.last_message_at DESC
+                LIMIT 20
+                """,
+                (company_id,),
+            )
+            recent_conversations = cur.fetchall()
+
+    return {
+        "period_days": days,
+        "totals": {
+            "conversations": totals["total"],
+            "conversations_24h": totals["last_24h"],
+            "conversations_7d": totals["last_7d"],
+            "messages": message_totals["total"],
+            "user_messages": message_totals["user_messages"],
+            "assistant_messages": message_totals["assistant_messages"],
+            "tool_calls": message_totals["tool_calls"],
+        },
+        "by_channel": by_channel,
+        "daily_volume": daily_volume,
+        "tool_usage": tool_usage,
+        "confirmations": confirmation_stats,
+        "active_users": active_users,
+        "linked_channel_users": linked_users,
+        "recent_conversations": recent_conversations,
+    }
+
+
+@router.get("/conversations/{conversation_id}/messages", dependencies=[Depends(require_permission("ai:read"))])
+def get_conversation_messages(
+    conversation_id: str,
+    company_id: str = Depends(get_company_id),
+):
+    """Get all messages for a specific conversation (for admin review)."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.id, c.channel, c.user_id, c.channel_user_id,
+                       c.created_at, c.last_message_at
+                FROM ai_conversations c
+                WHERE c.id = %s AND c.company_id = %s
+                """,
+                (conversation_id, company_id),
+            )
+            conv = cur.fetchone()
+            if not conv:
+                raise HTTPException(status_code=404, detail="conversation not found")
+
+            cur.execute(
+                """
+                SELECT role, content, tool_name, created_at
+                FROM ai_conversation_messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
+            )
+            messages = cur.fetchall()
+
+    return {
+        "conversation": conv,
+        "messages": messages,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Channel User Links — CRUD for managing linked Telegram/WhatsApp users
+# ---------------------------------------------------------------------------
+
+@router.get("/channel-links", dependencies=[Depends(require_permission("ai:read"))])
+def list_channel_links(
+    company_id: str = Depends(get_company_id),
+):
+    """List all linked channel users (Telegram/WhatsApp)."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT l.id, l.channel, l.channel_user_id,
+                       l.user_id, u.email, u.display_name,
+                       l.linked_at, l.is_active
+                FROM ai_channel_user_links l
+                LEFT JOIN users u ON u.id = l.user_id
+                WHERE l.company_id = %s
+                ORDER BY l.linked_at DESC
+                """,
+                (company_id,),
+            )
+            links = cur.fetchall()
+    return {"links": links}
+
+
+class ChannelLinkCreate(BaseModel):
+    channel: str = Field(..., pattern="^(telegram|whatsapp)$")
+    channel_user_id: str = Field(..., min_length=1)
+    user_email: str = Field(..., min_length=3)
+
+
+@router.post("/channel-links", dependencies=[Depends(require_permission("ai:write"))])
+def create_channel_link(
+    body: ChannelLinkCreate,
+    company_id: str = Depends(get_company_id),
+):
+    """Manually link a channel user to a system user by email."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # Resolve user by email
+            cur.execute(
+                "SELECT id, email FROM users WHERE email = %s AND company_id = %s",
+                (body.user_email.strip().lower(), company_id),
+            )
+            user = cur.fetchone()
+            if not user:
+                raise HTTPException(status_code=404, detail=f"User with email '{body.user_email}' not found")
+
+            cur.execute(
+                """
+                INSERT INTO ai_channel_user_links
+                  (company_id, channel, channel_user_id, user_id)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (company_id, channel, channel_user_id)
+                DO UPDATE SET user_id = EXCLUDED.user_id, is_active = true, linked_at = now()
+                RETURNING id
+                """,
+                (company_id, body.channel, body.channel_user_id, str(user["id"])),
+            )
+            link_id = str(cur.fetchone()["id"])
+
+    return {"id": link_id, "status": "linked"}
+
+
+@router.delete("/channel-links/{link_id}", dependencies=[Depends(require_permission("ai:write"))])
+def delete_channel_link(
+    link_id: str,
+    company_id: str = Depends(get_company_id),
+):
+    """Deactivate a channel user link."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ai_channel_user_links
+                SET is_active = false
+                WHERE id = %s AND company_id = %s
+                RETURNING id
+                """,
+                (link_id, company_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Link not found")
+    return {"status": "deactivated"}
