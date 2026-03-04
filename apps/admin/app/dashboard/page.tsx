@@ -12,6 +12,7 @@ import {
   ArrowRight,
   CheckCircle2,
   XCircle,
+  ChevronDown,
 } from "lucide-react";
 import { ApiError, apiGet } from "@/lib/api";
 import { hasPermission } from "@/lib/permissions";
@@ -272,21 +273,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 2. AI Priority Cards */}
-      <PriorityCards rows={recommendations} loading={loading} />
-
-      {/* 3. Attention Strip */}
-      <AttentionStrip items={attentionItems} loading={loading} />
-
-      {/* 4. KPI Summary + Revenue Chart */}
-      <KpiSummary
-        metrics={metrics}
-        dailyData={dailyData}
-        fxRate={fxRate}
-        loading={loading}
-      />
-
-      {/* Quick Actions */}
+      {/* 2. Quick Actions */}
       <div>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Quick Actions
@@ -322,6 +309,20 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* 3. AI Priority Cards (collapsible) */}
+      <PriorityCards rows={recommendations} loading={loading} />
+
+      {/* 4. Attention Strip */}
+      <AttentionStrip items={attentionItems} loading={loading} />
+
+      {/* 5. KPI Summary + Revenue Chart */}
+      <KpiSummary
+        metrics={metrics}
+        dailyData={dailyData}
+        fxRate={fxRate}
+        loading={loading}
+      />
 
       {/* 5. System Health (collapsed) */}
       <details className="group">
