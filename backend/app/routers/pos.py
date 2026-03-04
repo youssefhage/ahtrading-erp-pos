@@ -1445,6 +1445,7 @@ def catalog(
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
                        i.tax_code_id,
+                       COALESCE(tc.rate, 0) AS tax_rate,
                        i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
@@ -1530,6 +1531,7 @@ def catalog(
                       AND iwc.item_id = i.id
                       AND iwc.on_hand_qty > 0
                 ) icost ON true
+                LEFT JOIN tax_codes tc ON tc.id = i.tax_code_id
                 WHERE i.is_active = true
                 ORDER BY i.sku
                 """

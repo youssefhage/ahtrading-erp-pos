@@ -57,10 +57,13 @@
 
   $: globalVatFactor = 1 + normalizeVatRate(vatRate);
   const basePrice = (item) => (currencyPrimary === "LBP" ? toNum(item?.price_lbp, 0) : toNum(item?.price_usd, 0));
-  const afterVatPrice = (item) => {
-    const factor = vatRateForItem ? (1 + normalizeVatRate(vatRateForItem(item))) : globalVatFactor;
-    return basePrice(item) * factor;
+  const itemVatFactor = (item) => {
+    const catalogRate = toNum(item?.tax_rate, -1);
+    if (catalogRate >= 0) return 1 + normalizeVatRate(catalogRate);
+    if (vatRateForItem) return 1 + normalizeVatRate(vatRateForItem(item));
+    return globalVatFactor;
   };
+  const afterVatPrice = (item) => basePrice(item) * itemVatFactor(item);
 
   const optValue = (o) => {
     const u = String(o?.uom || "").trim();
