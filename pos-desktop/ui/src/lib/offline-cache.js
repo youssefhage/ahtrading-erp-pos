@@ -12,15 +12,7 @@
 const DB_NAME = "pos_offline_cache";
 const DB_VERSION = 1;
 
-const STORES = {
-  config: "config",
-  items: "items",
-  barcodes: "barcodes",
-  customers: "customers",
-  cashiers: "cashiers",
-  promotions: "promotions",
-  meta: "meta",
-};
+const STORE_NAMES = ["config", "items", "barcodes", "customers", "cashiers", "promotions", "meta"];
 
 let _dbPromise = null;
 
@@ -38,9 +30,9 @@ function openDB() {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      for (const storeName of Object.values(STORES)) {
-        if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName);
+      for (const name of STORE_NAMES) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name);
         }
       }
     };
@@ -53,39 +45,11 @@ function openDB() {
   return _dbPromise;
 }
 
-/**
- * Generic put: write a value into a store under a key.
- */
-async function put(storeName, key, value) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readwrite");
-    const store = tx.objectStore(storeName);
-    const req = store.put(value, key);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
-}
-
-/**
- * Generic get: read a value from a store by key.
- */
-async function get(storeName, key) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readonly");
-    const store = tx.objectStore(storeName);
-    const req = store.get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Save fetched data for a company into IndexedDB.
- * Call this after every successful fetchData round.
+ * Uses a single transaction across all stores for atomicity.
  *
  * @param {string} companyKey  "official" or "unofficial"
  * @param {object} data        { config, items, barcodes, customers, cashiers, promotions }
@@ -93,15 +57,25 @@ async function get(storeName, key) {
 export async function cacheCompanyData(companyKey, data) {
   try {
     const key = String(companyKey || "official");
-    const writes = [];
-    if (data.config != null) writes.push(put(STORES.config, key, data.config));
-    if (data.items != null) writes.push(put(STORES.items, key, data.items));
-    if (data.barcodes != null) writes.push(put(STORES.barcodes, key, data.barcodes));
-    if (data.customers != null) writes.push(put(STORES.customers, key, data.customers));
-    if (data.cashiers != null) writes.push(put(STORES.cashiers, key, data.cashiers));
-    if (data.promotions != null) writes.push(put(STORES.promotions, key, data.promotions));
-    writes.push(put(STORES.meta, key, { cachedAt: Date.now() }));
-    await Promise.all(writes);
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAMES, "readwrite");
+
+    const putInto = (storeName, value) => {
+      if (value != null) tx.objectStore(storeName).put(value, key);
+    };
+    putInto("config", data.config);
+    putInto("items", data.items);
+    putInto("barcodes", data.barcodes);
+    putInto("customers", data.customers);
+    putInto("cashiers", data.cashiers);
+    putInto("promotions", data.promotions);
+    tx.objectStore("meta").put({ cachedAt: Date.now() }, key);
+
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("Transaction aborted"));
+    });
   } catch (e) {
     console.warn("[POS] offline cache write failed:", e?.message || e);
   }
@@ -109,7 +83,8 @@ export async function cacheCompanyData(companyKey, data) {
 
 /**
  * Load cached data for a company from IndexedDB.
- * Returns null for any field that isn't cached yet.
+ * Uses a single read transaction for consistency.
+ * Returns null if no cached data exists.
  *
  * @param {string} companyKey  "official" or "unofficial"
  * @returns {Promise<{ config, items, barcodes, customers, cashiers, promotions, cachedAt } | null>}
@@ -117,15 +92,26 @@ export async function cacheCompanyData(companyKey, data) {
 export async function loadCachedCompanyData(companyKey) {
   try {
     const key = String(companyKey || "official");
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAMES, "readonly");
+
+    const getFrom = (storeName) =>
+      new Promise((resolve) => {
+        const req = tx.objectStore(storeName).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(undefined);
+      });
+
     const [config, items, barcodes, customers, cashiers, promotions, meta] = await Promise.all([
-      get(STORES.config, key),
-      get(STORES.items, key),
-      get(STORES.barcodes, key),
-      get(STORES.customers, key),
-      get(STORES.cashiers, key),
-      get(STORES.promotions, key),
-      get(STORES.meta, key),
+      getFrom("config"),
+      getFrom("items"),
+      getFrom("barcodes"),
+      getFrom("customers"),
+      getFrom("cashiers"),
+      getFrom("promotions"),
+      getFrom("meta"),
     ]);
+
     if (!meta) return null;
     return {
       config: config || null,
@@ -148,8 +134,13 @@ export async function loadCachedCompanyData(companyKey) {
 export async function hasCachedData(companyKey) {
   try {
     const key = String(companyKey || "official");
-    const meta = await get(STORES.meta, key);
-    return !!meta;
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction("meta", "readonly");
+      const req = tx.objectStore("meta").get(key);
+      req.onsuccess = () => resolve(!!req.result);
+      req.onerror = () => resolve(false);
+    });
   } catch (_) {
     return false;
   }

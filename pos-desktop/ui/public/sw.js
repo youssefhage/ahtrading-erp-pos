@@ -3,7 +3,7 @@
  *
  * Strategy:
  *  - Static assets (JS, CSS, HTML, images): cache-first with runtime caching.
- *  - API calls: network-first, never cached by the SW (the app handles data
+ *  - API calls: network-only, never cached by the SW (the app handles data
  *    caching in IndexedDB itself).
  *  - On install, pre-cache the app shell (index.html + icons).
  *  - On fetch failure for navigation requests, serve cached index.html so the
@@ -29,6 +29,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       cache.addAll(PRECACHE_URLS).catch((err) => {
+        // Non-fatal: app will cache assets at runtime on first use.
         console.warn("[SW] precache addAll failed (non-fatal):", err);
       })
     )
@@ -55,14 +56,22 @@ self.addEventListener("activate", (event) => {
 
 // ── Fetch ────────────────────────────────────────────────────────────────────
 
+/**
+ * Detect API/backend requests that must NEVER be cached by the service worker.
+ * The app uses two routing modes:
+ *  - Agent mode: all calls go through /api/... (apiBase prefix)
+ *  - Cloud mode: calls go through /pos/... or /api/cloud-pos/...
+ * Additionally /receipt/... is used for printable receipt pages served by the agent.
+ */
 const isApiRequest = (url) => {
   const path = url.pathname || "";
-  return (
-    path.startsWith("/api/") ||
-    path.startsWith("/api") ||
-    path.startsWith("/pos/") ||
-    path.startsWith("/receipt")
-  );
+  // Match /api or /api/... (but not e.g. /apple-touch-icon.png)
+  if (path === "/api" || path.startsWith("/api/")) return true;
+  // Cloud POS endpoints
+  if (path.startsWith("/pos/")) return true;
+  // Agent receipt pages
+  if (path.startsWith("/receipt")) return true;
+  return false;
 };
 
 const isStaticAsset = (url) => {
@@ -91,7 +100,16 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() =>
           caches.match(event.request).then(
-            (cached) => cached || caches.match("/index.html")
+            (cached) =>
+              cached ||
+              caches.match("/index.html").then(
+                (fallback) =>
+                  fallback ||
+                  new Response(
+                    "<html><body><h2>POS is offline</h2><p>Reload when connection is available.</p></body></html>",
+                    { status: 503, headers: { "Content-Type": "text/html" } }
+                  )
+              )
           )
         )
     );
@@ -112,7 +130,7 @@ self.addEventListener("fetch", (event) => {
             }
             return response;
           }).catch(() => {
-            // If both cache and network fail, return a simple offline response.
+            // Both cache and network failed.
             return new Response("", { status: 503, statusText: "Offline" });
           })
       )
@@ -122,6 +140,10 @@ self.addEventListener("fetch", (event) => {
 
   // Everything else: try network, fall back to cache.
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    fetch(event.request).catch(() =>
+      caches.match(event.request).then(
+        (cached) => cached || new Response("", { status: 503, statusText: "Offline" })
+      )
+    )
   );
 });

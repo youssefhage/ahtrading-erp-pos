@@ -5534,6 +5534,7 @@
 
       status = "Ready";
       isOnline = true;
+      offlineCacheFresh = false;
 
       // Persist to IndexedDB for offline use.
       cacheCompanyData(originCompanyKey, {
@@ -5625,42 +5626,45 @@
       try { cart = (cart || []).map((ln) => applyPromotionToLine(ln)); } catch (_) {}
     } catch(e) {
       console.warn("API Error", e);
-      isOnline = false;
+      const isNetworkError = _isFetchNetworkError(e) || toNum(e?.status, 0) === 0;
+      if (isNetworkError) isOnline = false;
 
       // Try loading from IndexedDB offline cache before falling back to mocks.
       let restoredFromCache = false;
-      try {
-        const cached = await loadCachedCompanyData(originCompanyKey);
-        if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
-          if (cached.config) config = { ...config, ...cached.config };
-          items = cached.items;
-          barcodes = cached.barcodes || [];
-          customers = cached.customers || [];
-          cashiers = cached.cashiers || [];
-          promotions = cached.promotions || [];
-          restoredFromCache = true;
-          offlineCacheFresh = true;
-          const ageMinutes = cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 60000) : 0;
-          status = "Ready";
-          error = "";
-          notice = `Offline mode — using cached data${ageMinutes > 0 ? ` (${ageMinutes}m old)` : ""}. Sales will sync when back online.`;
-          setTimeout(() => { if (notice.startsWith("Offline mode")) notice = ""; }, 8000);
+      if (isNetworkError) {
+        try {
+          const cached = await loadCachedCompanyData(originCompanyKey);
+          if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+            if (cached.config) config = { ...config, ...cached.config };
+            items = cached.items;
+            barcodes = cached.barcodes || [];
+            customers = cached.customers || [];
+            cashiers = cached.cashiers || [];
+            promotions = cached.promotions || [];
+            restoredFromCache = true;
+            offlineCacheFresh = true;
+            const ageMinutes = cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 60000) : 0;
+            status = "Ready";
+            error = "";
+            notice = `Offline mode — using cached data${ageMinutes > 0 ? ` (${ageMinutes}m old)` : ""}. Sales will sync when back online.`;
+            setTimeout(() => { if (notice.startsWith("Offline mode")) notice = ""; }, 8000);
+          }
+          // Also try unofficial company cache.
+          const cachedU = await loadCachedCompanyData(otherCompanyKey);
+          if (cachedU && Array.isArray(cachedU.items) && cachedU.items.length > 0) {
+            if (cachedU.config) unofficialConfig = { ...unofficialConfig, ...cachedU.config };
+            unofficialItems = cachedU.items;
+            unofficialBarcodes = cachedU.barcodes || [];
+            unofficialCustomers = cachedU.customers || [];
+            unofficialCashiers = cachedU.cashiers || [];
+            unofficialPromotions = cachedU.promotions || [];
+            unofficialStatus = "Ready";
+          } else if (!restoredFromCache) {
+            unofficialStatus = "Offline";
+          }
+        } catch (_cacheErr) {
+          console.warn("[POS] IndexedDB cache fallback failed:", _cacheErr?.message || _cacheErr);
         }
-        // Also try unofficial company cache.
-        const cachedU = await loadCachedCompanyData(otherCompanyKey);
-        if (cachedU && Array.isArray(cachedU.items) && cachedU.items.length > 0) {
-          if (cachedU.config) unofficialConfig = { ...unofficialConfig, ...cachedU.config };
-          unofficialItems = cachedU.items;
-          unofficialBarcodes = cachedU.barcodes || [];
-          unofficialCustomers = cachedU.customers || [];
-          unofficialCashiers = cachedU.cashiers || [];
-          unofficialPromotions = cachedU.promotions || [];
-          unofficialStatus = "Ready";
-        } else if (!restoredFromCache) {
-          unofficialStatus = "Offline";
-        }
-      } catch (_cacheErr) {
-        console.warn("[POS] IndexedDB cache fallback failed:", _cacheErr?.message || _cacheErr);
       }
 
       if (!restoredFromCache) {
