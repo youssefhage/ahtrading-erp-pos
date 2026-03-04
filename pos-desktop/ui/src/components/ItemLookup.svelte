@@ -188,6 +188,13 @@
     if (resetIndex) activeIndex = 0;
   };
 
+  // Keep selected in sync when items array is rebuilt (price list change, background refresh).
+  // Without this, selected holds a stale object reference with outdated price data.
+  $: if (selected && items) {
+    const fresh = items.find((x) => sameItem(x, selected));
+    if (fresh && fresh !== selected) selected = fresh;
+  }
+
   $: if (!qn) {
     activeIndex = 0;
     clearSelection({ resetIndex: false });
