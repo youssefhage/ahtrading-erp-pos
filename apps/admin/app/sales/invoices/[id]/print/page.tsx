@@ -745,14 +745,14 @@ export default function SalesInvoicePrintPage() {
                       <span className="font-mono">{fmtUsdLbp(totals.paidUsd, totals.paidLbp)}</span>
                     </div>
                     {Math.abs(totals.balUsd) >= 0.01 || Math.abs(totals.balLbp) >= 100 ? (
-                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-red-600 bg-red-50 px-1.5 py-1">
-                        <span className="font-semibold text-red-700">Balance Due</span>
-                        <span className="font-mono font-bold text-red-700">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-destructive bg-destructive/10 px-1.5 py-1">
+                        <span className="font-semibold text-destructive">Balance Due</span>
+                        <span className="font-mono font-bold text-destructive">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
                       </div>
                     ) : (
-                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-green-600 bg-green-50 px-1.5 py-1">
-                        <span className="font-semibold text-green-700">Settled</span>
-                        <span className="font-mono font-bold text-green-700">{fmtUsdLbp(0, 0)}</span>
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-success bg-success/10 px-1.5 py-1">
+                        <span className="font-semibold text-success">Settled</span>
+                        <span className="font-mono font-bold text-success">{fmtUsdLbp(0, 0)}</span>
                       </div>
                     )}
                   </>
@@ -948,14 +948,14 @@ export default function SalesInvoicePrintPage() {
                       <span className="font-semibold">{fmtPlainMoney(totals.paidUsd)}</span>
                     </div>
                     {Math.abs(totals.balUsd) >= 0.01 ? (
-                      <div className="flex items-center justify-between bg-red-50 px-2 py-1.5">
-                        <span className="text-[12px] font-bold text-red-700">Balance Due</span>
-                        <span className="text-[12px] font-bold text-red-700">{fmtPlainMoney(totals.balUsd)}</span>
+                      <div className="flex items-center justify-between bg-destructive/10 px-2 py-1.5">
+                        <span className="text-[12px] font-bold text-destructive">Balance Due</span>
+                        <span className="text-[12px] font-bold text-destructive">{fmtPlainMoney(totals.balUsd)}</span>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between bg-green-50 px-2 py-1.5">
-                        <span className="text-[12px] font-bold text-green-700">Settled</span>
-                        <span className="text-[12px] font-bold text-green-700">{fmtPlainMoney(0)}</span>
+                      <div className="flex items-center justify-between bg-success/10 px-2 py-1.5">
+                        <span className="text-[12px] font-bold text-success">Settled</span>
+                        <span className="text-[12px] font-bold text-success">{fmtPlainMoney(0)}</span>
                       </div>
                     )}
                   </div>
@@ -1088,14 +1088,14 @@ export default function SalesInvoicePrintPage() {
                       <span className="font-mono">{fmtUsdLbp(totals.paidUsd, totals.paidLbp)}</span>
                     </div>
                     {Math.abs(totals.balUsd) >= 0.01 || Math.abs(totals.balLbp) >= 100 ? (
-                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-red-600 bg-red-50 px-1.5 py-1">
-                        <span className="font-semibold text-red-700">Balance Due</span>
-                        <span className="font-mono font-bold text-red-700">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-destructive bg-destructive/10 px-1.5 py-1">
+                        <span className="font-semibold text-destructive">Balance Due</span>
+                        <span className="font-mono font-bold text-destructive">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
                       </div>
                     ) : (detail.payments || []).length > 0 ? (
-                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-green-600 bg-green-50 px-1.5 py-1">
-                        <span className="font-semibold text-green-700">Settled</span>
-                        <span className="font-mono font-bold text-green-700">{fmtUsdLbp(0, 0)}</span>
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded border border-success bg-success/10 px-1.5 py-1">
+                        <span className="font-semibold text-success">Settled</span>
+                        <span className="font-mono font-bold text-success">{fmtUsdLbp(0, 0)}</span>
                       </div>
                     ) : (
                       <div className="flex items-center justify-between gap-2 border-t border-black/10 pt-2">

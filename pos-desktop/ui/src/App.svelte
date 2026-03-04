@@ -22,6 +22,10 @@
     normalizeSettlementCurrency,
     saleIdempotencyKeyForCompany,
   } from "./lib/unified-checkout.js";
+  import {
+    cacheCompanyData,
+    loadCachedCompanyData,
+  } from "./lib/offline-cache.js";
 
   const API_BASE_STORAGE_KEY = "pos_ui_api_base";
   const SESSION_STORAGE_KEY = "pos_ui_session_token";
@@ -489,6 +493,19 @@
   let loading = false;
   let notice = "";
   let error = "";
+  let isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
+  let offlineCacheFresh = false;
+  let _offlineNoticeTimer = null;
+  const _setOfflineNotice = (msg, durationMs) => {
+    if (_offlineNoticeTimer) { clearTimeout(_offlineNoticeTimer); _offlineNoticeTimer = null; }
+    notice = msg;
+    if (durationMs > 0) {
+      _offlineNoticeTimer = setTimeout(() => {
+        if (notice === msg) notice = "";
+        _offlineNoticeTimer = null;
+      }, durationMs);
+    }
+  };
   let pendingCheckoutMethod = "";
   let pendingCheckoutCashTendered = 0;
   let pendingManagerAction = null;
@@ -5545,6 +5562,18 @@
       setIfOk(7, (v) => (promotions = v.promotions || []), []);
 
       status = "Ready";
+      isOnline = true;
+      offlineCacheFresh = false;
+
+      // Persist to IndexedDB for offline use.
+      cacheCompanyData(originCompanyKey, {
+        config,
+        items,
+        barcodes,
+        customers,
+        cashiers,
+        promotions,
+      }).catch(() => {});
 
       // Unofficial agent (best-effort; in web setup mode it uses secondary cloud device config).
       try {
@@ -5592,6 +5621,16 @@
             setIfOkU(5, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
             setIfOkU(6, (v) => (unofficialPromotions = v.promotions || []), []);
             unofficialStatus = "Ready";
+
+            // Persist unofficial data to IndexedDB for offline use.
+            cacheCompanyData(otherCompanyKey, {
+              config: unofficialConfig,
+              items: unofficialItems,
+              barcodes: unofficialBarcodes,
+              customers: unofficialCustomers,
+              cashiers: unofficialCashiers,
+              promotions: unofficialPromotions,
+            }).catch(() => {});
           } else {
             const p = uCfgRes.reason?.payload;
             if (p?.error === "pos_auth_required") {
@@ -5642,13 +5681,61 @@
       } catch (_) {}
     } catch(e) {
       console.warn("API Error", e);
-      error = e?.message || String(e);
-      status = "Offline";
-      // If we don't have any real data loaded yet, keep a minimal demo catalog
-      // so the UI isn't blank (useful during design/dev).
-      if (!items || items.length === 0) items = MOCK_ITEMS;
-      if (!customers || customers.length === 0) customers = MOCK_Customers;
-      if (!unofficialItems || unofficialItems.length === 0) unofficialItems = [];
+      const isNetworkError = _isFetchNetworkError(e) || toNum(e?.status, 0) === 0;
+      // Only mark offline if the browser also reports offline — avoids race
+      // where the "online" event fires mid-fetch and fetchData's catch
+      // incorrectly overrides the online state.
+      if (isNetworkError && !(typeof navigator !== "undefined" && navigator.onLine)) isOnline = false;
+
+      // Try loading from IndexedDB offline cache before falling back to mocks.
+      let restoredFromCache = false;
+      if (isNetworkError) {
+        try {
+          const cached = await loadCachedCompanyData(originCompanyKey);
+          if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+            if (cached.config) config = { ...config, ...cached.config };
+            items = cached.items;
+            barcodes = cached.barcodes || [];
+            customers = cached.customers || [];
+            cashiers = cached.cashiers || [];
+            promotions = cached.promotions || [];
+            restoredFromCache = true;
+            offlineCacheFresh = true;
+            const ageMinutes = cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 60000) : 0;
+            const ageHours = Math.floor(ageMinutes / 60);
+            const ageLabel = ageHours >= 1 ? `${ageHours}h` : ageMinutes > 0 ? `${ageMinutes}m` : "";
+            status = "Ready";
+            error = "";
+            const staleWarning = ageHours >= 6 ? " Exchange rates may be outdated." : "";
+            _setOfflineNotice(`Offline mode — using cached data${ageLabel ? ` (${ageLabel} old)` : ""}.${staleWarning} Sales will sync when back online.`, staleWarning ? 15000 : 8000);
+          }
+          // Also try unofficial company cache.
+          const cachedU = await loadCachedCompanyData(otherCompanyKey);
+          if (cachedU && Array.isArray(cachedU.items) && cachedU.items.length > 0) {
+            if (cachedU.config) unofficialConfig = { ...unofficialConfig, ...cachedU.config };
+            unofficialItems = cachedU.items;
+            unofficialBarcodes = cachedU.barcodes || [];
+            unofficialCustomers = cachedU.customers || [];
+            unofficialCashiers = cachedU.cashiers || [];
+            unofficialPromotions = cachedU.promotions || [];
+            unofficialStatus = "Ready";
+          } else if (!restoredFromCache) {
+            unofficialStatus = "Offline";
+          }
+        } catch (_cacheErr) {
+          console.warn("[POS] IndexedDB cache fallback failed:", _cacheErr?.message || _cacheErr);
+        }
+      }
+
+      if (!restoredFromCache) {
+        error = e?.message || String(e);
+        status = "Offline";
+        // If we don't have any real data loaded yet, keep a minimal demo catalog
+        // so the UI isn't blank (useful during design/dev).
+        if (!items || items.length === 0) items = MOCK_ITEMS;
+        if (!customers || customers.length === 0) customers = MOCK_Customers;
+        if (!unofficialItems || unofficialItems.length === 0) unofficialItems = [];
+      }
     } finally {
       if (showBusy) loading = false;
     }
@@ -9130,6 +9217,21 @@
     window.addEventListener("scroll", onWindowScroll, true);
     document.addEventListener("pointerdown", onPointerDownCapture, true);
 
+    // Online/offline detection for network status.
+    const onOnline = () => {
+      isOnline = true;
+      offlineCacheFresh = false;
+      _setOfflineNotice("Back online — syncing...", 4000);
+      fetchData({ background: true });
+      schedulePush(1500);
+    };
+    const onOffline = () => {
+      isOnline = false;
+      _setOfflineNotice("Network offline — using cached data. Sales will sync when back online.", 6000);
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
     // This intentionally works without requiring focus on the dedicated scan field.
     let buf = "";
@@ -9273,6 +9375,10 @@
         clearTimeout(_customerRemoteTimer);
         _customerRemoteTimer = null;
       }
+      if (_offlineNoticeTimer) {
+        clearTimeout(_offlineNoticeTimer);
+        _offlineNoticeTimer = null;
+      }
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("resize", onWindowResize);
       window.removeEventListener("scroll", onWindowScroll, true);
@@ -9280,6 +9386,8 @@
       document.removeEventListener("focusin", onFocusIn, true);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       reset();
     };
   });
@@ -9913,6 +10021,13 @@
       type="button"
       on:click={() => saleSyncWarning = ""}
     >Dismiss</button>
+  </div>
+{/if}
+
+{#if !isOnline}
+  <div class="fixed bottom-0 left-0 right-0 z-[94] px-4 py-2 bg-amber-600 text-white shadow-lg flex items-center justify-center gap-2">
+    <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 11-12.728 0M12 9v4m0 4h.01" /></svg>
+    <span class="text-xs font-semibold">OFFLINE — Sales are saved locally and will sync automatically when connection is restored</span>
   </div>
 {/if}
 
