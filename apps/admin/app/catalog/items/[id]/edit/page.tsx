@@ -85,7 +85,6 @@ type Item = {
   standard_cost_lbp?: string | number | null;
   min_margin_pct?: string | number | null;
   costing_method?: string | null;
-  tax_category?: string | null;
   is_excise?: boolean;
   preferred_supplier_id?: string | null;
   weight?: string | number | null;
@@ -268,7 +267,6 @@ export default function ItemEditPage() {
   const [editStandardCostLbp, setEditStandardCostLbp] = useState("");
   const [editMinMarginPct, setEditMinMarginPct] = useState("");
   const [editCostingMethod, setEditCostingMethod] = useState("");
-  const [editTaxCategory, setEditTaxCategory] = useState("");
   const [editIsExcise, setEditIsExcise] = useState(false);
   const [editWeight, setEditWeight] = useState("");
   const [editVolume, setEditVolume] = useState("");
@@ -350,7 +348,6 @@ export default function ItemEditPage() {
         setEditStandardCostLbp(row.standard_cost_lbp != null ? String(row.standard_cost_lbp) : "");
         setEditMinMarginPct(row.min_margin_pct != null ? String(Number(row.min_margin_pct) * 100) : "");
         setEditCostingMethod((row.costing_method as any) || "");
-        setEditTaxCategory((row.tax_category as any) || "");
         setEditIsExcise(Boolean(row.is_excise));
         setEditWeight(row.weight != null ? String(row.weight) : "");
         setEditVolume(row.volume != null ? String(row.volume) : "");
@@ -489,7 +486,6 @@ export default function ItemEditPage() {
         standard_cost_lbp: editStandardCostLbp ? Number(editStandardCostLbp) : null,
         min_margin_pct: editMinMarginPct ? Number(editMinMarginPct) / 100 : null,
         costing_method: editCostingMethod || null,
-        tax_category: editTaxCategory || null,
         is_excise: editIsExcise,
         preferred_supplier_id: editPreferredSupplier?.id || null,
         weight: editWeight ? Number(editWeight) : null,
@@ -998,26 +994,10 @@ export default function ItemEditPage() {
                       </div>
                     </div>
 
-                    {/* Tax & Compliance */}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Tax Category</Label>
-                        <Select value={editTaxCategory || "none"} onValueChange={(v) => setEditTaxCategory(v === "none" ? "" : v)} disabled={saving}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">(none)</SelectItem>
-                            <SelectItem value="standard">Standard</SelectItem>
-                            <SelectItem value="zero">Zero-rated</SelectItem>
-                            <SelectItem value="exempt">Exempt</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex items-end pb-1">
-                        <div className="flex items-center gap-3">
-                          <Switch checked={editIsExcise} onCheckedChange={setEditIsExcise} disabled={saving} />
-                          <Label>Subject to Excise</Label>
-                        </div>
-                      </div>
+                    {/* Excise */}
+                    <div className="flex items-center gap-3">
+                      <Switch checked={editIsExcise} onCheckedChange={setEditIsExcise} disabled={saving} />
+                      <Label>Subject to Excise</Label>
                     </div>
 
                     {/* Packaging */}

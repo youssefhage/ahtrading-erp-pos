@@ -36,6 +36,10 @@ BankDirection = Annotated[Literal["inflow", "outflow"], BeforeValidator(_to_lowe
 
 # Tax (v1)
 TaxType = Annotated[Literal["vat"], BeforeValidator(_to_lower_str)]
+TaxCategory = Annotated[
+    Literal["standard", "zero", "exempt"],
+    BeforeValidator(_to_lower_str),
+]
 
 
 # AI (v1)

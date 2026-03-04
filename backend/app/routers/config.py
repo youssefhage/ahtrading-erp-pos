@@ -1,10 +1,11 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
-from ..validation import CurrencyCode, PaymentMethod, RateType, TaxType
+from ..validation import CurrencyCode, PaymentMethod, RateType, TaxCategory, TaxType
 import json
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -15,6 +16,7 @@ class TaxCodeIn(BaseModel):
     rate: Decimal
     tax_type: TaxType = "vat"
     reporting_currency: CurrencyCode = "LBP"
+    tax_category: Optional[TaxCategory] = None
 
 
 class ExchangeRateIn(BaseModel):
@@ -145,6 +147,7 @@ def list_tax_codes(company_id: str = Depends(get_company_id)):
                        t.rate,
                        t.tax_type,
                        t.reporting_currency,
+                       t.tax_category,
                        COALESCE(i.n, 0) AS item_refs,
                        COALESCE(l.n, 0) AS tax_line_refs
                 FROM tax_codes t
@@ -176,11 +179,11 @@ def create_tax_code(data: TaxCodeIn, company_id: str = Depends(get_company_id), 
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO tax_codes (id, company_id, name, rate, tax_type, reporting_currency)
-                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                INSERT INTO tax_codes (id, company_id, name, rate, tax_type, reporting_currency, tax_category)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (company_id, data.name, data.rate, data.tax_type, data.reporting_currency),
+                (company_id, data.name, data.rate, data.tax_type, data.reporting_currency, data.tax_category),
             )
             tid = cur.fetchone()["id"]
             cur.execute(
@@ -198,6 +201,7 @@ def create_tax_code(data: TaxCodeIn, company_id: str = Depends(get_company_id), 
                             "rate": str(data.rate),
                             "tax_type": data.tax_type,
                             "reporting_currency": data.reporting_currency,
+                            "tax_category": data.tax_category,
                         }
                     ),
                 ),
@@ -217,7 +221,7 @@ def update_tax_code(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, rate, tax_type, reporting_currency
+                SELECT id, name, rate, tax_type, reporting_currency, tax_category
                 FROM tax_codes
                 WHERE company_id = %s AND id = %s
                 """,
@@ -233,7 +237,8 @@ def update_tax_code(
                 SET name = %s,
                     rate = %s,
                     tax_type = %s,
-                    reporting_currency = %s
+                    reporting_currency = %s,
+                    tax_category = %s
                 WHERE company_id = %s AND id = %s
                 RETURNING id
                 """,
@@ -242,6 +247,7 @@ def update_tax_code(
                     data.rate,
                     data.tax_type,
                     data.reporting_currency,
+                    data.tax_category,
                     company_id,
                     tax_code_id,
                 ),
@@ -266,12 +272,14 @@ def update_tax_code(
                                 "rate": str(before["rate"]),
                                 "tax_type": before["tax_type"],
                                 "reporting_currency": before["reporting_currency"],
+                                "tax_category": before["tax_category"],
                             },
                             "after": {
                                 "name": data.name,
                                 "rate": str(data.rate),
                                 "tax_type": data.tax_type,
                                 "reporting_currency": data.reporting_currency,
+                                "tax_category": data.tax_category,
                             },
                         }
                     ),
@@ -291,7 +299,7 @@ def delete_tax_code(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, rate, tax_type, reporting_currency
+                SELECT id, name, rate, tax_type, reporting_currency, tax_category
                 FROM tax_codes
                 WHERE company_id = %s AND id = %s
                 """,

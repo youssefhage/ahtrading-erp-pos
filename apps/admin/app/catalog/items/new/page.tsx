@@ -104,8 +104,7 @@ export default function NewItemPage() {
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
 
-  /* ---- Tax & Compliance ---- */
-  const [taxCategory, setTaxCategory] = useState("none");
+  /* ---- Excise ---- */
   const [isExcise, setIsExcise] = useState(false);
 
   /* ---- UOM & Packaging ---- */
@@ -353,8 +352,7 @@ export default function NewItemPage() {
         short_name: shortName.trim() || null,
         tags: parsedTags,
         description: description.trim() || null,
-        // Tax & Compliance
-        tax_category: taxCategory && taxCategory !== "none" ? taxCategory : null,
+        // Excise
         is_excise: isExcise,
         // UOM & Packaging
         purchase_uom_code: purchaseUomCode || null,
@@ -647,10 +645,16 @@ export default function NewItemPage() {
               </div>
             </div>
 
-            {/* Active */}
-            <div className="flex items-center gap-3">
-              <Switch checked={active} onCheckedChange={setActive} disabled={creating || loading} />
-              <Label>Active</Label>
+            {/* Active & Excise */}
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3">
+                <Switch checked={active} onCheckedChange={setActive} disabled={creating || loading} />
+                <Label>Active</Label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Switch checked={isExcise} onCheckedChange={setIsExcise} disabled={creating || loading} />
+                <Label>Subject to Excise</Label>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -707,35 +711,6 @@ export default function NewItemPage() {
                       rows={3}
                       disabled={creating || loading}
                     />
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-
-              {/* ---- Tax & Compliance ---- */}
-              <AccordionItem value="tax">
-                <AccordionTrigger>Tax &amp; Compliance</AccordionTrigger>
-                <AccordionContent className="space-y-4 px-1 pt-2">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Tax Category</Label>
-                      <Select value={taxCategory} onValueChange={setTaxCategory} disabled={creating || loading}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="(none)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">(none)</SelectItem>
-                          <SelectItem value="standard">Standard</SelectItem>
-                          <SelectItem value="zero">Zero-rated</SelectItem>
-                          <SelectItem value="exempt">Exempt</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-end gap-3 pb-1">
-                      <div className="flex items-center gap-3">
-                        <Switch checked={isExcise} onCheckedChange={setIsExcise} disabled={creating || loading} />
-                        <Label>Subject to Excise</Label>
-                      </div>
-                    </div>
                   </div>
                 </AccordionContent>
               </AccordionItem>

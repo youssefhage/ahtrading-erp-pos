@@ -27,6 +27,7 @@ type TaxCode = {
   rate: string | number;
   tax_type: string;
   reporting_currency: string;
+  tax_category?: string | null;
   item_refs?: number;
   tax_line_refs?: number;
 };
@@ -156,6 +157,7 @@ function ConfigPage() {
   const [taxRate, setTaxRate] = useState("11");
   const [taxType, setTaxType] = useState("vat");
   const [taxCurrency, setTaxCurrency] = useState("LBP");
+  const [taxCategoryVal, setTaxCategoryVal] = useState("none");
   const [taxOpen, setTaxOpen] = useState(false);
   const [savingTax, setSavingTax] = useState(false);
   const [taxEditOpen, setTaxEditOpen] = useState(false);
@@ -164,6 +166,7 @@ function ConfigPage() {
   const [taxEditRate, setTaxEditRate] = useState("0");
   const [taxEditType, setTaxEditType] = useState("vat");
   const [taxEditCurrency, setTaxEditCurrency] = useState("LBP");
+  const [taxEditCategory, setTaxEditCategory] = useState("none");
   const [savingTaxEdit, setSavingTaxEdit] = useState(false);
   const [deletingTaxId, setDeletingTaxId] = useState<string | null>(null);
 
@@ -276,6 +279,15 @@ function ConfigPage() {
         cell: ({ row }) => <span className="text-sm">{row.original.tax_type}</span>,
       },
       {
+        id: "tax_category",
+        accessorFn: (t) => t.tax_category || "",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+        cell: ({ row }) => {
+          const c = row.original.tax_category;
+          return <span className="text-sm">{c ? c.charAt(0).toUpperCase() + c.slice(1) : "-"}</span>;
+        },
+      },
+      {
         id: "reporting_currency",
         accessorFn: (t) => t.reporting_currency,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Currency" />,
@@ -308,6 +320,7 @@ function ConfigPage() {
                   setTaxEditRate(String(taxRateToPercent(t.rate)));
                   setTaxEditType(t.tax_type || "vat");
                   setTaxEditCurrency(t.reporting_currency || "LBP");
+                  setTaxEditCategory(t.tax_category || "none");
                   setTaxEditOpen(true);
                 }}
               >
@@ -496,8 +509,9 @@ function ConfigPage() {
     setSavingTax(true);
     setStatus("Saving tax code...");
     try {
-      await apiPost("/config/tax-codes", { name: taxName.trim(), rate: taxRateInputToDecimal(taxRate), tax_type: taxType || "vat", reporting_currency: taxCurrency || "LBP" });
+      await apiPost("/config/tax-codes", { name: taxName.trim(), rate: taxRateInputToDecimal(taxRate), tax_type: taxType || "vat", reporting_currency: taxCurrency || "LBP", tax_category: taxCategoryVal !== "none" ? taxCategoryVal : null });
       setTaxName("");
+      setTaxCategoryVal("none");
       setTaxOpen(false);
       await load();
       setStatus("");
@@ -515,7 +529,7 @@ function ConfigPage() {
     setSavingTaxEdit(true);
     setStatus("Updating tax code...");
     try {
-      await apiPatch(`/config/tax-codes/${taxEditId}`, { name: taxEditName.trim(), rate: taxRateInputToDecimal(taxEditRate), tax_type: taxEditType || "vat", reporting_currency: taxEditCurrency || "LBP" });
+      await apiPatch(`/config/tax-codes/${taxEditId}`, { name: taxEditName.trim(), rate: taxRateInputToDecimal(taxEditRate), tax_type: taxEditType || "vat", reporting_currency: taxEditCurrency || "LBP", tax_category: taxEditCategory !== "none" ? taxEditCategory : null });
       setTaxEditOpen(false);
       await load();
       setStatus("");
@@ -1124,9 +1138,21 @@ function ConfigPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-1.5 md:col-span-2">
+                      <div className="space-y-1.5 md:col-span-1">
                         <label className="text-xs font-medium text-muted-foreground">Tax Type</label>
                         <Input value={taxType} onChange={(e) => setTaxType(e.target.value)} placeholder="vat" />
+                      </div>
+                      <div className="space-y-1.5 md:col-span-1">
+                        <label className="text-xs font-medium text-muted-foreground">Category</label>
+                        <Select value={taxCategoryVal} onValueChange={setTaxCategoryVal}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">(none)</SelectItem>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="zero">Zero-rated</SelectItem>
+                            <SelectItem value="exempt">Exempt</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="md:col-span-2 flex items-end justify-end"><Button type="submit" disabled={savingTax}>{savingTax ? "Saving..." : "Save"}</Button></div>
                     </form>
@@ -1160,9 +1186,21 @@ function ConfigPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-1.5 md:col-span-2">
+                    <div className="space-y-1.5 md:col-span-1">
                       <label className="text-xs font-medium text-muted-foreground">Tax Type</label>
                       <Input value={taxEditType} onChange={(e) => setTaxEditType(e.target.value)} placeholder="vat" />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-1">
+                      <label className="text-xs font-medium text-muted-foreground">Category</label>
+                      <Select value={taxEditCategory} onValueChange={setTaxEditCategory}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">(none)</SelectItem>
+                          <SelectItem value="standard">Standard</SelectItem>
+                          <SelectItem value="zero">Zero-rated</SelectItem>
+                          <SelectItem value="exempt">Exempt</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="md:col-span-2 flex items-end justify-end"><Button type="submit" disabled={savingTaxEdit}>{savingTaxEdit ? "Saving..." : "Save Changes"}</Button></div>
                   </form>

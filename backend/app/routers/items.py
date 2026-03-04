@@ -18,7 +18,6 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 ItemType = Literal["stocked", "service", "bundle"]
 CostingMethod = Literal["avg", "fifo", "standard"]
-TaxCategory = Literal["standard", "zero", "exempt"]
 
 def _norm_uom(code: Optional[str]) -> str:
     c = (code or "").strip()
@@ -217,7 +216,6 @@ class ItemIn(BaseModel):
     sales_uom_code: Optional[str] = None
     barcode: Optional[str] = None
     tax_code_id: Optional[str] = None
-    tax_category: Optional[TaxCategory] = None
     is_excise: bool = False
     reorder_point: Optional[Decimal] = None
     reorder_qty: Optional[Decimal] = None
@@ -323,7 +321,7 @@ def list_items(company_id: str = Depends(get_company_id)):
                 SELECT i.id, i.sku, i.barcode, i.name, i.item_type, i.tags,
                        i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
                        i.purchase_uom_code, i.sales_uom_code,
-                       i.tax_category, i.is_excise,
+                       i.is_excise,
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
@@ -1038,7 +1036,7 @@ def get_item(item_id: str, company_id: str = Depends(get_company_id)):
                 SELECT i.id, i.sku, i.barcode, i.name, i.item_type, i.tags,
                        i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
                        i.purchase_uom_code, i.sales_uom_code,
-                       i.tax_category, i.is_excise,
+                       i.is_excise,
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
@@ -1220,7 +1218,7 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                     """
                     INSERT INTO items
                       (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, purchase_uom_code, sales_uom_code,
-                       tax_code_id, tax_category, is_excise,
+                       tax_code_id, is_excise,
                        reorder_point, reorder_qty,
                        is_active, category_id, brand, short_name, description,
                        track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days,
@@ -1233,7 +1231,7 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                        image_attachment_id, image_alt)
                     VALUES
                       (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                       %s, %s, %s,
+                       %s, %s,
                        %s, %s,
                        %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
@@ -1257,7 +1255,6 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                         purchase_uom,
                         sales_uom,
                         data.tax_code_id,
-                        data.tax_category,
                         bool(data.is_excise),
                         data.reorder_point or 0,
                         data.reorder_qty or 0,
@@ -1433,7 +1430,6 @@ class ItemUpdate(BaseModel):
     sales_uom_code: Optional[str] = None
     barcode: Optional[str] = None
     tax_code_id: Optional[str] = None
-    tax_category: Optional[TaxCategory] = None
     is_excise: Optional[bool] = None
     reorder_point: Optional[Decimal] = None
     reorder_qty: Optional[Decimal] = None

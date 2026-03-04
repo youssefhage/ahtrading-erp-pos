@@ -44,7 +44,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 /*  Types                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type TaxCode = { id: string; name: string; rate: string | number };
+type TaxCode = { id: string; name: string; rate: string | number; tax_category?: string | null };
 
 type Item = {
   id: string;
@@ -57,7 +57,6 @@ type Item = {
   sales_uom_code?: string | null;
   barcode: string | null;
   tax_code_id: string | null;
-  tax_category?: string | null;
   is_excise?: boolean;
   reorder_point: string | number | null;
   reorder_qty: string | number | null;
@@ -935,7 +934,7 @@ export default function ItemViewPage() {
                     <DetailField label="Brand" value={item.brand || "-"} />
                     <DetailField
                       label="Tax Category"
-                      value={item.tax_category ? item.tax_category.charAt(0).toUpperCase() + item.tax_category.slice(1) : "-"}
+                      value={taxMeta?.tax_category ? taxMeta.tax_category.charAt(0).toUpperCase() + taxMeta.tax_category.slice(1) : "-"}
                     />
                   </div>
 
