@@ -82,6 +82,8 @@ class PriceListDerivationIn(BaseModel):
     is_active: bool = True
     category_overrides: list[dict] = []  # [{category_id, mode, pct}]
     item_overrides: list[dict] = []  # [{item_id, item_sku, item_name, mode, pct}]
+    supplier_overrides: list[dict] = []  # [{supplier_id, supplier_name, mode, pct}]
+    brand_overrides: list[dict] = []  # [{brand, mode, pct}]
 
 class PriceListDerivationUpdate(BaseModel):
     target_price_list_id: Optional[str] = None
@@ -95,6 +97,8 @@ class PriceListDerivationUpdate(BaseModel):
     is_active: Optional[bool] = None
     category_overrides: Optional[list[dict]] = None
     item_overrides: Optional[list[dict]] = None
+    supplier_overrides: Optional[list[dict]] = None
+    brand_overrides: Optional[list[dict]] = None
 
 class RunDerivationIn(BaseModel):
     effective_from: Optional[date] = None
@@ -114,6 +118,8 @@ def list_derivations(company_id: str = Depends(get_company_id)):
                        d.min_margin_pct, d.skip_if_cost_missing,
                        d.category_overrides,
                        d.item_overrides,
+                       d.supplier_overrides,
+                       d.brand_overrides,
                        d.is_active,
                        d.last_run_at, d.last_run_summary,
                        d.created_at, d.updated_at
@@ -141,6 +147,8 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
     # Validate overrides
     _validate_overrides(data.category_overrides, "category_overrides", "category_id")
     _validate_overrides(data.item_overrides, "item_overrides", "item_id")
+    _validate_overrides(data.supplier_overrides, "supplier_overrides", "supplier_id")
+    _validate_overrides(data.brand_overrides, "brand_overrides", "brand")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -160,9 +168,11 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                       (company_id, target_price_list_id, base_price_list_id,
                        mode, pct, usd_round_step, lbp_round_step,
                        min_margin_pct, skip_if_cost_missing, is_active,
-                       category_overrides, item_overrides)
+                       category_overrides, item_overrides,
+                       supplier_overrides, brand_overrides)
                     VALUES
-                      (%s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                      (%s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s,
+                       %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)
                     ON CONFLICT (company_id, target_price_list_id) DO UPDATE
                     SET base_price_list_id = EXCLUDED.base_price_list_id,
                         mode = EXCLUDED.mode,
@@ -174,6 +184,8 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                         is_active = EXCLUDED.is_active,
                         category_overrides = EXCLUDED.category_overrides,
                         item_overrides = EXCLUDED.item_overrides,
+                        supplier_overrides = EXCLUDED.supplier_overrides,
+                        brand_overrides = EXCLUDED.brand_overrides,
                         updated_at = now()
                     RETURNING id
                     """,
@@ -190,6 +202,8 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
                         bool(data.is_active),
                         json.dumps(data.category_overrides or []),
                         json.dumps(data.item_overrides or []),
+                        json.dumps(data.supplier_overrides or []),
+                        json.dumps(data.brand_overrides or []),
                     ),
                 )
                 did = cur.fetchone()["id"]
@@ -226,11 +240,15 @@ def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, compa
         _validate_overrides(patch["category_overrides"], "category_overrides", "category_id")
     if "item_overrides" in patch:
         _validate_overrides(patch["item_overrides"], "item_overrides", "item_id")
+    if "supplier_overrides" in patch:
+        _validate_overrides(patch["supplier_overrides"], "supplier_overrides", "supplier_id")
+    if "brand_overrides" in patch:
+        _validate_overrides(patch["brand_overrides"], "brand_overrides", "brand")
 
     fields = []
     params = []
     for k, v in patch.items():
-        if k in ("category_overrides", "item_overrides"):
+        if k in ("category_overrides", "item_overrides", "supplier_overrides", "brand_overrides"):
             fields.append(f"{k} = %s::jsonb")
             params.append(json.dumps(v or []))
         else:
@@ -299,7 +317,8 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         """
         SELECT id, target_price_list_id, base_price_list_id, mode, pct,
                usd_round_step, lbp_round_step, min_margin_pct, skip_if_cost_missing,
-               category_overrides, item_overrides, is_active
+               category_overrides, item_overrides,
+               supplier_overrides, brand_overrides, is_active
         FROM price_list_derivations
         WHERE company_id = %s AND id = %s
         """,
@@ -347,6 +366,32 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         if iid:
             overrides_by_item[str(iid)] = ov
 
+    # Build per-supplier override lookup.
+    overrides_by_supplier: dict[str, dict] = {}
+    raw_supplier_overrides = d.get("supplier_overrides") or []
+    if isinstance(raw_supplier_overrides, str):
+        try:
+            raw_supplier_overrides = json.loads(raw_supplier_overrides)
+        except Exception:
+            raw_supplier_overrides = []
+    for ov in (raw_supplier_overrides or []):
+        sid = ov.get("supplier_id") if isinstance(ov, dict) else None
+        if sid:
+            overrides_by_supplier[str(sid)] = ov
+
+    # Build per-brand override lookup.
+    overrides_by_brand: dict[str, dict] = {}
+    raw_brand_overrides = d.get("brand_overrides") or []
+    if isinstance(raw_brand_overrides, str):
+        try:
+            raw_brand_overrides = json.loads(raw_brand_overrides)
+        except Exception:
+            raw_brand_overrides = []
+    for ov in (raw_brand_overrides or []):
+        brand_key = ov.get("brand") if isinstance(ov, dict) else None
+        if brand_key:
+            overrides_by_brand[str(brand_key)] = ov
+
     # Validate lists exist (defensive).
     cur.execute("SELECT 1 FROM price_lists WHERE company_id=%s AND id=%s", (company_id, target_id))
     if not cur.fetchone():
@@ -355,13 +400,17 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     if not cur.fetchone():
         return {"error": "invalid base_price_list_id", "applied": 0}
 
-    # Effective base prices for the given date (fetch ALL items with category_id).
+    # Effective base prices for the given date (fetch ALL items with category_id, brand, primary supplier).
     cur.execute(
         """
         SELECT DISTINCT ON (pli.item_id)
-          pli.item_id, pli.price_usd, pli.price_lbp, i.category_id
+          pli.item_id, pli.price_usd, pli.price_lbp,
+          i.category_id, i.brand,
+          isup.supplier_id AS primary_supplier_id
         FROM price_list_items pli
         JOIN items i ON i.company_id = pli.company_id AND i.id = pli.item_id
+        LEFT JOIN item_suppliers isup
+          ON isup.company_id = i.company_id AND isup.item_id = i.id AND isup.is_primary = true
         WHERE pli.company_id = %s
           AND pli.price_list_id = %s::uuid
           AND pli.effective_from <= %s
@@ -428,11 +477,15 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
             missing_base += 1
             continue
 
-        # Priority: item override > category override > rule default
+        # Priority: item override > supplier override > brand override > category override > rule default
         cat_id = str(bp.get("category_id") or "")
+        supplier_id = str(bp.get("primary_supplier_id") or "")
+        brand_val = str(bp.get("brand") or "")
         item_override = overrides_by_item.get(item_id)
+        supplier_override = overrides_by_supplier.get(supplier_id) if supplier_id else None
+        brand_override = overrides_by_brand.get(brand_val) if brand_val else None
         cat_override = overrides_by_cat.get(cat_id)
-        override = item_override or cat_override
+        override = item_override or supplier_override or brand_override or cat_override
 
         if override and override.get("mode") == "exempt":
             # Remove any previously-derived price for this item so the

@@ -501,6 +501,24 @@ def lookup_items(data: ItemsLookupIn, company_id: str = Depends(get_company_id))
             )
             return {"items": cur.fetchall()}
 
+@router.get("/brands", dependencies=[Depends(require_permission("items:read"))])
+def list_brands(company_id: str = Depends(get_company_id)):
+    """Return distinct brand names used across active items."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT brand
+                FROM items
+                WHERE company_id = %s AND is_active = true AND brand IS NOT NULL AND brand <> ''
+                ORDER BY brand
+                """,
+                (company_id,),
+            )
+            return {"brands": [r["brand"] for r in (cur.fetchall() or [])]}
+
+
 @router.get("/typeahead", dependencies=[Depends(require_permission("items:read"))])
 def typeahead_items(
     q: str = "",
