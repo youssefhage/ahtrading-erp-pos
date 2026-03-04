@@ -5594,8 +5594,34 @@
         unofficialLocked = false;
       }
 
-      // Promotions can affect cart pricing (min qty tiers). Reprice after refresh.
-      try { cart = (cart || []).map((ln) => applyPromotionToLine(ln)); } catch (_) {}
+      // Re-sync cart line prices from the refreshed catalog (handles price-list
+      // switches) and then re-apply promotions / manual discounts on top.
+      // In return mode prices are frozen from the original sale — skip catalog
+      // re-pricing so refund amounts stay correct.
+      try {
+        if (saleMode !== "return") {
+          const catalogById = new Map();
+          for (const it of items || []) {
+            if (it.id) catalogById.set(`${originCompanyKey}|${it.id}`, it);
+          }
+          for (const it of unofficialItems || []) {
+            if (it.id) catalogById.set(`${otherCompanyKey}|${it.id}`, it);
+          }
+          cart = (cart || []).map((ln) => {
+            const catItem = catalogById.get(`${ln.companyKey || originCompanyKey}|${ln.id}`);
+            if (catItem) {
+              ln = {
+                ...ln,
+                list_price_usd: toNum(catItem.price_usd),
+                list_price_lbp: toNum(catItem.price_lbp),
+              };
+            }
+            return applyPromotionToLine(ln);
+          });
+        } else {
+          cart = (cart || []).map((ln) => applyPromotionToLine(ln));
+        }
+      } catch (_) {}
     } catch(e) {
       console.warn("API Error", e);
       error = e?.message || String(e);
@@ -9441,6 +9467,7 @@
             priceLists={priceLists}
             selectedPriceListId={selectedPriceListId}
             onPriceListChange={onPriceListChange}
+            saleMode={saleMode}
             checkoutBlocked={checkoutBlocked}
             checkoutBlockedReason={checkoutBlockReason}
             onCheckout={handleCheckoutRequest}
@@ -9462,6 +9489,7 @@
       priceLists={priceLists}
       selectedPriceListId={selectedPriceListId}
       onPriceListChange={onPriceListChange}
+      saleMode={saleMode}
       uomOptionsFor={uomOptionsFor}
       companyLabel={companyLabel}
       companyTone={companyTone}
