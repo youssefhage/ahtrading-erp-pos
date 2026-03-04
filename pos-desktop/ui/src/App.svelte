@@ -2591,9 +2591,6 @@
     win.document.open();
     win.document.write(html);
     win.document.close();
-    setTimeout(() => {
-      try { win.focus(); win.print(); } catch (_) {}
-    }, 80);
     return win;
   };
 

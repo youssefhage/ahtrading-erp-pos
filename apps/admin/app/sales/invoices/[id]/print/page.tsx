@@ -364,7 +364,7 @@ export default function SalesInvoicePrintPage() {
       const qs = new URLSearchParams(window.location.search);
       const rawDoc = String(qs.get("doc") || "").trim().toLowerCase();
       setDocVariant(rawDoc === "receipt" ? "receipt" : "invoice");
-      if (qs.get("autoprint") === "1") timer = setTimeout(() => window.print(), 250);
+      if (qs.get("autoprint") === "1") timer = setTimeout(() => { window.print(); window.close(); }, 250);
     } catch {
       // ignore
     }
@@ -641,7 +641,7 @@ export default function SalesInvoicePrintPage() {
                 </Button>
               </>
             ) : null}
-            <Button onClick={() => window.print()}>Print / Save PDF</Button>
+            <Button onClick={() => { window.print(); window.close(); }}>Print / Save PDF</Button>
           </div>
         </div>
         {directStatus || directError ? (
