@@ -5616,7 +5616,13 @@
       }
 
       // Promotions can affect cart pricing (min qty tiers). Reprice after refresh.
-      try { cart = (cart || []).map((ln) => applyPromotionToLine(ln)); } catch (_) {}
+      try {
+        const overridesBefore = (cart || []).filter((ln) => ln.price_override).map((ln) => ({ name: ln.name, price_usd: ln.price_usd }));
+        if (overridesBefore.length) console.log("[PriceOverride] runFetchData REPRICE — overrides before:", overridesBefore);
+        cart = (cart || []).map((ln) => applyPromotionToLine(ln));
+        const overridesAfter = (cart || []).filter((ln) => ln.price_override).map((ln) => ({ name: ln.name, price_usd: ln.price_usd }));
+        if (overridesAfter.length) console.log("[PriceOverride] runFetchData REPRICE — overrides after:", overridesAfter);
+      } catch (_) {}
     } catch(e) {
       console.warn("API Error", e);
       error = e?.message || String(e);
@@ -5786,6 +5792,22 @@
 
   const applyPromotionToLine = (line) => {
     const ln = { ...(line || {}) };
+
+    // When a manager has explicitly overridden the price, return immediately.
+    // No promotions, no list-price normalisation, no manual-discount recalc —
+    // the override price must be preserved exactly as set.
+    if (ln.price_override) {
+      console.log("[PriceOverride] applyPromotionToLine EARLY RETURN — preserving override", { name: ln.name, price_usd: ln.price_usd, price_lbp: ln.price_lbp, list_price_usd: ln.list_price_usd });
+      ln.applied_promotion_id = null;
+      ln.applied_promotion_item_id = null;
+      ln.pre_discount_unit_price_usd = 0;
+      ln.pre_discount_unit_price_lbp = 0;
+      ln.discount_pct = 0;
+      ln.discount_amount_usd = 0;
+      ln.discount_amount_lbp = 0;
+      return ln;
+    }
+
     const listUsd = toNum(ln.list_price_usd, toNum(ln.price_usd, 0));
     const listLbp = toNum(ln.list_price_lbp, toNum(ln.price_lbp, 0));
     const rawManualMode = String(ln.manual_discount_mode || "").trim().toLowerCase();
@@ -5798,9 +5820,7 @@
     ln.list_price_usd = listUsd;
     ln.list_price_lbp = listLbp;
 
-    // When a manager has explicitly overridden the price, skip automatic promotions
-    // to avoid a promo reverting the override to a higher price.
-    const best = ln.price_override ? null : _bestPromoForLine(ln);
+    const best = _bestPromoForLine(ln);
     if (!best) {
       // Clear promo metadata and revert unit prices to list.
       ln.price_usd = listUsd;
@@ -6881,10 +6901,12 @@
   };
 
   const applyPriceOverrideToLine = (index, newPriceUsd, newPriceLbp) => {
+    console.log("[PriceOverride] applyPriceOverrideToLine CALLED", { index, newPriceUsd, newPriceLbp });
     const safeIdx = Math.trunc(toNum(index, -1));
-    if (safeIdx < 0 || safeIdx >= (cart || []).length) return false;
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) { console.log("[PriceOverride] ABORT: invalid index", safeIdx); return false; }
     const copy = [...cart];
     const current = { ...(copy[safeIdx] || {}) };
+    console.log("[PriceOverride] BEFORE override", { name: current.name, list_price_usd: current.list_price_usd, price_usd: current.price_usd, price_override: current.price_override });
     if (!current.price_override) {
       current.original_list_price_usd = toNum(current.list_price_usd, 0);
       current.original_list_price_lbp = toNum(current.list_price_lbp, 0);
@@ -6899,9 +6921,12 @@
     current.manual_discount_pct = 0;
     current.manual_discount_amount_usd = 0;
     current.manual_discount_amount_lbp = 0;
-    copy[safeIdx] = applyPromotionToLine(current);
+    const result = applyPromotionToLine(current);
+    console.log("[PriceOverride] AFTER applyPromotionToLine", { name: result.name, list_price_usd: result.list_price_usd, price_usd: result.price_usd, price_override: result.price_override });
+    copy[safeIdx] = result;
     cart = copy;
     checkoutIntentId = "";
+    console.log("[PriceOverride] cart[%d] final price_usd=%s price_lbp=%s", safeIdx, cart[safeIdx]?.price_usd, cart[safeIdx]?.price_lbp);
     return true;
   };
 
@@ -6945,6 +6970,7 @@
   };
 
   const handlePriceOverrideConfirm = async (mode) => {
+    console.log("[PriceOverride] handlePriceOverrideConfirm CALLED", { mode, index: priceOverrideConfirmIndex, newPriceUsd: priceOverrideConfirmNewPriceUsd, newPriceLbp: priceOverrideConfirmNewPriceLbp });
     const safeIdx = priceOverrideConfirmIndex;
     const newPriceUsd = priceOverrideConfirmNewPriceUsd;
     const newPriceLbp = priceOverrideConfirmNewPriceLbp;
@@ -6980,12 +7006,13 @@
     if (mode === "source" && itemId) {
       try {
         const today = new Date().toISOString().slice(0, 10);
+        const plId = _resolvedPriceListId(companyKey) || null;
         await apiCallFor(companyKey, `/items/${encodeURIComponent(itemId)}/prices`, {
           method: "POST",
-          body: { price_usd: newPriceUsd, price_lbp: newPriceLbp, effective_from: today, effective_to: null },
+          body: { price_usd: newPriceUsd, price_lbp: newPriceLbp, effective_from: today, effective_to: null, price_list_id: plId },
         });
         _updateInMemoryItemPrice(companyKey, itemId, newPriceUsd, newPriceLbp);
-        reportNotice(`Price updated for ${name} (saved to price list).`);
+        reportNotice(`Price updated for ${name} (saved to ${plId ? "price list" : "item prices"}).`);
       } catch (e) {
         reportError(`Price applied to cart, but failed to save: ${e?.message || String(e)}`);
       }
