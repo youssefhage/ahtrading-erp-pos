@@ -79,11 +79,40 @@ def _whatsapp_api_post(url: str, token: str, payload: dict[str, Any]) -> dict[st
         return {"error": str(e)}
 
 
-def _send_whatsapp_text(phone: str, text: str) -> dict[str, Any]:
+def _load_wa_config(company_id: str) -> dict[str, str]:
+    """Load WhatsApp config from DB with env var fallback."""
+    from ..ai.providers import get_kai_channel_config
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            ch_cfg = get_kai_channel_config(cur, company_id)
+    return ch_cfg["whatsapp"]
+
+
+# Module-level cache for config within a single request
+_wa_config_cache: dict[str, dict[str, str]] = {}
+
+
+def _get_wa_config(company_id: str | None = None) -> dict[str, str]:
+    """Get WhatsApp config, loading from DB if needed."""
+    cid = company_id or (os.environ.get("WHATSAPP_COMPANY_ID") or "").strip()
+    if not cid:
+        return {
+            "api_url": (os.environ.get("WHATSAPP_API_URL") or "").strip(),
+            "api_token": (os.environ.get("WHATSAPP_API_TOKEN") or "").strip(),
+            "phone_number_id": (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip(),
+            "verify_token": (os.environ.get("WHATSAPP_VERIFY_TOKEN") or "").strip(),
+            "app_secret": (os.environ.get("WHATSAPP_APP_SECRET") or "").strip(),
+        }
+    return _load_wa_config(cid)
+
+
+def _send_whatsapp_text(phone: str, text: str, wa_cfg: dict[str, str] | None = None) -> dict[str, Any]:
     """Send a text message via WhatsApp Business API."""
-    api_url = (os.environ.get("WHATSAPP_API_URL") or "").strip()
-    api_token = (os.environ.get("WHATSAPP_API_TOKEN") or "").strip()
-    phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
+    cfg = wa_cfg or _get_wa_config()
+    api_url = cfg.get("api_url", "")
+    api_token = cfg.get("api_token", "")
+    phone_number_id = cfg.get("phone_number_id", "")
     if not api_url or not api_token:
         logger.debug("WhatsApp API not configured, skipping send")
         return {"error": "not configured"}
@@ -110,11 +139,13 @@ def _send_whatsapp_interactive(
     phone: str,
     text: str,
     buttons: list[dict[str, str]],
+    wa_cfg: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Send an interactive button message via WhatsApp."""
-    api_url = (os.environ.get("WHATSAPP_API_URL") or "").strip()
-    api_token = (os.environ.get("WHATSAPP_API_TOKEN") or "").strip()
-    phone_number_id = (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip()
+    cfg = wa_cfg or _get_wa_config()
+    api_url = cfg.get("api_url", "")
+    api_token = cfg.get("api_token", "")
+    phone_number_id = cfg.get("phone_number_id", "")
     if not api_url or not api_token:
         return {"error": "not configured"}
 
@@ -147,9 +178,10 @@ def _send_whatsapp_interactive(
     return _whatsapp_api_post(url, api_token, payload)
 
 
-def _download_whatsapp_media(media_id: str) -> tuple[bytes, str]:
+def _download_whatsapp_media(media_id: str, wa_cfg: dict[str, str] | None = None) -> tuple[bytes, str]:
     """Download media from WhatsApp (Meta Cloud API pattern)."""
-    api_token = (os.environ.get("WHATSAPP_API_TOKEN") or "").strip()
+    cfg = wa_cfg or _get_wa_config()
+    api_token = cfg.get("api_token", "")
     graph_url = (os.environ.get("WHATSAPP_GRAPH_URL") or "https://graph.facebook.com/v18.0").strip()
 
     # Step 1: Get media URL
@@ -188,11 +220,12 @@ def whatsapp_verify(
     """
     WhatsApp webhook verification (Meta Cloud API GET challenge).
     Returns hub.challenge if the verify_token matches.
+    Config read from company_settings with env var fallback.
     """
-    # Support both "hub.mode" and "hub_mode" (FastAPI normalizes dots to underscores)
-    expected = (os.environ.get("WHATSAPP_WEBHOOK_SECRET") or "").strip()
+    wa_cfg = _get_wa_config()
+    expected = wa_cfg.get("verify_token", "")
     if not expected:
-        raise HTTPException(status_code=404, detail="whatsapp integration not configured")
+        raise HTTPException(status_code=404, detail="whatsapp verify token not configured")
 
     mode = (hub_mode or "").strip()
     token = (hub_verify_token or "").strip()
@@ -217,13 +250,15 @@ def whatsapp_file_upload(
     Direct file upload endpoint (v1 compat).
     POST a file directly to create a supplier invoice draft.
     """
-    expected_secret = (os.environ.get("WHATSAPP_WEBHOOK_SECRET") or "").strip()
     company_id = (os.environ.get("WHATSAPP_COMPANY_ID") or "").strip()
     system_user_id = (os.environ.get("WHATSAPP_SYSTEM_USER_ID") or "").strip()
 
-    if not expected_secret or not company_id or not system_user_id:
+    if not company_id or not system_user_id:
         raise HTTPException(status_code=404, detail="whatsapp integration not configured")
-    if not hmac.compare_digest((x_whatsapp_webhook_secret or "").strip(), expected_secret):
+
+    wa_cfg = _get_wa_config(company_id)
+    expected_secret = wa_cfg.get("verify_token", "")
+    if expected_secret and not hmac.compare_digest((x_whatsapp_webhook_secret or "").strip(), expected_secret):
         raise HTTPException(status_code=401, detail="invalid whatsapp secret")
 
     try:
@@ -285,6 +320,9 @@ async def whatsapp_webhook(request: Request):
     if not company_id or not system_user_id:
         raise HTTPException(status_code=404, detail="whatsapp integration not configured")
 
+    # Load config from DB (with env var fallback)
+    wa_cfg = _get_wa_config(company_id)
+
     body = await request.body()
     try:
         update = json.loads(body)
@@ -292,7 +330,7 @@ async def whatsapp_webhook(request: Request):
         raise HTTPException(status_code=400, detail="invalid JSON")
 
     # Optionally verify signature (Meta sends X-Hub-Signature-256)
-    app_secret = (os.environ.get("WHATSAPP_APP_SECRET") or "").strip()
+    app_secret = wa_cfg.get("app_secret", "")
     if app_secret:
         signature = request.headers.get("X-Hub-Signature-256", "")
         expected_sig = "sha256=" + hmac.new(

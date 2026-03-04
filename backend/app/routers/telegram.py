@@ -147,21 +147,29 @@ def telegram_webhook(
     - /start command → Welcome message
     - /link <email> → Link Telegram user to system account
 
-    Required env:
-    - TELEGRAM_BOT_TOKEN
-    - TELEGRAM_WEBHOOK_SECRET
-    - TELEGRAM_COMPANY_ID
-    - TELEGRAM_SYSTEM_USER_ID
+    Config is read from company_settings (key='kai_channels') with env var fallback.
+    Env vars: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_COMPANY_ID, TELEGRAM_SYSTEM_USER_ID
     """
-    bot_token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
-    expected_secret = (os.environ.get("TELEGRAM_WEBHOOK_SECRET") or "").strip()
     company_id = (os.environ.get("TELEGRAM_COMPANY_ID") or "").strip()
     system_user_id = (os.environ.get("TELEGRAM_SYSTEM_USER_ID") or "").strip()
 
-    if not bot_token or not expected_secret or not company_id or not system_user_id:
+    if not company_id or not system_user_id:
         raise HTTPException(status_code=404, detail="telegram integration not configured")
 
-    if not hmac.compare_digest((x_telegram_bot_api_secret_token or "").strip(), expected_secret):
+    # Load channel config from DB (with env var fallback)
+    from ..ai.providers import get_kai_channel_config
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            ch_cfg = get_kai_channel_config(cur, company_id)
+
+    bot_token = ch_cfg["telegram"]["bot_token"]
+    expected_secret = ch_cfg["telegram"]["webhook_secret"]
+
+    if not bot_token:
+        raise HTTPException(status_code=404, detail="telegram bot token not configured")
+
+    if expected_secret and not hmac.compare_digest((x_telegram_bot_api_secret_token or "").strip(), expected_secret):
         raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
     # Store raw update for traceability.

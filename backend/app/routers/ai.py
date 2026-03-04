@@ -1700,3 +1700,124 @@ def delete_channel_link(
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Link not found")
     return {"status": "deactivated"}
+
+
+# ---------------------------------------------------------------------------
+# Kai Channel Configuration — portal-managed Telegram/WhatsApp setup
+# ---------------------------------------------------------------------------
+
+@router.get("/kai-channel-config", dependencies=[Depends(require_permission("ai:read"))])
+def get_kai_channel_config_endpoint(
+    company_id: str = Depends(get_company_id),
+):
+    """Get Kai channel configuration (Telegram/WhatsApp)."""
+    from ..ai.providers import get_kai_channel_config
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cfg = get_kai_channel_config(cur, company_id)
+    # Mask sensitive tokens for display (show last 4 chars)
+    safe = _mask_channel_config(cfg)
+    return {"config": safe, "has_telegram": bool(cfg["telegram"]["bot_token"]), "has_whatsapp": bool(cfg["whatsapp"]["api_token"])}
+
+
+class KaiChannelConfigUpdate(BaseModel):
+    telegram_bot_token: Optional[str] = None
+    telegram_webhook_secret: Optional[str] = None
+    whatsapp_api_url: Optional[str] = None
+    whatsapp_api_token: Optional[str] = None
+    whatsapp_phone_number_id: Optional[str] = None
+    whatsapp_verify_token: Optional[str] = None
+    whatsapp_app_secret: Optional[str] = None
+
+
+@router.post("/kai-channel-config", dependencies=[Depends(require_permission("ai:write"))])
+def save_kai_channel_config(
+    body: KaiChannelConfigUpdate,
+    company_id: str = Depends(get_company_id),
+    current_user: dict = Depends(get_current_user),
+):
+    """Save Kai channel configuration to company_settings."""
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # Load existing config to merge
+            cur.execute(
+                "SELECT value_json FROM company_settings WHERE company_id = %s AND key = 'kai_channels' LIMIT 1",
+                (company_id,),
+            )
+            row = cur.fetchone()
+            existing = (row.get("value_json") or {}) if row else {}
+
+            tg = existing.get("telegram") or {}
+            wa = existing.get("whatsapp") or {}
+
+            # Only update fields that are explicitly provided (not None)
+            # Use sentinel "***" to mean "keep existing" (masked value from frontend)
+            def _update(current: str, new_val: str | None) -> str:
+                if new_val is None:
+                    return current
+                if new_val.startswith("•••") or new_val == "":
+                    return current  # Keep existing if masked or empty
+                return new_val.strip()
+
+            new_config = {
+                "telegram": {
+                    "bot_token": _update(tg.get("bot_token", ""), body.telegram_bot_token),
+                    "webhook_secret": _update(tg.get("webhook_secret", ""), body.telegram_webhook_secret),
+                },
+                "whatsapp": {
+                    "api_url": _update(wa.get("api_url", ""), body.whatsapp_api_url),
+                    "api_token": _update(wa.get("api_token", ""), body.whatsapp_api_token),
+                    "phone_number_id": _update(wa.get("phone_number_id", ""), body.whatsapp_phone_number_id),
+                    "verify_token": _update(wa.get("verify_token", ""), body.whatsapp_verify_token),
+                    "app_secret": _update(wa.get("app_secret", ""), body.whatsapp_app_secret),
+                },
+            }
+
+            cur.execute(
+                """
+                INSERT INTO company_settings (company_id, key, value_json)
+                VALUES (%s, 'kai_channels', %s::jsonb)
+                ON CONFLICT (company_id, key)
+                DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = now()
+                """,
+                (company_id, json.dumps(new_config)),
+            )
+
+            # Audit log
+            cur.execute(
+                """
+                INSERT INTO audit_logs (company_id, user_id, action, entity_type, details)
+                VALUES (%s, %s, 'update', 'kai_channel_config', %s::jsonb)
+                """,
+                (
+                    company_id,
+                    current_user.get("user_id"),
+                    json.dumps({"channels_updated": ["telegram", "whatsapp"]}),
+                ),
+            )
+
+    return {"status": "saved"}
+
+
+def _mask_channel_config(cfg: dict) -> dict:
+    """Mask sensitive tokens for safe display — show only last 4 chars."""
+    def _mask(val: str) -> str:
+        if not val or len(val) < 8:
+            return "•••" if val else ""
+        return f"•••{val[-4:]}"
+
+    return {
+        "telegram": {
+            "bot_token": _mask(cfg["telegram"]["bot_token"]),
+            "webhook_secret": _mask(cfg["telegram"]["webhook_secret"]),
+        },
+        "whatsapp": {
+            "api_url": cfg["whatsapp"]["api_url"],  # Not sensitive
+            "api_token": _mask(cfg["whatsapp"]["api_token"]),
+            "phone_number_id": cfg["whatsapp"]["phone_number_id"],  # Not sensitive
+            "verify_token": _mask(cfg["whatsapp"]["verify_token"]),
+            "app_secret": _mask(cfg["whatsapp"]["app_secret"]),
+        },
+    }

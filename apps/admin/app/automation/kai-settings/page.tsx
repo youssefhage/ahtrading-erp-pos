@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  Check,
+  ExternalLink,
   Link2,
   Plus,
   RefreshCw,
+  Save,
   Settings,
   Smartphone,
   Trash2,
@@ -71,6 +74,20 @@ type ChannelLink = {
   is_active: boolean;
 };
 
+type ChannelConfig = {
+  telegram: {
+    bot_token: string;
+    webhook_secret: string;
+  };
+  whatsapp: {
+    api_url: string;
+    api_token: string;
+    phone_number_id: string;
+    verify_token: string;
+    app_secret: string;
+  };
+};
+
 /* ------------------------------------------------------------------ */
 /*  Channel helpers                                                    */
 /* ------------------------------------------------------------------ */
@@ -98,6 +115,7 @@ function channelBadge(channel: string) {
 /* ------------------------------------------------------------------ */
 
 export default function KaiSettingsPage() {
+  // --- Channel links state ---
   const [links, setLinks] = useState<ChannelLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,22 +128,80 @@ export default function KaiSettingsPage() {
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // --- Channel config state ---
+  const [hasTelegram, setHasTelegram] = useState(false);
+  const [hasWhatsApp, setHasWhatsApp] = useState(false);
+  const [tgBotToken, setTgBotToken] = useState("");
+  const [tgWebhookSecret, setTgWebhookSecret] = useState("");
+  const [waApiUrl, setWaApiUrl] = useState("");
+  const [waApiToken, setWaApiToken] = useState("");
+  const [waPhoneNumberId, setWaPhoneNumberId] = useState("");
+  const [waVerifyToken, setWaVerifyToken] = useState("");
+  const [waAppSecret, setWaAppSecret] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configSaved, setConfigSaved] = useState(false);
+
+  const loadLinks = useCallback(async () => {
     try {
       const res = await apiGet("/ai/channel-links");
       setLinks(res.links || []);
     } catch (e: any) {
       setError(e?.message || "Failed to load channel links");
-    } finally {
-      setLoading(false);
     }
   }, []);
+
+  const loadConfig = useCallback(async () => {
+    try {
+      const res = await apiGet("/ai/kai-channel-config");
+      const cfg: ChannelConfig = res.config;
+      setHasTelegram(res.has_telegram);
+      setHasWhatsApp(res.has_whatsapp);
+      setTgBotToken(cfg.telegram.bot_token || "");
+      setTgWebhookSecret(cfg.telegram.webhook_secret || "");
+      setWaApiUrl(cfg.whatsapp.api_url || "");
+      setWaApiToken(cfg.whatsapp.api_token || "");
+      setWaPhoneNumberId(cfg.whatsapp.phone_number_id || "");
+      setWaVerifyToken(cfg.whatsapp.verify_token || "");
+      setWaAppSecret(cfg.whatsapp.app_secret || "");
+    } catch {
+      // Config endpoint may not exist yet — that's ok
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    await Promise.all([loadLinks(), loadConfig()]);
+    setLoading(false);
+  }, [loadLinks, loadConfig]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleSaveConfig = async () => {
+    setSavingConfig(true);
+    setConfigSaved(false);
+    setError(null);
+    try {
+      await apiPost("/ai/kai-channel-config", {
+        telegram_bot_token: tgBotToken,
+        telegram_webhook_secret: tgWebhookSecret,
+        whatsapp_api_url: waApiUrl,
+        whatsapp_api_token: waApiToken,
+        whatsapp_phone_number_id: waPhoneNumberId,
+        whatsapp_verify_token: waVerifyToken,
+        whatsapp_app_secret: waAppSecret,
+      });
+      setConfigSaved(true);
+      await loadConfig();
+      setTimeout(() => setConfigSaved(false), 3000);
+    } catch (e: any) {
+      setError(e?.message || "Failed to save configuration");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   const handleAdd = async () => {
     setAddError(null);
@@ -142,7 +218,7 @@ export default function KaiSettingsPage() {
       });
       setShowAdd(false);
       setAddForm({ channel: "telegram", channel_user_id: "", user_email: "" });
-      load();
+      loadLinks();
     } catch (e: any) {
       setAddError(e?.message || "Failed to link user");
     } finally {
@@ -153,7 +229,7 @@ export default function KaiSettingsPage() {
   const handleDelete = async (linkId: string) => {
     try {
       await apiDelete(`/ai/channel-links/${linkId}`);
-      load();
+      loadLinks();
     } catch (e: any) {
       setError(e?.message || "Failed to deactivate link");
     }
@@ -168,7 +244,7 @@ export default function KaiSettingsPage() {
         <div className="flex items-center justify-between">
           <PageHeader
             title="Kai Settings"
-            description="Manage Kai AI copilot channels and linked users."
+            description="Configure Telegram and WhatsApp channels for Kai AI copilot."
             icon={<Settings className="h-5 w-5" />}
           />
           <div className="flex items-center gap-3">
@@ -176,59 +252,190 @@ export default function KaiSettingsPage() {
               <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setShowAdd(true)}>
-              <Plus className="h-4 w-4 mr-1.5" />
-              Link User
-            </Button>
           </div>
         </div>
 
         {error && <ErrorBanner message={error} />}
 
-        {/* Channel Setup Guide */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* ============================================================ */}
+        {/*  Channel Configuration Forms                                 */}
+        {/* ============================================================ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Telegram Config */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Smartphone className="h-4 w-4 text-sky-500" />
-                Telegram Setup
-              </CardTitle>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-sky-500" />
+                  Telegram
+                </CardTitle>
+                {hasTelegram ? (
+                  <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700">Connected</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-500">Not configured</Badge>
+                )}
+              </div>
+              <CardDescription className="text-xs">
+                Create a bot via{" "}
+                <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-0.5">
+                  @BotFather <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                {" "}and paste the token below.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="text-xs text-muted-foreground space-y-1.5">
-              <p>1. Create a bot via <code>@BotFather</code> on Telegram</p>
-              <p>2. Set <code>TELEGRAM_BOT_TOKEN</code> in your environment</p>
-              <p>3. Configure the webhook URL to <code>/api/telegram/webhook</code></p>
-              <p>4. Users can link by sending <code>/link email@example.com</code></p>
+            <CardContent className="space-y-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="tg-bot-token" className="text-xs">Bot Token</Label>
+                <Input
+                  id="tg-bot-token"
+                  type="password"
+                  placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..."
+                  value={tgBotToken}
+                  onChange={(e) => setTgBotToken(e.target.value)}
+                  className="text-xs font-mono"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="tg-webhook-secret" className="text-xs">
+                  Webhook Secret <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="tg-webhook-secret"
+                  type="password"
+                  placeholder="Optional secret for webhook verification"
+                  value={tgWebhookSecret}
+                  onChange={(e) => setTgWebhookSecret(e.target.value)}
+                  className="text-xs font-mono"
+                />
+              </div>
+              <div className="rounded-md bg-muted/50 p-2.5 text-[11px] text-muted-foreground space-y-1">
+                <p><strong>Webhook URL:</strong> <code className="bg-muted px-1 rounded">{`https://<your-domain>/api/integrations/telegram/webhook`}</code></p>
+                <p>After saving, set this URL via BotFather or the Telegram API <code>setWebhook</code> method.</p>
+              </div>
             </CardContent>
           </Card>
 
+          {/* WhatsApp Config */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Smartphone className="h-4 w-4 text-green-500" />
-                WhatsApp Setup
-              </CardTitle>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-green-500" />
+                  WhatsApp
+                </CardTitle>
+                {hasWhatsApp ? (
+                  <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700">Connected</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-500">Not configured</Badge>
+                )}
+              </div>
+              <CardDescription className="text-xs">
+                Configure your{" "}
+                <a href="https://developers.facebook.com/docs/whatsapp/cloud-api" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-0.5">
+                  Meta Cloud API <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+                {" "}credentials.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="text-xs text-muted-foreground space-y-1.5">
-              <p>1. Set up Meta Cloud API for WhatsApp Business</p>
-              <p>2. Set <code>WHATSAPP_API_URL</code>, <code>WHATSAPP_API_TOKEN</code>, <code>WHATSAPP_VERIFY_TOKEN</code></p>
-              <p>3. Configure webhook URL to <code>/api/whatsapp/webhook</code></p>
-              <p>4. Users can link by sending <code>link email@example.com</code></p>
+            <CardContent className="space-y-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="wa-api-url" className="text-xs">API URL</Label>
+                <Input
+                  id="wa-api-url"
+                  placeholder="https://graph.facebook.com/v18.0"
+                  value={waApiUrl}
+                  onChange={(e) => setWaApiUrl(e.target.value)}
+                  className="text-xs font-mono"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="wa-api-token" className="text-xs">API Token</Label>
+                <Input
+                  id="wa-api-token"
+                  type="password"
+                  placeholder="Bearer token from Meta"
+                  value={waApiToken}
+                  onChange={(e) => setWaApiToken(e.target.value)}
+                  className="text-xs font-mono"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="wa-phone-id" className="text-xs">Phone Number ID</Label>
+                  <Input
+                    id="wa-phone-id"
+                    placeholder="e.g. 123456789"
+                    value={waPhoneNumberId}
+                    onChange={(e) => setWaPhoneNumberId(e.target.value)}
+                    className="text-xs font-mono"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="wa-verify-token" className="text-xs">Verify Token</Label>
+                  <Input
+                    id="wa-verify-token"
+                    type="password"
+                    placeholder="Webhook verify token"
+                    value={waVerifyToken}
+                    onChange={(e) => setWaVerifyToken(e.target.value)}
+                    className="text-xs font-mono"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="wa-app-secret" className="text-xs">
+                  App Secret <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="wa-app-secret"
+                  type="password"
+                  placeholder="For signature verification"
+                  value={waAppSecret}
+                  onChange={(e) => setWaAppSecret(e.target.value)}
+                  className="text-xs font-mono"
+                />
+              </div>
+              <div className="rounded-md bg-muted/50 p-2.5 text-[11px] text-muted-foreground">
+                <p><strong>Webhook URL:</strong> <code className="bg-muted px-1 rounded">{`https://<your-domain>/api/integrations/whatsapp/webhook`}</code></p>
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Linked Users Table */}
+        {/* Save Config Button */}
+        <div className="flex justify-end">
+          <Button onClick={handleSaveConfig} disabled={savingConfig}>
+            {configSaved ? (
+              <><Check className="h-4 w-4 mr-1.5 text-emerald-500" /> Saved</>
+            ) : savingConfig ? (
+              <><RefreshCw className="h-4 w-4 mr-1.5 animate-spin" /> Saving...</>
+            ) : (
+              <><Save className="h-4 w-4 mr-1.5" /> Save Channel Config</>
+            )}
+          </Button>
+        </div>
+
+        {/* ============================================================ */}
+        {/*  Linked Users                                                 */}
+        {/* ============================================================ */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Link2 className="h-4 w-4 text-muted-foreground" />
-              Linked Channel Users
-            </CardTitle>
-            <CardDescription className="text-xs">
-              {activeLinks.length} active link{activeLinks.length !== 1 ? "s" : ""}
-              {inactiveLinks.length > 0 && ` (${inactiveLinks.length} inactive)`}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Link2 className="h-4 w-4 text-muted-foreground" />
+                  Linked Channel Users
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {activeLinks.length} active link{activeLinks.length !== 1 ? "s" : ""}
+                  {inactiveLinks.length > 0 && ` (${inactiveLinks.length} inactive)`}
+                </CardDescription>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setShowAdd(true)}>
+                <Plus className="h-4 w-4 mr-1.5" />
+                Link User
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
