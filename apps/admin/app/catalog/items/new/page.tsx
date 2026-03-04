@@ -275,7 +275,6 @@ export default function NewItemPage() {
     setShortName("");
     setTags("");
     setDescription("");
-    setTaxCategory("none");
     setIsExcise(false);
     setPurchaseUomCode("");
     setSalesUomCode("");
