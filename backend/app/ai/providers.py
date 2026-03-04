@@ -84,3 +84,63 @@ def get_ai_provider_config(cur, company_id: str) -> dict:
         "invoice_text_model": text_model,
         "copilot_model": copilot_model,
     }
+
+
+def get_kai_channel_config(cur, company_id: str) -> dict:
+    """
+    Resolve Kai channel integration config (Telegram, WhatsApp).
+
+    Config location:
+      company_settings.key = 'kai_channels'
+      value_json structure:
+        telegram:
+          bot_token: str
+          webhook_secret: str  (optional)
+        whatsapp:
+          api_url: str         (Meta Cloud API messages endpoint)
+          api_token: str       (bearer token)
+          phone_number_id: str (sender phone for Meta Cloud API)
+          verify_token: str    (webhook verification token)
+          app_secret: str      (optional, for signature verification)
+
+    Environment variables override DB values when present.
+    """
+    # Start with env defaults
+    cfg: dict = {
+        "telegram": {
+            "bot_token": (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip(),
+            "webhook_secret": (os.environ.get("TELEGRAM_WEBHOOK_SECRET") or "").strip(),
+        },
+        "whatsapp": {
+            "api_url": (os.environ.get("WHATSAPP_API_URL") or "").strip(),
+            "api_token": (os.environ.get("WHATSAPP_API_TOKEN") or "").strip(),
+            "phone_number_id": (os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or "").strip(),
+            "verify_token": (os.environ.get("WHATSAPP_VERIFY_TOKEN") or "").strip(),
+            "app_secret": (os.environ.get("WHATSAPP_APP_SECRET") or "").strip(),
+        },
+    }
+
+    # Merge with DB config (DB fills in blanks, env vars always win)
+    try:
+        cur.execute(
+            """
+            SELECT value_json
+            FROM company_settings
+            WHERE company_id = %s AND key = 'kai_channels'
+            LIMIT 1
+            """,
+            (company_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            v = row.get("value_json") or {}
+            for channel in ("telegram", "whatsapp"):
+                db_ch = v.get(channel) or {}
+                for field, db_val in db_ch.items():
+                    if field in cfg[channel] and not cfg[channel][field]:
+                        # Only use DB value if env var is empty
+                        cfg[channel][field] = (db_val or "").strip()
+    except Exception:
+        pass
+
+    return cfg

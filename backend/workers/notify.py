@@ -63,7 +63,7 @@ def notify_critical_recommendation(
         if not message:
             return
 
-        # Find linked users
+        # Find linked users and load channel config from DB
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT set_config('app.current_company_id', %s::text, true)",
@@ -79,17 +79,22 @@ def notify_critical_recommendation(
             )
             links = cur.fetchall()
 
-        if not links:
-            return
+            if not links:
+                return
+
+            # Load channel config from company_settings (with env fallback)
+            channel_cfg = _load_channel_config(cur, company_id)
 
         for link in links:
             channel = link["channel"]
             channel_user_id = link["channel_user_id"]
             try:
                 if channel == "telegram":
-                    _send_telegram(channel_user_id, message, rec_id)
+                    bot_token = channel_cfg.get("telegram", {}).get("bot_token", "")
+                    _send_telegram(channel_user_id, message, rec_id, bot_token=bot_token)
                 elif channel == "whatsapp":
-                    _send_whatsapp(channel_user_id, message)
+                    wa_cfg = channel_cfg.get("whatsapp", {})
+                    _send_whatsapp(channel_user_id, message, wa_cfg=wa_cfg)
             except Exception as e:
                 logger.debug("Failed to send %s notification: %s", channel, e)
 
@@ -130,9 +135,38 @@ def _format_message(
     return "\n".join(parts)
 
 
-def _send_telegram(chat_id: str, message: str, rec_id: str | None = None) -> None:
+def _load_channel_config(cur, company_id: str) -> dict[str, Any]:
+    """Load Kai channel config from company_settings with env var fallback."""
+    cfg: dict[str, Any] = {
+        "telegram": {
+            "bot_token": (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip(),
+        },
+        "whatsapp": {
+            "api_url": (os.environ.get("WHATSAPP_API_URL") or "").strip(),
+            "api_token": (os.environ.get("WHATSAPP_API_TOKEN") or "").strip(),
+        },
+    }
+    try:
+        cur.execute(
+            "SELECT value_json FROM company_settings WHERE company_id = %s AND key = 'kai_channels' LIMIT 1",
+            (company_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            v = row.get("value_json") or row.get("value_json") or {}
+            for channel in ("telegram", "whatsapp"):
+                db_ch = v.get(channel) or {}
+                for field, db_val in db_ch.items():
+                    if field in cfg.get(channel, {}) and not cfg[channel][field]:
+                        cfg[channel][field] = (db_val or "").strip()
+    except Exception:
+        pass
+    return cfg
+
+
+def _send_telegram(chat_id: str, message: str, rec_id: str | None = None, *, bot_token: str = "") -> None:
     """Send notification via Telegram Bot API."""
-    bot_token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    bot_token = bot_token or (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
     if not bot_token:
         return
 
@@ -162,10 +196,11 @@ def _send_telegram(chat_id: str, message: str, rec_id: str | None = None) -> Non
         logger.debug("Telegram send failed: %s", e)
 
 
-def _send_whatsapp(phone: str, message: str) -> None:
+def _send_whatsapp(phone: str, message: str, *, wa_cfg: dict[str, str] | None = None) -> None:
     """Send notification via WhatsApp Business API."""
-    api_url = (os.environ.get("WHATSAPP_API_URL") or "").strip()
-    api_token = (os.environ.get("WHATSAPP_API_TOKEN") or "").strip()
+    cfg = wa_cfg or {}
+    api_url = cfg.get("api_url", "") or (os.environ.get("WHATSAPP_API_URL") or "").strip()
+    api_token = cfg.get("api_token", "") or (os.environ.get("WHATSAPP_API_TOKEN") or "").strip()
     if not api_url or not api_token:
         return
 
