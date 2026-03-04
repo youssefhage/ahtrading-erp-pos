@@ -417,6 +417,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
     missing_cost = 0
     blocked_by_margin = 0
     skipped_exempt = 0
+    upserted_item_ids: set[str] = set()
 
     # Upsert derived rows for eff date.
     for item_id, bp in base_price_by_item.items():
@@ -518,7 +519,36 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
             """,
             (company_id, target_id, item_id, d_usd, d_lbp, eff),
         )
+        upserted_item_ids.add(item_id)
         applied += 1
+
+    # Clean up orphaned derived prices — items that exist in the target list
+    # but were NOT upserted during this run (removed from base, exempted upstream,
+    # or base price went to zero).  This ensures cascade chains propagate
+    # exemptions and deletions all the way downstream.
+    orphans_removed = 0
+    if upserted_item_ids:
+        cur.execute(
+            """
+            DELETE FROM price_list_items
+            WHERE company_id = %s
+              AND price_list_id = %s::uuid
+              AND NOT (item_id = ANY(%s::uuid[]))
+            """,
+            (company_id, target_id, list(upserted_item_ids)),
+        )
+        orphans_removed = cur.rowcount or 0
+    else:
+        # No items were derived — clear the entire target list.
+        cur.execute(
+            """
+            DELETE FROM price_list_items
+            WHERE company_id = %s
+              AND price_list_id = %s::uuid
+            """,
+            (company_id, target_id),
+        )
+        orphans_removed = cur.rowcount or 0
 
     summary = {
         "effective_from": eff.isoformat(),
@@ -529,6 +559,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         "missing_cost": int(missing_cost),
         "adjusted_or_blocked_by_margin": int(blocked_by_margin),
         "skipped_exempt": int(skipped_exempt),
+        "orphans_removed": int(orphans_removed),
     }
 
     cur.execute(
@@ -1463,6 +1494,9 @@ def delete_price_list_item(
                         json.dumps({"item_id": row["item_id"]}),
                     ),
                 )
+                # Auto-propagate: re-run derivations that use this list as their base
+                # so orphaned derived prices are cleaned up.
+                _trigger_dependent_derivations(cur, company_id, list_id, date.today(), user["user_id"])
                 return {"ok": True}
 
 

@@ -326,6 +326,7 @@ export default function PriceRulesPage() {
     missing_cost: number;
     adjusted_or_blocked_by_margin: number;
     skipped_exempt: number;
+    orphans_removed: number;
     effective_from: string;
   } | null>(null);
 
@@ -771,6 +772,7 @@ export default function PriceRulesPage() {
                   {runSummary.base_price_rows} base price{runSummary.base_price_rows !== 1 ? "s" : ""} found
                   {runSummary.missing_base > 0 && ` · ${runSummary.missing_base} skipped (zero price)`}
                   {runSummary.skipped_exempt > 0 && ` · ${runSummary.skipped_exempt} exempt`}
+                  {runSummary.orphans_removed > 0 && ` · ${runSummary.orphans_removed} orphaned removed`}
                   {runSummary.missing_cost > 0 && ` · ${runSummary.missing_cost} missing cost`}
                   {runSummary.adjusted_or_blocked_by_margin > 0 && ` · ${runSummary.adjusted_or_blocked_by_margin} blocked/adjusted by margin`}
                 </p>
