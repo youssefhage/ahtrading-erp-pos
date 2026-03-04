@@ -9,6 +9,8 @@
   export let removeLine = (index) => {};
   export let requestManagerDiscount = (index) => {};
   export let canManagerDiscountLine = (line) => false;
+  export let requestPriceOverride = (index) => {};
+  export let canPriceOverrideLine = (line) => false;
   export let clearCart = () => {};
   export let saveDraft = () => {};
   export let companyLabelForLine = (line) => "";
@@ -288,8 +290,13 @@
                   -{fmtPct(line.discount_pct)}
                 </span>
               {/if}
+              {#if line.price_override}
+                <span class="text-[10px] font-bold text-purple-300 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">
+                  Price Override
+                </span>
+              {/if}
             </div>
-            <div class="mt-1.5">
+            <div class="mt-1.5 flex gap-1.5">
               <button
                 type="button"
                 class={`inline-flex items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
@@ -301,6 +308,18 @@
                 title={canManagerDiscountLine(line) ? "Apply manager item discount" : "Manager approval required"}
               >
                 <span>{lineHasManagerDiscount(line) ? "Edit Discount" : "Discount"}</span>
+              </button>
+              <button
+                type="button"
+                class={`inline-flex items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                  canPriceOverrideLine(line)
+                    ? "border-purple-500/25 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                    : "border-white/10 bg-surface-highlight/40 text-muted hover:text-ink"
+                }`}
+                on:click={() => requestPriceOverride(i)}
+                title={canPriceOverrideLine(line) ? "Edit unit price (manager)" : "Manager approval required to edit price"}
+              >
+                <span>{line.price_override ? "Edit Price" : "Price"}</span>
               </button>
             </div>
           </div>
