@@ -14,6 +14,7 @@
   export let priceLists = [];
   export let selectedPriceListId = "";
   export let onPriceListChange = (id) => {};
+  export let saleMode = "sale";
   export let checkoutBlocked = false;
   export let checkoutBlockedReason = "";
   export let onCheckout = () => {};
@@ -148,9 +149,10 @@
           <div class="flex items-center gap-2 px-1">
             <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0 w-12">Prices</span>
             <select
-              class="flex-1 bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2 py-1 text-[10px] font-bold text-ink focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none"
+              class="flex-1 bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2 py-1 text-[10px] font-bold text-ink focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none disabled:opacity-40 disabled:cursor-not-allowed"
               value={selectedPriceListId}
               on:change={(e) => onPriceListChange(e.target.value)}
+              disabled={saleMode === "return"}
             >
               {#each priceLists as pl}
                 <option value={pl.id}>{pl.name}{pl.is_default ? " (Default)" : ""}</option>
