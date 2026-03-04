@@ -727,11 +727,35 @@ export default function ItemViewPage() {
     },
   ], [uomBase]);
 
+  const stockByWarehouse = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of stock) {
+      const oh = Number(s.qty_on_hand || 0);
+      map.set(s.warehouse_id, (map.get(s.warehouse_id) || 0) + (Number.isFinite(oh) ? oh : 0));
+    }
+    return map;
+  }, [stock]);
+
   const policyColumns = useMemo<ColumnDef<ItemWarehousePolicyRow>[]>(() => [
     {
       accessorKey: "warehouse_name",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Warehouse" />,
       cell: ({ row }) => row.original.warehouse_name,
+    },
+    {
+      id: "current_stock",
+      accessorFn: (p) => stockByWarehouse.get(p.warehouse_id) ?? 0,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="On Hand" />,
+      cell: ({ row }) => {
+        const onHand = stockByWarehouse.get(row.original.warehouse_id) ?? 0;
+        const min = Number(row.original.min_stock || 0);
+        const max = Number(row.original.max_stock || 0);
+        let color = "";
+        if (min > 0 && onHand < min) color = "text-destructive";
+        else if (max > 0 && onHand > max) color = "text-warning";
+        else if (onHand > 0) color = "text-success";
+        return <span className={cn("font-mono text-sm font-semibold", color)}>{fmtQty(onHand)}</span>;
+      },
     },
     {
       accessorFn: (p) => Number(p.min_stock || 0),
@@ -763,7 +787,7 @@ export default function ItemViewPage() {
       header: "Notes",
       cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.notes || ""}</span>,
     },
-  ], []);
+  ], [stockByWarehouse]);
 
   /* ---- Error state ---- */
   if (err) {
@@ -877,7 +901,7 @@ export default function ItemViewPage() {
             <Warehouse className="h-4 w-4" /> Stock
           </TabsTrigger>
           <TabsTrigger value="batches" className="gap-2">
-            <Barcode className="h-4 w-4" /> Batches &amp; Logistics
+            <Truck className="h-4 w-4" /> Logistics
           </TabsTrigger>
           <TabsTrigger value="history" className="gap-2">
             <Tags className="h-4 w-4" /> History

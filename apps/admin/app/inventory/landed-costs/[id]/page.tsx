@@ -99,6 +99,15 @@ function Inner({ id }: { id: string }) {
   const totalUsd = useMemo(() => (lc ? fmtUsd(lc.total_usd) : fmtUsd(0)), [lc]);
   const totalLbp = useMemo(() => (lc ? fmtLbp(lc.total_lbp) : fmtLbp(0)), [lc]);
 
+  const lineTotals = useMemo(() => {
+    let usd = 0, lbp = 0;
+    for (const ln of lines) {
+      usd += Number(ln.amount_usd || 0);
+      lbp += Number(ln.amount_lbp || 0);
+    }
+    return { usd: fmtUsd(usd), lbp: fmtLbp(lbp) };
+  }, [lines]);
+
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -279,6 +288,13 @@ function Inner({ id }: { id: string }) {
                   enableGlobalFilter={false}
                   initialSort={{ columnId: "description", dir: "asc" }}
                 />
+                {lines.length > 0 && (
+                  <div className="mt-3 flex items-center justify-end gap-6 border-t pt-3 text-sm font-semibold">
+                    <span className="text-muted-foreground">Totals:</span>
+                    <span className="data-mono">{lineTotals.usd}</span>
+                    <span className="data-mono">{lineTotals.lbp}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

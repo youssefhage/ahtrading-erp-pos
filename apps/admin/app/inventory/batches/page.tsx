@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
-import { RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Layers, RefreshCw, ShieldAlert } from "lucide-react";
 
 import { apiGet, apiPatch } from "@/lib/api";
+import { KpiCard } from "@/components/business/kpi-card";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
 import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
@@ -40,6 +41,16 @@ type CostLayerRow = {
 
 function fmtIso(iso?: string | null) { return String(iso || "").slice(0, 10) || "-"; }
 function toNum(v: unknown) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
+const NEAR_EXPIRY_DAYS = 30;
+function isNearExpiry(expiryDate: string | null) {
+  if (!expiryDate) return false;
+  const exp = new Date(expiryDate);
+  const now = new Date();
+  const diffMs = exp.getTime() - now.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  return diffDays >= 0 && diffDays <= NEAR_EXPIRY_DAYS;
+}
 
 export default function InventoryBatchesPage() {
   const [loading, setLoading] = useState(false);
@@ -81,6 +92,20 @@ export default function InventoryBatchesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Edit batch: track which batch is being edited for context display
+  const [editBatch, setEditBatch] = useState<BatchRow | null>(null);
+
+  const summary = useMemo(() => {
+    let available = 0, quarantine = 0, expired = 0, nearExpiry = 0;
+    for (const b of rows) {
+      if (b.status === "available") available++;
+      else if (b.status === "quarantine") quarantine++;
+      else if (b.status === "expired") expired++;
+      if (isNearExpiry(b.expiry_date)) nearExpiry++;
+    }
+    return { total: rows.length, available, quarantine, expired, nearExpiry };
+  }, [rows]);
+
   const openLayers = useCallback(async (b: BatchRow) => {
     setLayersBatch(b); setLayersRows([]); setLayersOpen(true); setLayersLoading(true);
     try {
@@ -91,7 +116,7 @@ export default function InventoryBatchesPage() {
   }, []);
 
   const openEdit = useCallback((b: BatchRow) => {
-    setEditId(b.id); setEditStatus(b.status); setEditHoldReason(b.hold_reason || "");
+    setEditId(b.id); setEditBatch(b); setEditStatus(b.status); setEditHoldReason(b.hold_reason || "");
     setEditNotes(b.notes || ""); setEditOpen(true);
   }, []);
 
@@ -119,7 +144,15 @@ export default function InventoryBatchesPage() {
       ),
     },
     { accessorKey: "batch_no", header: ({ column }) => <DataTableColumnHeader column={column} title="Batch" />, cell: ({ row }) => <span className="font-mono text-xs">{row.original.batch_no || "-"}</span> },
-    { id: "expiry_date", accessorFn: (b) => b.expiry_date || "", header: ({ column }) => <DataTableColumnHeader column={column} title="Expiry" />, cell: ({ row }) => <span className="font-mono text-xs">{fmtIso(row.original.expiry_date)}</span> },
+    { id: "expiry_date", accessorFn: (b) => b.expiry_date || "", header: ({ column }) => <DataTableColumnHeader column={column} title="Expiry" />, cell: ({ row }) => {
+      const near = isNearExpiry(row.original.expiry_date);
+      return (
+        <span className={`font-mono text-xs ${near ? "text-warning font-semibold" : ""}`}>
+          {fmtIso(row.original.expiry_date)}
+          {near && <AlertTriangle className="ml-1 inline h-3 w-3 text-warning" />}
+        </span>
+      );
+    } },
     {
       id: "status", accessorFn: (b) => b.status,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -176,6 +209,13 @@ export default function InventoryBatchesPage() {
       <PageHeader title="Batch Tracking" description="Manage lot status and see receiving attribution">
         <Badge variant="outline">{rows.length} batches</Badge>
       </PageHeader>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <KpiCard title="Total Batches" value={summary.total} icon={Layers} />
+        <KpiCard title="Available" value={summary.available} icon={CheckCircle2} trend={summary.available > 0 ? "up" : "neutral"} />
+        <KpiCard title="Quarantined" value={summary.quarantine} icon={ShieldAlert} trend={summary.quarantine > 0 ? "down" : "neutral"} />
+        <KpiCard title="Expired" value={summary.expired} icon={AlertTriangle} trend={summary.expired > 0 ? "down" : "neutral"} />
+      </div>
 
       <Card>
         <CardHeader><CardTitle className="text-base">Filters</CardTitle></CardHeader>
@@ -240,7 +280,11 @@ export default function InventoryBatchesPage() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit Batch</DialogTitle>
-            <DialogDescription>Use quarantine to block allocation; expired batches are never allocated.</DialogDescription>
+            <DialogDescription>
+              {editBatch ? (
+                <span className="font-mono text-xs">{editBatch.item_sku || "-"} {"\u00b7"} {editBatch.batch_no || "(no batch #)"} {"\u00b7"} exp {fmtIso(editBatch.expiry_date)}</span>
+              ) : "Use quarantine to block allocation; expired batches are never allocated."}
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={saveEdit} className="space-y-3">
             <div className="space-y-1">

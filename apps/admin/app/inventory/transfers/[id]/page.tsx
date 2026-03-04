@@ -458,7 +458,7 @@ function Inner({ id }: { id: string }) {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <ul className="list-disc pl-5 text-muted-foreground">
-              {lastWarnings.slice(0, 12).map((w, i) => (
+              {lastWarnings.map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
             </ul>
@@ -686,7 +686,7 @@ function Inner({ id }: { id: string }) {
                             <td className="px-3 py-2">
                               {allocRows.length ? (
                                 <div className="space-y-1 text-xs">
-                                  {allocRows.slice(0, 12).map((a) => (
+                                  {allocRows.map((a) => (
                                     <div key={a.id} className="flex flex-wrap items-center gap-2">
                                       {editPickMode ? (
                                         <Input

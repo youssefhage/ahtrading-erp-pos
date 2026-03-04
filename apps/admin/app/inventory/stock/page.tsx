@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
-import { RefreshCw } from "lucide-react";
+import { AlertTriangle, Box, Layers, Package2, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
+import { KpiCard } from "@/components/business/kpi-card";
+import { SearchableSelect } from "@/components/searchable-select";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
 import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
@@ -38,16 +40,24 @@ function fmt(v: unknown) {
   return toNum(v).toLocaleString("en-US", { maximumFractionDigits: 3 });
 }
 
+type Warehouse = { id: string; name: string };
+
 export default function StockPage() {
   const [rows, setRows] = useState<StockRow[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [byBatch, setByBatch] = useState(false);
+  const [warehouseFilter, setWarehouseFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiGet<{ stock: StockRow[] }>(`/inventory/stock?by_batch=${byBatch ? "true" : "false"}`);
+      const [res, wh] = await Promise.all([
+        apiGet<{ stock: StockRow[] }>(`/inventory/stock?by_batch=${byBatch ? "true" : "false"}`),
+        apiGet<{ warehouses: Warehouse[] }>("/warehouses").catch(() => ({ warehouses: [] as Warehouse[] })),
+      ]);
       setRows(res.stock || []);
+      setWarehouses(wh.warehouses || []);
     } catch {
       setRows([]);
     } finally {
@@ -56,6 +66,24 @@ export default function StockPage() {
   }, [byBatch]);
 
   useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(
+    () => warehouseFilter ? rows.filter((r) => r.warehouse_id === warehouseFilter) : rows,
+    [rows, warehouseFilter]
+  );
+
+  const summary = useMemo(() => {
+    let totalOnHand = 0, negativeCount = 0, zeroCount = 0;
+    const itemIds = new Set<string>();
+    for (const r of filtered) {
+      itemIds.add(r.item_id);
+      const oh = toNum(r.qty_on_hand);
+      totalOnHand += oh;
+      if (oh < 0) negativeCount++;
+      else if (oh === 0) zeroCount++;
+    }
+    return { uniqueItems: itemIds.size, totalOnHand, negativeCount, zeroCount };
+  }, [filtered]);
 
   const columns = useMemo<ColumnDef<StockRow>[]>(() => {
     const cols: ColumnDef<StockRow>[] = [
@@ -149,6 +177,11 @@ export default function StockPage() {
     return cols;
   }, [byBatch]);
 
+  const whOptions = useMemo(() => [
+    { value: "", label: "All warehouses" },
+    ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+  ], [warehouses]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
@@ -156,10 +189,14 @@ export default function StockPage() {
         description="Real-time inventory levels"
         actions={
           <>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={byBatch} onChange={(e) => setByBatch(e.target.checked)} />
-              By batch
-            </label>
+            <Button
+              variant={byBatch ? "default" : "outline"}
+              size="sm"
+              onClick={() => setByBatch((v) => !v)}
+            >
+              <Layers className="mr-2 h-4 w-4" />
+              {byBatch ? "By Batch" : "Aggregated"}
+            </Button>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -168,11 +205,34 @@ export default function StockPage() {
         }
       >
         <div className="flex items-center gap-2">
-          <Badge variant="outline">{rows.length} rows</Badge>
+          <Badge variant="outline">{filtered.length} rows</Badge>
         </div>
       </PageHeader>
 
-      <DataTable columns={columns} data={rows} isLoading={loading} searchPlaceholder="Search item, SKU, warehouse..." />
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <KpiCard title="Unique Items" value={summary.uniqueItems} icon={Package2} />
+        <KpiCard title="Total On Hand" value={summary.totalOnHand.toLocaleString("en-US", { maximumFractionDigits: 0 })} icon={Box} />
+        <KpiCard title="Negative Stock" value={summary.negativeCount} icon={AlertTriangle} trend={summary.negativeCount > 0 ? "down" : "neutral"} />
+        <KpiCard title="Zero Stock" value={summary.zeroCount} trend={summary.zeroCount > 0 ? "down" : "neutral"} />
+      </div>
+
+      <DataTable
+        columns={columns}
+        data={filtered}
+        isLoading={loading}
+        searchPlaceholder="Search item, SKU, warehouse..."
+        toolbarActions={
+          <div className="w-48">
+            <SearchableSelect
+              value={warehouseFilter}
+              onChange={setWarehouseFilter}
+              placeholder="All warehouses"
+              searchPlaceholder="Search..."
+              options={whOptions}
+            />
+          </div>
+        }
+      />
     </div>
   );
 }

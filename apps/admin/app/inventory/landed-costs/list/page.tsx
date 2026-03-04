@@ -4,10 +4,11 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Plus, RefreshCw } from "lucide-react";
+import { FileCheck2, FilePenLine, Layers, Plus, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { KpiCard } from "@/components/business/kpi-card";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
 import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
@@ -39,6 +40,15 @@ function Inner() {
   const [statusFilter, setStatusFilter] = useState("");
 
   const filtered = useMemo(() => rows.filter((r) => !statusFilter || r.status === statusFilter), [rows, statusFilter]);
+
+  const summary = useMemo(() => {
+    let draft = 0, posted = 0;
+    for (const r of rows) {
+      if (r.status === "draft") draft++;
+      else if (r.status === "posted") posted++;
+    }
+    return { total: rows.length, draft, posted };
+  }, [rows]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,6 +130,12 @@ function Inner() {
       >
         <Badge variant="outline">{filtered.length} documents</Badge>
       </PageHeader>
+
+      <div className="grid grid-cols-3 gap-4">
+        <KpiCard title="Total" value={summary.total} icon={Layers} />
+        <KpiCard title="Draft" value={summary.draft} icon={FilePenLine} trend={summary.draft > 0 ? "neutral" : undefined} />
+        <KpiCard title="Posted" value={summary.posted} icon={FileCheck2} trend={summary.posted > 0 ? "up" : "neutral"} />
+      </div>
 
       <DataTable
         columns={columns}

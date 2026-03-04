@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
-import { RefreshCw } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, GitCompare, RefreshCw } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
+import { KpiCard } from "@/components/business/kpi-card";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
 import { DataTableColumnHeader } from "@/components/business/data-table/data-table-column-header";
@@ -51,7 +52,19 @@ export default function InventoryMovementsPage() {
   const [itemFilterLabel, setItemFilterLabel] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [sourceType, setSourceType] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [limit, setLimit] = useState("200");
+
+  const SOURCE_TYPES = [
+    { value: "", label: "All sources" },
+    { value: "sale", label: "Sale" },
+    { value: "pos_sale", label: "POS Sale" },
+    { value: "goods_receipt", label: "Goods Receipt" },
+    { value: "stock_transfer", label: "Stock Transfer" },
+    { value: "cycle_count", label: "Cycle Count" },
+    { value: "adjustment", label: "Adjustment" },
+  ];
 
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
@@ -62,6 +75,8 @@ export default function InventoryMovementsPage() {
       if (itemId) qs.set("item_id", itemId);
       if (warehouseId) qs.set("warehouse_id", warehouseId);
       if (sourceType.trim()) qs.set("source_type", sourceType.trim());
+      if (dateFrom) qs.set("from", dateFrom);
+      if (dateTo) qs.set("to", dateTo);
       const n = Number(limit || 200);
       qs.set("limit", Number.isFinite(n) ? String(n) : "200");
 
@@ -80,6 +95,15 @@ export default function InventoryMovementsPage() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
+
+  const summary = useMemo(() => {
+    let totalIn = 0, totalOut = 0;
+    for (const m of moves) {
+      totalIn += toNum(m.qty_in);
+      totalOut += toNum(m.qty_out);
+    }
+    return { total: moves.length, totalIn, totalOut };
+  }, [moves]);
 
   const columns = useMemo<ColumnDef<MoveRow>[]>(() => [
     {
@@ -117,13 +141,19 @@ export default function InventoryMovementsPage() {
       id: "qty_in",
       accessorFn: (m) => toNum(m.qty_in),
       header: ({ column }) => <DataTableColumnHeader column={column} title="In" />,
-      cell: ({ row }) => <span className="font-mono text-sm">{toNum(row.original.qty_in).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      cell: ({ row }) => {
+        const v = toNum(row.original.qty_in);
+        return <span className={`font-mono text-sm ${v > 0 ? "text-success" : "text-muted-foreground"}`}>{v.toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>;
+      },
     },
     {
       id: "qty_out",
       accessorFn: (m) => toNum(m.qty_out),
       header: ({ column }) => <DataTableColumnHeader column={column} title="Out" />,
-      cell: ({ row }) => <span className="font-mono text-sm">{toNum(row.original.qty_out).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      cell: ({ row }) => {
+        const v = toNum(row.original.qty_out);
+        return <span className={`font-mono text-sm ${v > 0 ? "text-destructive" : "text-muted-foreground"}`}>{v.toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>;
+      },
     },
     {
       id: "unit_cost_usd",
@@ -165,26 +195,26 @@ export default function InventoryMovementsPage() {
         <Badge variant="outline">{moves.length} moves</Badge>
       </PageHeader>
 
+      <div className="grid grid-cols-3 gap-4">
+        <KpiCard title="Total Movements" value={summary.total} icon={GitCompare} />
+        <KpiCard title="Total Qty In" value={summary.totalIn.toLocaleString("en-US", { maximumFractionDigits: 0 })} icon={ArrowDownRight} trend="up" />
+        <KpiCard title="Total Qty Out" value={summary.totalOut.toLocaleString("en-US", { maximumFractionDigits: 0 })} icon={ArrowUpRight} trend="down" />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Filters</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div className="space-y-1">
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-12">
+          <div className="md:col-span-3 space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Item</label>
             <ItemTypeahead
               placeholder={itemFilterLabel || "All items"}
               onSelect={(it: ItemTypeaheadItem) => { setItemId(it.id); setItemFilterLabel(`${it.sku} \u00b7 ${it.name}`); }}
               onClear={() => { setItemId(""); setItemFilterLabel(""); }}
             />
-            {itemId && (
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="truncate">Selected: {itemFilterLabel || itemId}</span>
-                <button type="button" className="text-primary hover:underline" onClick={() => { setItemId(""); setItemFilterLabel(""); }}>Clear</button>
-              </div>
-            )}
           </div>
-          <div className="space-y-1">
+          <div className="md:col-span-2 space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Warehouse</label>
             <SearchableSelect
               value={warehouseId}
@@ -194,11 +224,25 @@ export default function InventoryMovementsPage() {
               options={[{ value: "", label: "All warehouses" }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
             />
           </div>
-          <div className="space-y-1">
+          <div className="md:col-span-2 space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Source Type</label>
-            <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="sale / goods_receipt / cycle_count" />
+            <SearchableSelect
+              value={sourceType}
+              onChange={setSourceType}
+              placeholder="All sources"
+              searchPlaceholder="Search..."
+              options={SOURCE_TYPES}
+            />
           </div>
-          <div className="space-y-1">
+          <div className="md:col-span-2 space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">From</label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <div className="md:col-span-2 space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">To</label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+          <div className="md:col-span-1 space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Limit</label>
             <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
           </div>
