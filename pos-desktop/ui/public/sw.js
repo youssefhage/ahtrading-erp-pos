@@ -9,7 +9,7 @@
  *  - Navigation: network-first, fall back to cached index.html for offline SPA boot.
  */
 
-const CACHE_NAME = "pos-shell-v1";
+const CACHE_NAME = "pos-shell-v2";
 
 // Minimal shell assets to pre-cache on install.
 const PRECACHE_URLS = [
@@ -26,10 +26,15 @@ const PRECACHE_URLS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
-      cache.addAll(PRECACHE_URLS).catch((err) => {
-        // Non-fatal: app will cache assets at runtime on first use.
-        console.warn("[SW] precache addAll failed (non-fatal):", err);
-      })
+      // Cache each URL individually so one 404 doesn't nuke the entire
+      // precache.  index.html is the critical asset — the rest are nice-to-have.
+      Promise.all(
+        PRECACHE_URLS.map((url) =>
+          cache.add(url).catch((err) => {
+            console.warn(`[SW] precache failed for ${url} (non-fatal):`, err);
+          })
+        )
+      )
     )
   );
   // Activate immediately — don't wait for existing tabs to close.
@@ -98,8 +103,15 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
+          // Cache every navigation response so we have a fallback for any URL.
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, clone).catch(() => {});
+              // Also keep /index.html up-to-date so the fallback works.
+              cache.put(new Request("/index.html"), response.clone()).catch(() => {});
+            }).catch(() => {});
+          }
           return response;
         })
         .catch(() =>

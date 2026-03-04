@@ -495,6 +495,7 @@
   let error = "";
   let isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
   let offlineCacheFresh = false;
+  let lastSyncTime = 0;
   let _offlineNoticeTimer = null;
   const _setOfflineNotice = (msg, durationMs) => {
     if (_offlineNoticeTimer) { clearTimeout(_offlineNoticeTimer); _offlineNoticeTimer = null; }
@@ -1356,6 +1357,8 @@
     const all = [...(outbox || []), ...(unofficialOutbox || [])];
     return all.filter((ev) => _queueStatus(ev) !== "dead").length;
   })();
+  $: localOutboxTotal = (webLocalOutboxByCompany?.official?.length || 0) + (webLocalOutboxByCompany?.unofficial?.length || 0);
+  $: totalPendingEvents = queuedEventsTotal + localOutboxTotal;
   $: queuedEventsTotalIncludingDead = ((outbox || []).length + (unofficialOutbox || []).length);
   $: queueEvents = (() => {
     const withCompany = [];
@@ -1443,6 +1446,10 @@
     return false;
   };
   const ensureShiftForCompanies = (companyKeys, actionLabel = "checkout") => {
+    // Allow sales to proceed when offline even without an open shift.
+    // The sale event is queued locally with shift_id: null and synced
+    // once the employee opens a shift and connection is restored.
+    if (typeof navigator !== "undefined" && !navigator.onLine) return true;
     const unique = Array.from(new Set((companyKeys || []).map((k) => normalizeCompanyKey(k))));
     const missing = unique.filter((k) => !shiftIdForCompany(k));
     if (!missing.length) return true;
@@ -2300,15 +2307,18 @@
 
   const _isPermanentCloudError = (err) => {
     const statusCode = toNum(err?.status, 0);
-    if (statusCode >= 400 && statusCode < 500 && statusCode !== 408 && statusCode !== 429) return true;
+    // Network errors (status 0) and timeouts (408) are NEVER permanent —
+    // the event is safe in the local outbox and will be retried later.
+    if (statusCode === 0 || statusCode === 408 || statusCode === 429) return false;
+    if (statusCode >= 400 && statusCode < 500) return true;
     const msg = String(err?.message || "").trim().toLowerCase();
     if (!msg) return false;
+    // Only match specific known permanent error patterns — avoid broad
+    // terms like "invalid" or "missing" that could match network-layer messages.
     return (
       msg.includes("payment exceeds invoice total")
       || msg.includes("payments exceed invoice total")
       || msg.includes("checkout guardrail")
-      || msg.includes("missing")
-      || msg.includes("invalid")
     );
   };
 
@@ -2714,6 +2724,116 @@
       _openPrintWindowWithHtml(html);
     } catch (e) {
       console.error("[printCartVerification]", e);
+    }
+  };
+
+  // ── Offline receipt (printed from local cart data when sale queued locally) ──
+  const _printOfflineReceipt = (cartSnapshot, {
+    companyKey = "official",
+    paymentMethod = "cash",
+    customerName = "Walk-in",
+    cashier = "",
+    eventId = "",
+    totalUsd = 0,
+    totalLbp = 0,
+    subtotalUsd = 0,
+    exchangeRate = 0,
+    footerText = "",
+  } = {}) => {
+    if (!cartSnapshot || !cartSnapshot.length) return;
+    const dateStr = new Date().toLocaleString("en-US", {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+    const shortId = String(eventId || "").trim().slice(0, 12) || "-";
+
+    const metaRows = [];
+    metaRows.push(`<div class="mr"><span>Customer</span><span class="mono val">${_escapeHtml(customerName)}</span></div>`);
+    if (cashier) metaRows.push(`<div class="mr"><span>Cashier</span><span class="val">${_escapeHtml(cashier)}</span></div>`);
+    metaRows.push(`<div class="mr"><span>Payment</span><span class="mono val">${_escapeHtml(String(paymentMethod || "cash").toUpperCase())}</span></div>`);
+    if (exchangeRate > 0) metaRows.push(`<div class="mr"><span>Rate</span><span class="mono val">${_escapeHtml(_fmtMoney(exchangeRate, 0))} LBP</span></div>`);
+
+    const itemRows = cartSnapshot.map((ln) => {
+      const name = _lineNameForPrint(ln);
+      const sku = _lineSkuForPrint(ln);
+      const qty = toNum(ln?.qty_entered ?? ln?.qty, 0);
+      const qtyStr = qty.toLocaleString("en-US", { maximumFractionDigits: 3 });
+      const uom = String(ln?.uom || ln?.unit_of_measure || "").trim();
+      const uomHtml = uom ? `<span class="uom">${_escapeHtml(uom)}</span>` : "";
+      const lineTotal = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+      return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div></td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(lineTotal, 2))}</td></tr>`;
+    }).join("");
+
+    const totalRows = [];
+    totalRows.push(`<div class="tr"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(subtotalUsd || totalUsd, 2))}</span></div>`);
+    totalRows.push(`<div class="tr total-main"><span>Total USD</span><span class="mono bold">${_escapeHtml(_fmtMoney(totalUsd, 2))}</span></div>`);
+    if (totalLbp) totalRows.push(`<div class="tr total-lbp"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(totalLbp, 0))}</span></div>`);
+
+    const receiptHtml = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Offline Receipt</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;color:#000}
+    body{max-width:80mm;margin:0 auto;padding:8px 8px 16px;color:#000;font-family:"Roboto",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,"Noto Sans",sans-serif;font-size:11px;line-height:1.4;font-weight:900;-webkit-print-color-adjust:exact}
+    .mono{font-variant-numeric:tabular-nums}
+    .bold{font-weight:900}
+    header{text-align:center;margin-bottom:12px}
+    h1{font-size:16px;font-weight:900;letter-spacing:-0.025em}
+    .doc-date{margin-top:4px;font-size:10px;color:#000}
+    .offline-badge{display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid #000;font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+    .meta{color:#000;margin-bottom:12px}
+    .mr{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:1px 0}
+    .mr .val{text-align:right}
+    .sep{border-top:1px dashed #000;margin:12px 0}
+    table.items{width:100%;border-collapse:collapse}
+    table.items thead th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#000;padding:4px 0;font-weight:900}
+    table.items thead th:first-child{text-align:left}
+    table.items thead th:not(:first-child){text-align:right}
+    table.items tbody tr{border-top:1px solid #000}
+    .td-item{padding:4px 8px 4px 0;vertical-align:top}
+    .td-r{padding:4px 0;vertical-align:top;text-align:right;font-size:10px;color:#000;white-space:nowrap}
+    .iname{font-size:11px;word-break:break-word}
+    .sku{font-size:10px;color:#000}
+    .uom{margin-left:3px;color:#000}
+    .totals{color:#000}
+    .tr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0}
+    .total-main{padding-top:4px}
+    .total-main span:first-child{font-weight:900}
+    .total-lbp{color:#000}
+    .sync-note{margin-top:10px;padding:6px;border:1px dashed #000;font-size:9px;text-align:center;color:#000}
+    .custom-footer{margin-top:8px;font-size:10px;color:#000;text-align:center}
+    .doc-footer{margin-top:8px;padding-top:8px;border-top:1px solid #000;font-size:9px;color:#000}
+    @media print{@page{margin:0}body{width:100%;padding:0 4px}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sale Receipt</h1>
+    <div class="doc-date">${_escapeHtml(dateStr)}</div>
+    <div class="offline-badge">Offline</div>
+  </header>
+  <div class="meta">${metaRows.join("")}</div>
+  <div class="sep"></div>
+  <table class="items">
+    <thead><tr><th>Item</th><th>Qty</th><th>USD</th></tr></thead>
+    <tbody>${itemRows || '<tr><td colspan="3" style="padding:12px;text-align:center;">No items.</td></tr>'}</tbody>
+  </table>
+  <div class="sep"></div>
+  <section class="totals">${totalRows.join("")}</section>
+  <div class="sync-note">Saved offline. Invoice # will be assigned when synced.</div>
+  ${footerText ? `<div class="custom-footer">${_escapeHtml(footerText)}</div>` : ""}
+  <div class="doc-footer mono">Ref: ${_escapeHtml(shortId)} &middot; ${_escapeHtml(dateStr)}</div>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>{window.print();window.close();},250));</${""}script>
+</body>
+</html>`;
+
+    try {
+      _openPrintWindowWithHtml(receiptHtml);
+    } catch (e) {
+      console.warn("[POS] offline receipt print failed:", e?.message || e);
     }
   };
 
@@ -5658,6 +5778,7 @@
       status = "Ready";
       isOnline = true;
       offlineCacheFresh = false;
+      lastSyncTime = Date.now();
 
       // Persist to IndexedDB for offline use.
       cacheCompanyData(originCompanyKey, {
@@ -8551,16 +8672,21 @@
         const allOk = outcomes.every((o) => o.ok);
 
         if (allOk) {
+          const anyQueuedLocal = outcomes.some((o) => !!o.res?.queued_local);
+          // Capture cart snapshot for offline receipts BEFORE clearing.
+          const splitCartSnap = anyQueuedLocal ? [...cart] : null;
+          const splitSnapCustomerName = String(activeCustomer?.name || "Walk-in").trim();
           cart = [];
           activeCustomer = null;
           checkoutIntentId = "";
-          reportNotice("Sale complete.");
+          reportNotice(anyQueuedLocal ? "Sale saved offline — will sync when back online." : "Sale complete.");
           showSaleComplete = true;
           setTimeout(() => { showSaleComplete = false; }, 4000);
 
           // Verify each company's event was processed by the cloud.
+          // Skip verification for offline-queued sales (event hasn't reached cloud).
           for (const o of outcomes) {
-            verifySaleProcessed(o.companyKey, o.res?.event_id);
+            if (!o.res?.queued_local) verifySaleProcessed(o.companyKey, o.res?.event_id);
           }
 
           // Fire-and-forget print — never block checkout on printing.
@@ -8568,6 +8694,27 @@
           // on POS web).  printAfterSale opens its own window on-demand.
           for (const o of outcomes) {
             if (o.deferred) continue;
+            if (o.res?.queued_local) {
+              // Print offline receipt from cart snapshot so customer gets a printout.
+              if (splitCartSnap) {
+                const companyLines = splitCartSnap.filter((ln) => ln.companyKey === o.companyKey);
+                const ocfg = cfgFor(o.companyKey);
+                const cashName = normalizeCompanyKey(o.companyKey) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
+                _printOfflineReceipt(companyLines, {
+                  companyKey: o.companyKey,
+                  paymentMethod: payment_method,
+                  customerName: splitSnapCustomerName,
+                  cashier: String(cashName || "").trim(),
+                  eventId: o.res?.event_id || "",
+                  totalUsd: companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0),
+                  totalLbp: companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0),
+                  subtotalUsd: companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0),
+                  exchangeRate: toNum(ocfg?.exchange_rate, 0),
+                  footerText: String(ocfg?.receipt_footer_text || "").trim(),
+                });
+              }
+              continue;
+            }
             printAfterSale(o.companyKey, o.res?.event_id || "", null)
               .catch((err) => {
                 console.warn(`[POS] print failed (${o.companyKey}):`, err?.message || err);
@@ -8639,17 +8786,50 @@
       queueSyncPush(invoiceCompany);
 
       const deferred = !!res?.process_deferred;
+      const queuedLocal = !!res?.queued_local;
       const deferredNote = deferred ? " (invoice printing deferred — will process shortly)" : "";
-      reportNotice(`Sale queued: ${res.event_id || "ok"}${deferredNote}`);
+      const offlineNote = queuedLocal ? "Sale saved offline — will sync when back online." : "";
+      reportNotice(offlineNote || `Sale queued: ${res.event_id || "ok"}${deferredNote}`);
       showSaleComplete = true;
       setTimeout(() => { showSaleComplete = false; }, 4000);
-      verifySaleProcessed(invoiceCompany, res?.event_id);
+      // Skip invoice verification for offline-queued sales — the event hasn't
+      // reached the cloud yet so verification would always fail and show a
+      // misleading "failed to sync" banner.
+      if (!queuedLocal) verifySaleProcessed(invoiceCompany, res?.event_id);
+      // Capture cart data for offline receipt BEFORE clearing.
+      const cartSnap = queuedLocal ? [...cart] : null;
+      const snapCustomerName = queuedLocal ? String(activeCustomer?.name || "Walk-in").trim() : "";
+      const snapCashierName = queuedLocal
+        ? String((normalizeCompanyKey(invoiceCompany) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName) || "").trim()
+        : "";
+      const snapTotalUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const snapTotalLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
       fetchData();
-      if (!deferred) {
-        await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
+      // Fire-and-forget print — never block the checkout flow on printing.
+      if (!deferred && !queuedLocal) {
+        printAfterSale(invoiceCompany, res?.event_id || "", receiptWin)
+          .catch((err) => {
+            console.warn(`[POS] print failed (${invoiceCompany}):`, err?.message || err);
+            reportNotice(`Print failed — use Reprint from Shift Invoices.`);
+          });
+      } else if (queuedLocal && cartSnap) {
+        // Print offline receipt from cart snapshot so customer gets a printout.
+        try { if (receiptWin) receiptWin.close(); } catch (_) {}
+        _printOfflineReceipt(cartSnap, {
+          companyKey: invoiceCompany,
+          paymentMethod: payment_method,
+          customerName: snapCustomerName,
+          cashier: snapCashierName,
+          eventId: res?.event_id || "",
+          totalUsd: snapTotalUsd,
+          totalLbp: snapTotalLbp,
+          subtotalUsd: snapTotalUsd,
+          exchangeRate: toNum(cfg?.exchange_rate, 0),
+          footerText: String(cfg?.receipt_footer_text || "").trim(),
+        });
       } else {
         try { if (receiptWin) receiptWin.close(); } catch (_) {}
       }
@@ -9300,9 +9480,15 @@
         otherAgentUrl = "";
         otherAgentDraftUrl = "";
         _writeStorage(OTHER_AGENT_URL_STORAGE_KEY, "");
-        const probe = await _probeAgentHealth(apiBase);
-        if (!probe.localAgentLike) activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
-        else activateWebHostUnsupported("Remote web host detected. Using cloud setup mode.");
+        // Skip the health probe when the browser reports no connectivity —
+        // avoids a 1.8 s timeout delay that blocks the entire boot sequence.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          activateWebHostUnsupported("Remote web host detected (offline). Using cloud setup mode.");
+        } else {
+          const probe = await _probeAgentHealth(apiBase);
+          if (!probe.localAgentLike) activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
+          else activateWebHostUnsupported("Remote web host detected. Using cloud setup mode.");
+        }
       }
 
       await fetchData();
@@ -9537,6 +9723,7 @@
   shiftText={shiftText}
   showTabs={true}
   plainBackground={activeScreen === "pos"}
+  pendingCount={totalPendingEvents}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "h-7 px-2.5 rounded-lg text-[11px] font-bold border transition-all whitespace-nowrap"}
@@ -10159,9 +10346,19 @@
 {/if}
 
 {#if !isOnline}
-  <div class="fixed bottom-0 left-0 right-0 z-[94] px-4 py-2 bg-amber-600 text-white shadow-lg flex items-center justify-center gap-2">
+  {@const syncAgoMin = lastSyncTime ? Math.round((Date.now() - lastSyncTime) / 60000) : 0}
+  {@const syncAgoLabel = lastSyncTime
+    ? (syncAgoMin < 1 ? "just now" : syncAgoMin < 60 ? `${syncAgoMin}m ago` : `${Math.round(syncAgoMin / 60)}h ago`)
+    : ""}
+  <div class="fixed bottom-0 left-0 right-0 z-[94] px-4 py-2 bg-amber-600 text-white shadow-lg flex items-center justify-center gap-3">
     <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 11-12.728 0M12 9v4m0 4h.01" /></svg>
-    <span class="text-xs font-semibold">OFFLINE — Sales are saved locally and will sync automatically when connection is restored</span>
+    <span class="text-xs font-semibold">OFFLINE — Sales save locally and sync when connection is restored</span>
+    {#if totalPendingEvents > 0}
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">{totalPendingEvents} pending</span>
+    {/if}
+    {#if syncAgoLabel}
+      <span class="text-[10px] opacity-80">Last sync: {syncAgoLabel}</span>
+    {/if}
   </div>
 {/if}
 

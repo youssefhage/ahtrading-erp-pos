@@ -10,6 +10,7 @@
   export let shiftText = "";
   export let showTabs = false;
   export let plainBackground = false;
+  export let pendingCount = 0;
 
   const tone = (kind) => {
     if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-medium";
@@ -83,6 +84,9 @@
           <div class={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone(outboxKind)} transition-all`}>
             <span class={`h-1.5 w-1.5 rounded-full ${outboxKind === "ok" ? "bg-emerald-400" : outboxKind === "warn" ? "bg-amber-400" : "bg-red-400"}`}></span>
             <div class="text-[9px] font-bold uppercase tracking-wider whitespace-nowrap">{outboxCompactText}</div>
+            {#if pendingCount > 0}
+              <div class="flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-amber-500 text-[9px] font-bold text-white leading-none">{pendingCount > 99 ? "99+" : pendingCount}</div>
+            {/if}
           </div>
         </div>
 
