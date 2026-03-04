@@ -89,14 +89,16 @@
   const vatAmountItem = (v, it) => Math.max(0, toNum(v, 0)) * itemVatRate(it);
   const priceTotal = (it) => withVatItem(priceBase(it), it);
 
-  // Price adjusted for selected UOM (detail panel only)
-  $: displayQtyFactor = (() => {
-    if (!selected) return 1;
-    const opts = uomOptionsFor(selected) || [];
-    if (!opts.length) return 1;
-    const idx = Math.max(0, Math.min(opts.length - 1, uomIdx));
-    return toNum(opts[idx]?.qty_factor, 1) || 1;
+  // UOM options for the selected item (reactive so Svelte tracks uomIdx dependency)
+  $: uomOpts = selected ? (uomOptionsFor(selected) || []) : [];
+  $: uomCount = uomOpts.length;
+  $: displayUomOpt = (() => {
+    if (!selected) return null;
+    if (!uomCount) return { uom: selected.unit_of_measure || "pcs", qty_factor: 1 };
+    const idx = Math.max(0, Math.min(uomCount - 1, uomIdx));
+    return uomOpts[idx];
   })();
+  $: displayQtyFactor = toNum(displayUomOpt?.qty_factor, 1) || 1;
   $: dPrice = selected ? priceBase(selected) * displayQtyFactor : 0;
   $: dCost = selected ? costBase(selected) * displayQtyFactor : 0;
   $: selectedVatRate = selected ? itemVatRate(selected) : globalVatRateNorm;
@@ -267,29 +269,15 @@
     if (e.key === "Tab") return;
   };
 
-  const selectedUomOpt = () => {
-    const it = selected;
-    if (!it) return null;
-    const opts = uomOptionsFor(it) || [];
-    if (!opts.length) return { uom: it.unit_of_measure || "pcs", qty_factor: 1, label: it.unit_of_measure || "pcs" };
-    const idx = Math.max(0, Math.min(opts.length - 1, uomIdx));
-    return opts[idx];
-  };
-
   const cycleUom = (dir = 1) => {
-    const it = selected;
-    if (!it) return;
-    const opts = uomOptionsFor(it) || [];
-    if (opts.length <= 1) return;
-    const next = (uomIdx + dir + opts.length) % opts.length;
-    uomIdx = next;
+    if (!selected || uomCount <= 1) return;
+    uomIdx = (uomIdx + dir + uomCount) % uomCount;
   };
 
   const addSelectedToCart = () => {
     if (!selected) return;
-    const opt = selectedUomOpt();
-    const qty_factor = toNum(opt?.qty_factor, 1) || 1;
-    const uom = String(opt?.uom || selected.unit_of_measure || "pcs");
+    const qty_factor = toNum(displayUomOpt?.qty_factor, 1) || 1;
+    const uom = String(displayUomOpt?.uom || selected.unit_of_measure || "pcs");
     addToCart(selected, { companyKey: selected.companyKey, qty_factor, uom });
   };
 
@@ -496,14 +484,14 @@
         <div class="flex items-center gap-2 mt-4">
           <button
             type="button"
-            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-surface-highlight/40 hover:bg-surface-highlight/60 text-ink transition-colors flex items-center justify-between group/uom-btn"
+            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-surface-highlight/40 hover:bg-surface-highlight/60 text-ink transition-colors flex items-center justify-between group/uom-btn disabled:opacity-40 disabled:cursor-not-allowed"
             on:click={() => cycleUom(1)}
-            title="Cycle UOM"
+            disabled={uomCount <= 1}
+            title={uomCount > 1 ? "Cycle UOM" : "Only one unit available"}
           >
             <span class="text-muted group-hover/uom-btn:text-ink transition-colors">Unit</span>
-            {#if selectedUomOpt()}
-              {@const opt = selectedUomOpt()}
-              <span class="text-accent">{opt.uom}{toNum(opt.qty_factor, 1) !== 1 ? ` x${toNum(opt.qty_factor, 1)}` : ""}</span>
+            {#if displayUomOpt}
+              <span class="text-accent">{displayUomOpt.uom}{toNum(displayUomOpt.qty_factor, 1) !== 1 ? ` x${toNum(displayUomOpt.qty_factor, 1)}` : ""}</span>
             {:else}
               <span>Default</span>
             {/if}
