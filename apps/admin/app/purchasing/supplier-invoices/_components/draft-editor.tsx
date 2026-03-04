@@ -113,6 +113,9 @@ function toNum(v: string) {
   return r.ok ? r.value : 0;
 }
 
+function roundUsd(v: number) { return Math.round((v || 0) * 10000) / 10000; }
+function roundLbp(v: number) { return Math.round((v || 0) * 100) / 100; }
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -260,8 +263,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           const uom = String((l as any).uom || (l as any).unit_of_measure || "").trim() || null;
           const unitUsdBase = Number(l.unit_cost_usd || 0);
           const unitLbpBase = Number(l.unit_cost_lbp || 0);
-          const unitUsdEntered = Number((l as any).unit_cost_entered_usd ?? unitUsdBase * qtyFactor);
-          const unitLbpEntered = Number((l as any).unit_cost_entered_lbp ?? unitLbpBase * qtyFactor);
+          const unitUsdEntered = Number((l as any).unit_cost_entered_usd ?? roundUsd(unitUsdBase * qtyFactor));
+          const unitLbpEntered = Number((l as any).unit_cost_entered_lbp ?? roundLbp(unitLbpBase * qtyFactor));
           return {
             item_id: l.item_id,
             item_sku: (l as any).item_sku || null,
@@ -603,8 +606,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     let unitLbp = toNum(addLbp);
     const ex = toNum(exchangeRate);
     if (ex > 0) {
-      if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
-      if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
+      if (unitUsd === 0 && unitLbp > 0) unitUsd = roundUsd(unitLbp / ex);
+      if (unitLbp === 0 && unitUsd > 0) unitLbp = roundLbp(unitUsd * ex);
     }
     if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LBP unit cost.");
     const uom = String(addUom || (addItem as any).unit_of_measure || "").trim().toUpperCase() || null;

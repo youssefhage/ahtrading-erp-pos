@@ -202,6 +202,15 @@ DEFAULT_CONFIG = {
 }
 
 
+def _q_usd_f(v):
+    """Round float to 4dp (matches DB numeric(18,4) for USD)."""
+    return round(float(v or 0), 4)
+
+def _q_lbp_f(v):
+    """Round float to 2dp (matches DB numeric(18,2) for LBP)."""
+    return round(float(v or 0), 2)
+
+
 def _round_usd(value) -> float:
     try:
         return max(0.0, round(float(value or 0.0) + 1e-9, 2))
@@ -2777,12 +2786,12 @@ def _compute_totals(
             # Legacy fallback: if the default VAT code exists but isn't in the map, keep single-rate behavior.
             if rate == 0.0 and vat_rate and tcid and default_tax_code_id and str(tcid) == str(default_tax_code_id):
                 rate = float(vat_rate or 0)
-            tax_lbp += line_lbp * rate
+            tax_lbp += _q_lbp_f(line_lbp * rate)
 
     if not has_vat_codes:
-        tax_lbp = base_lbp * float(vat_rate or 0)
+        tax_lbp = _q_lbp_f(base_lbp * float(vat_rate or 0))
 
-    tax_usd = (tax_lbp / exchange_rate) if exchange_rate else 0.0
+    tax_usd = _q_usd_f(tax_lbp / exchange_rate) if exchange_rate else 0.0
     return {
         "base_usd": base_usd,
         "base_lbp": base_lbp,
@@ -3655,12 +3664,12 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         applied_promotion_id = item.get("applied_promotion_id") or None
         applied_promotion_item_id = item.get("applied_promotion_item_id") or None
 
-        line_total_usd = unit_price_usd * qty
-        line_total_lbp = unit_price_lbp * qty
+        line_total_usd = _q_usd_f(unit_price_usd * qty)
+        line_total_lbp = _q_lbp_f(unit_price_lbp * qty)
         if line_total_lbp == 0 and exchange_rate:
-            line_total_lbp = line_total_usd * exchange_rate
+            line_total_lbp = _q_lbp_f(line_total_usd * exchange_rate)
         if line_total_usd == 0 and exchange_rate:
-            line_total_usd = line_total_lbp / exchange_rate
+            line_total_usd = _q_usd_f(line_total_lbp / exchange_rate)
         base_usd += line_total_usd
         base_lbp += line_total_lbp
         lines.append({
@@ -3672,8 +3681,8 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
             'qty_entered': qty_entered,
             'unit_price_usd': unit_price_usd,
             'unit_price_lbp': unit_price_lbp,
-            'unit_price_entered_usd': unit_price_usd * qty_factor,
-            'unit_price_entered_lbp': unit_price_lbp * qty_factor,
+            'unit_price_entered_usd': _q_usd_f(unit_price_usd * qty_factor),
+            'unit_price_entered_lbp': _q_lbp_f(unit_price_lbp * qty_factor),
             'pre_discount_unit_price_usd': pre_usd,
             'pre_discount_unit_price_lbp': pre_lbp,
             'discount_pct': disc_pct,
@@ -3715,8 +3724,8 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
             rate = float(vat_codes.get(str(tcid), 0) or 0) if has_vat_codes else vat_rate
             if rate == 0.0 and vat_rate and str(tcid) == str(default_tax_code_id):
                 rate = vat_rate
-            t_lbp = float(b["base_lbp"] or 0) * rate
-            t_usd = (t_lbp / exchange_rate) if exchange_rate else 0.0
+            t_lbp = _q_lbp_f(float(b["base_lbp"] or 0) * rate)
+            t_usd = _q_usd_f(t_lbp / exchange_rate) if exchange_rate else 0.0
             tax_breakdown.append(
                 {
                     "tax_code_id": tcid,
@@ -3799,12 +3808,12 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
         applied_promotion_id = item.get("applied_promotion_id") or None
         applied_promotion_item_id = item.get("applied_promotion_item_id") or None
 
-        line_total_usd = unit_price_usd * qty
-        line_total_lbp = unit_price_lbp * qty
+        line_total_usd = _q_usd_f(unit_price_usd * qty)
+        line_total_lbp = _q_lbp_f(unit_price_lbp * qty)
         if line_total_lbp == 0 and exchange_rate:
-            line_total_lbp = line_total_usd * exchange_rate
+            line_total_lbp = _q_lbp_f(line_total_usd * exchange_rate)
         if line_total_usd == 0 and exchange_rate:
-            line_total_usd = line_total_lbp / exchange_rate
+            line_total_usd = _q_usd_f(line_total_lbp / exchange_rate)
         base_usd += line_total_usd
         base_lbp += line_total_lbp
         lines.append({
@@ -3816,8 +3825,8 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
             'qty_entered': qty_entered,
             'unit_price_usd': unit_price_usd,
             'unit_price_lbp': unit_price_lbp,
-            'unit_price_entered_usd': unit_price_usd * qty_factor,
-            'unit_price_entered_lbp': unit_price_lbp * qty_factor,
+            'unit_price_entered_usd': _q_usd_f(unit_price_usd * qty_factor),
+            'unit_price_entered_lbp': _q_lbp_f(unit_price_lbp * qty_factor),
             'pre_discount_unit_price_usd': pre_usd,
             'pre_discount_unit_price_lbp': pre_lbp,
             'discount_pct': disc_pct,
@@ -3858,8 +3867,8 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
             rate = float(vat_codes.get(str(tcid), 0) or 0) if has_vat_codes else vat_rate
             if rate == 0.0 and vat_rate and str(tcid) == str(default_tax_code_id):
                 rate = vat_rate
-            t_lbp = float(b["base_lbp"] or 0) * rate
-            t_usd = (t_lbp / exchange_rate) if exchange_rate else 0.0
+            t_lbp = _q_lbp_f(float(b["base_lbp"] or 0) * rate)
+            t_usd = _q_usd_f(t_lbp / exchange_rate) if exchange_rate else 0.0
             tax_breakdown.append(
                 {
                     "tax_code_id": tcid,

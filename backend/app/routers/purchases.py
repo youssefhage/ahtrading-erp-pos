@@ -222,10 +222,6 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
     cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, doc_type))
     return cur.fetchone()["doc_no"]
 
-def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    """Local wrapper delegating to shared normalize_dual_amounts."""
-    return normalize_dual_amounts(usd, lbp, exchange_rate)
-
 
 def _compute_costed_lines(lines_in, exchange_rate: Decimal):
     # Normalize USD/LBP unit costs using exchange rate and compute line totals.
@@ -237,9 +233,9 @@ def _compute_costed_lines(lines_in, exchange_rate: Decimal):
         qty = Decimal(str(getattr(ln, 'qty', 0) or 0))
         unit_usd = Decimal(str(getattr(ln, 'unit_cost_usd', 0) or 0))
         unit_lbp = Decimal(str(getattr(ln, 'unit_cost_lbp', 0) or 0))
-        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, exchange_rate)
-        line_total_usd = qty * unit_usd
-        line_total_lbp = qty * unit_lbp
+        unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, exchange_rate)
+        line_total_usd = q_usd(qty * unit_usd)
+        line_total_lbp = q_lbp(qty * unit_lbp)
         base_usd += line_total_usd
         base_lbp += line_total_lbp
         out.append(
@@ -304,23 +300,23 @@ def _normalize_supplier_invoice_draft_lines(cur, company_id: str, lines_in, exch
                 unit_usd = Decimal(str(getattr(l, "unit_cost_entered_usd", 0) or 0)) / qty_factor
             if getattr(l, "unit_cost_entered_lbp", None) is not None:
                 unit_lbp = Decimal(str(getattr(l, "unit_cost_entered_lbp", 0) or 0)) / qty_factor
-        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+        unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
         if unit_usd == 0 and unit_lbp == 0:
             raise HTTPException(status_code=400, detail=f"item {idx+1}: unit cost is required")
 
         unit_entered_usd = (
             Decimal(str(getattr(l, "unit_cost_entered_usd", 0) or 0))
             if getattr(l, "unit_cost_entered_usd", None) is not None
-            else (unit_usd * qty_factor)
+            else q_usd(unit_usd * qty_factor)
         )
         unit_entered_lbp = (
             Decimal(str(getattr(l, "unit_cost_entered_lbp", 0) or 0))
             if getattr(l, "unit_cost_entered_lbp", None) is not None
-            else (unit_lbp * qty_factor)
+            else q_lbp(unit_lbp * qty_factor)
         )
 
-        line_total_usd = qty_base * unit_usd
-        line_total_lbp = qty_base * unit_lbp
+        line_total_usd = q_usd(qty_base * unit_usd)
+        line_total_lbp = q_lbp(qty_base * unit_lbp)
         base_usd += line_total_usd
         base_lbp += line_total_lbp
 
@@ -1267,9 +1263,9 @@ def apply_supplier_invoice_import_lines(
                     qty = Decimal(str(l.get("qty") or 0))
                     unit_usd = Decimal(str(l.get("unit_cost_usd") or 0))
                     unit_lbp = Decimal(str(l.get("unit_cost_lbp") or 0))
-                    unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
-                    line_total_usd = qty * unit_usd
-                    line_total_lbp = qty * unit_lbp
+                    unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
+                    line_total_usd = q_usd(qty * unit_usd)
+                    line_total_lbp = q_lbp(qty * unit_lbp)
                     base_usd += line_total_usd
                     base_lbp += line_total_lbp
 
@@ -2415,9 +2411,9 @@ def create_goods_receipt_draft_from_order(
                         continue
                     unit_usd = Decimal(str(ln["unit_cost_usd"] or 0))
                     unit_lbp = Decimal(str(ln["unit_cost_lbp"] or 0))
-                    unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
-                    line_total_usd = remaining_qty * unit_usd
-                    line_total_lbp = remaining_qty * unit_lbp
+                    unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
+                    line_total_usd = q_usd(remaining_qty * unit_usd)
+                    line_total_lbp = q_lbp(remaining_qty * unit_lbp)
                     total_usd += line_total_usd
                     total_lbp += line_total_lbp
                     receipt_lines.append(
@@ -3450,9 +3446,9 @@ def create_supplier_invoice_draft_from_receipt(
                         continue
                     unit_usd = Decimal(str(ln["unit_cost_usd"] or 0))
                     unit_lbp = Decimal(str(ln["unit_cost_lbp"] or 0))
-                    unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
-                    line_total_usd = remaining_qty * unit_usd
-                    line_total_lbp = remaining_qty * unit_lbp
+                    unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
+                    line_total_usd = q_usd(remaining_qty * unit_usd)
+                    line_total_lbp = q_lbp(remaining_qty * unit_lbp)
                     base_usd += line_total_usd
                     base_lbp += line_total_lbp
                     inv_lines.append(
@@ -3604,8 +3600,8 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                         raise HTTPException(status_code=400, detail="invalid tax_code_id")
                     tax_rate = Decimal(str(r["rate"] or 0))
 
-                tax_lbp = base_lbp * tax_rate
-                tax_usd = (tax_lbp / exchange_rate) if exchange_rate else Decimal("0")
+                tax_lbp = q_lbp(base_lbp * tax_rate)
+                tax_usd = q_usd(tax_lbp / exchange_rate) if exchange_rate else Decimal("0")
                 total_usd = base_usd + tax_usd
                 total_lbp = base_lbp + tax_lbp
 
@@ -4302,8 +4298,8 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                 exchange_rate = Decimal(str(inv['exchange_rate'] or 0))
                 if exchange_rate <= 0:
                     raise HTTPException(status_code=400, detail="exchange_rate is required")
-                tax_lbp = base_lbp * tax_rate
-                tax_usd = (tax_lbp / exchange_rate) if exchange_rate else Decimal('0')
+                tax_lbp = q_lbp(base_lbp * tax_rate)
+                tax_usd = q_usd(tax_lbp / exchange_rate) if exchange_rate else Decimal('0')
                 total_usd = base_usd + tax_usd
                 total_lbp = base_lbp + tax_lbp
 
@@ -4394,7 +4390,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     method = (p.method or 'bank').strip().lower()
                     amount_usd = Decimal(str(p.amount_usd or 0))
                     amount_lbp = Decimal(str(p.amount_lbp or 0))
-                    amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+                    amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
                     if amount_usd == 0 and amount_lbp == 0:
                         continue
                     assert_not_overpaid(
@@ -4763,7 +4759,7 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
 
     tax_usd = Decimal(str(data.tax.tax_usd)) if data.tax else Decimal("0")
     tax_lbp = Decimal(str(data.tax.tax_lbp)) if data.tax else Decimal("0")
-    tax_usd, tax_lbp = _normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
+    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
 
@@ -4933,7 +4929,7 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                     method = (p.method or "bank").strip().lower()
                     amount_usd = Decimal(str(p.amount_usd or 0))
                     amount_lbp = Decimal(str(p.amount_lbp or 0))
-                    amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+                    amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
                     if amount_usd == 0 and amount_lbp == 0:
                         continue
                     assert_not_overpaid(
@@ -5069,7 +5065,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 # Fill the missing currency for better UX and consistent balances.
                 if exchange_rate <= 0 and ((amount_usd == 0 and amount_lbp != 0) or (amount_lbp == 0 and amount_usd != 0)):
                     raise HTTPException(status_code=400, detail="exchange_rate is required to pay in a single currency")
-                amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+                amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
                 if amount_usd == 0 and amount_lbp == 0:
                     raise HTTPException(status_code=400, detail="amount is required")
 

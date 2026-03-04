@@ -1509,15 +1509,15 @@
   const cartLineAmounts = (line) => {
     const companyKey = line?.companyKey === "unofficial" ? "unofficial" : "official";
     const qty = Math.max(0, toNum(line?.qty, 0));
-    const baseUsd = toNum(line?.price_usd, 0) * qty;
-    const rawBaseLbp = toNum(line?.price_lbp, 0) * qty;
+    const baseUsd = roundUsd(toNum(line?.price_usd, 0) * qty);
+    const rawBaseLbp = roundLbp(toNum(line?.price_lbp, 0) * qty);
     const cfg = cfgForCompanyKey(companyKey) || {};
     const fallbackEx = toNum(cfg?.exchange_rate, toNum(config?.exchange_rate, 0));
-    const baseLbp = rawBaseLbp === 0 && fallbackEx > 0 ? baseUsd * fallbackEx : rawBaseLbp;
+    const baseLbp = rawBaseLbp === 0 && fallbackEx > 0 ? roundLbp(baseUsd * fallbackEx) : rawBaseLbp;
     const vatRate = vatRateForLine(line);
     // LBP-first: matches _buildSalePayloadWeb and backend tax computation
-    const taxLbp = baseLbp * vatRate;
-    const taxUsd = fallbackEx > 0 ? taxLbp / fallbackEx : baseUsd * vatRate;
+    const taxLbp = roundLbp(baseLbp * vatRate);
+    const taxUsd = fallbackEx > 0 ? roundUsd(taxLbp / fallbackEx) : roundUsd(baseUsd * vatRate);
     return { companyKey, baseUsd, baseLbp, taxUsd, taxLbp };
   };
 

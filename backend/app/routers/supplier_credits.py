@@ -9,7 +9,7 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
-from ..journal_utils import q_usd, q_lbp, auto_balance_journal, assert_journal_balanced
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
 from ..validation import RateType
 
 router = APIRouter(prefix="/purchases/credits", tags=["purchases"])
@@ -48,14 +48,6 @@ def _default_exchange_rate(cur, company_id: str) -> Decimal:
             pass
     return Decimal("89500")
 
-
-def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    if exchange_rate and exchange_rate != 0:
-        if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
-        elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
-    return usd, lbp
 
 
 class CreditLineIn(BaseModel):
@@ -228,7 +220,7 @@ def create_supplier_credit_draft(data: CreditDraftIn, company_id: str = Depends(
                 total_usd = Decimal("0")
                 total_lbp = Decimal("0")
                 for ln in data.lines:
-                    usd, lbp = _normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
+                    usd, lbp = normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
                     total_usd += usd
                     total_lbp += lbp
 
@@ -278,7 +270,7 @@ def create_supplier_credit_draft(data: CreditDraftIn, company_id: str = Depends(
                 )
                 cid = cur.fetchone()["id"]
                 for idx, ln in enumerate(data.lines, start=1):
-                    usd, lbp = _normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
+                    usd, lbp = normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
                     usd = q_usd(usd)
                     lbp = q_lbp(lbp)
                     if usd == 0 and lbp == 0:
@@ -390,7 +382,7 @@ def update_supplier_credit_draft(credit_id: str, data: CreditDraftUpdateIn, comp
                     total_usd = Decimal("0")
                     total_lbp = Decimal("0")
                     for idx, ln in enumerate(lines, start=1):
-                        usd, lbp = _normalize_dual_amounts(Decimal(str(ln.get("amount_usd") or 0)), Decimal(str(ln.get("amount_lbp") or 0)), ex)
+                        usd, lbp = normalize_dual_amounts(Decimal(str(ln.get("amount_usd") or 0)), Decimal(str(ln.get("amount_lbp") or 0)), ex)
                         usd = q_usd(usd)
                         lbp = q_lbp(lbp)
                         if usd == 0 and lbp == 0:
@@ -577,8 +569,8 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                         for l in gr_lines:
                             qty = Decimal(str(l.get("qty") or 0))
                             total_qty += qty
-                            base_usd += qty * Decimal(str(l.get("unit_cost_usd") or 0))
-                            base_lbp += qty * Decimal(str(l.get("unit_cost_lbp") or 0))
+                            base_usd += q_usd(qty * Decimal(str(l.get("unit_cost_usd") or 0)))
+                            base_lbp += q_lbp(qty * Decimal(str(l.get("unit_cost_lbp") or 0)))
 
                         denom_usd = base_usd if base_usd > 0 else (total_qty if total_qty > 0 else Decimal("1"))
                         denom_lbp = base_lbp if base_lbp > 0 else (total_qty if total_qty > 0 else Decimal("1"))
@@ -1158,7 +1150,7 @@ def apply_credit_to_invoice(credit_id: str, data: ApplyIn, company_id: str = Dep
                 ex = Decimal(str(cr.get("exchange_rate") or 0))
                 if ex <= 0:
                     ex = _default_exchange_rate(cur, company_id)
-                usd, lbp = _normalize_dual_amounts(usd_in, lbp_in, ex)
+                usd, lbp = normalize_dual_amounts(usd_in, lbp_in, ex)
                 usd = q_usd(usd)
                 lbp = q_lbp(lbp)
                 if usd <= 0 and lbp <= 0:

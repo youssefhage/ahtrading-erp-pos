@@ -18,6 +18,9 @@
   let cashSecondary = "";
   let primaryInputEl;
 
+  const roundUsd = (v) => Math.round((Number(v) || 0) * 10000) / 10000;
+  const roundLbp = (v) => Math.round((Number(v) || 0) * 100) / 100;
+
   // ── Currency helpers ───────────────────────────────────────────────
   $: isLbp = (currency || "").toUpperCase() === "LBP";
   $: hasDual = !!(exchangeRate > 0);
@@ -66,8 +69,8 @@
   $: sEquiv = (() => {
     if (!hasDual || sNum <= 0 || exchangeRate <= 0) return 0;
     return isLbp
-      ? sNum * exchangeRate    // secondary is USD → multiply to get LBP
-      : sNum / exchangeRate;   // secondary is LBP → divide to get USD
+      ? roundLbp(sNum * exchangeRate)    // secondary is USD → multiply to get LBP
+      : roundUsd(sNum / exchangeRate);   // secondary is LBP → divide to get USD
   })();
 
   $: totalPaid = pNum + sEquiv;
@@ -79,8 +82,8 @@
   $: creditRemainderSecondary = (() => {
     if (!hasDual || exchangeRate <= 0 || creditRemainder <= 0) return 0;
     return isLbp
-      ? creditRemainder / exchangeRate
-      : creditRemainder * exchangeRate;
+      ? roundUsd(creditRemainder / exchangeRate)
+      : roundLbp(creditRemainder * exchangeRate);
   })();
   $: sufficient = view !== "cash" || totalPaid >= tTotal || isPartialCredit;
 
@@ -88,8 +91,8 @@
   $: changeDueSecondary = (() => {
     if (!hasDual || exchangeRate <= 0 || changeDue <= 0) return 0;
     return isLbp
-      ? changeDue / exchangeRate   // primary LBP → change in USD
-      : changeDue * exchangeRate;  // primary USD → change in LBP
+      ? roundUsd(changeDue / exchangeRate)   // primary LBP → change in USD
+      : roundLbp(changeDue * exchangeRate);  // primary USD → change in LBP
   })();
 
   // ── Focus primary input when entering cash view ───────────────────
@@ -144,8 +147,8 @@
     if (!hasDual || exchangeRate <= 0) return;
     cashPrimary = "";
     cashSecondary = isLbp
-      ? String((tTotal / exchangeRate).toFixed(2))
-      : String(Math.round(tTotal * exchangeRate));
+      ? String(roundUsd(tTotal / exchangeRate).toFixed(2))
+      : String(Math.round(roundLbp(tTotal * exchangeRate)));
   }
 
   function handleKeydown(e) {

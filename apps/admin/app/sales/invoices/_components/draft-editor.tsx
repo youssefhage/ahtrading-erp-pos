@@ -650,8 +650,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         if (ex > 0) {
           const usd = toNum(out.pre_unit_price_usd);
           const lbp = toNum(out.pre_unit_price_lbp);
-          if (patch.pre_unit_price_usd !== undefined && usd > 0 && lbp === 0) out.pre_unit_price_lbp = String(usd * ex);
-          if (patch.pre_unit_price_lbp !== undefined && lbp > 0 && usd === 0) out.pre_unit_price_usd = String(lbp / ex);
+          if (patch.pre_unit_price_usd !== undefined && usd > 0 && lbp === 0) out.pre_unit_price_lbp = String(roundLbp(usd * ex));
+          if (patch.pre_unit_price_lbp !== undefined && lbp > 0 && usd === 0) out.pre_unit_price_usd = String(roundUsd(lbp / ex));
         }
         if (patch.discount_pct !== undefined) out.discount_pct = String(clampPct(toNum(out.discount_pct)));
         return out;
@@ -1099,8 +1099,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                           const issues = lineIssues(l);
 	                        const r = resolveLine(l, ex);
                           const vat = vatMetaFor(l.tax_code_id);
-                          const lineVatLbp = r.totalLbp * vat.rate;
-                          const lineVatUsd = ex > 0 ? lineVatLbp / ex : r.totalUsd * vat.rate;
+                          const lineVatLbp = roundLbp(r.totalLbp * vat.rate);
+                          const lineVatUsd = ex > 0 ? roundUsd(lineVatLbp / ex) : roundUsd(r.totalUsd * vat.rate);
                           const lineInclUsd = r.totalUsd + lineVatUsd;
                           const lineInclLbp = r.totalLbp + lineVatLbp;
 	                        const convs = uomConvByItem[l.item_id] || [];

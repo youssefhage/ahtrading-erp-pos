@@ -1905,16 +1905,16 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         )
 
         qty = Decimal(str(l.get("qty", 0)))
-        total_cost_usd += qty * unit_cost_usd
-        total_cost_lbp += qty * unit_cost_lbp
+        total_cost_usd += q_usd(qty * unit_cost_usd)
+        total_cost_lbp += q_lbp(qty * unit_cost_lbp)
 
         # Persist return line items for operational UI.
         qty = Decimal(str(l.get("qty", 0)))
         unit_price_usd = Decimal("0")
         unit_price_lbp = Decimal("0")
         if qty:
-            unit_price_usd = Decimal(str(l.get("line_total_usd", 0))) / qty
-            unit_price_lbp = Decimal(str(l.get("line_total_lbp", 0))) / qty
+            unit_price_usd = q_usd(Decimal(str(l.get("line_total_usd", 0))) / qty)
+            unit_price_lbp = q_lbp(Decimal(str(l.get("line_total_lbp", 0))) / qty)
         line_reason_id = l.get("reason_id") or None
         try:
             if line_reason_id:
@@ -1935,10 +1935,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             base_uom_by_item=base_uom_by_item,
             factors_by_item=factors_by_item,
         )
-        unit_price_entered_usd = unit_price_usd * qty_factor
-        unit_price_entered_lbp = unit_price_lbp * qty_factor
-        unit_cost_entered_usd = unit_cost_usd * qty_factor
-        unit_cost_entered_lbp = unit_cost_lbp * qty_factor
+        unit_price_entered_usd = q_usd(unit_price_usd * qty_factor)
+        unit_price_entered_lbp = q_lbp(unit_price_lbp * qty_factor)
+        unit_cost_entered_usd = q_usd(unit_cost_usd * qty_factor)
+        unit_cost_entered_lbp = q_lbp(unit_cost_lbp * qty_factor)
         cur.execute(
             """
             INSERT INTO sales_return_lines

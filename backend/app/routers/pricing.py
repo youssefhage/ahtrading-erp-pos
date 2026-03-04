@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from datetime import date
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Literal, Any
 
 import json
@@ -33,11 +33,11 @@ def _get_company_setting_json(cur, company_id: str, key: str) -> dict:
             return {}
     return {}
 
-def _round_up(value: Decimal, step: Decimal) -> Decimal:
+def _round_to_step(value: Decimal, step: Decimal) -> Decimal:
     if step <= 0:
         return value
     try:
-        q = (value / step).to_integral_value(rounding=ROUND_CEILING)
+        q = (value / step).to_integral_value(rounding=ROUND_HALF_UP)
         return q * step
     except Exception:
         return value
@@ -468,9 +468,9 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
 
         d_usd = base_usd * mult
         d_lbp = base_lbp * mult
-        d_usd = _round_up(d_usd, usd_step)
+        d_usd = _round_to_step(d_usd, usd_step)
         if lbp_step and lbp_step > 0:
-            d_lbp = _round_up(d_lbp, lbp_step)
+            d_lbp = _round_to_step(d_lbp, lbp_step)
 
         # Margin guard (USD only for now; LBP follows same multiplier/rounding).
         if min_margin is not None and min_margin > 0:
@@ -497,13 +497,13 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
                         else:
                             # Markup: raise to meet min margin.
                             target = cost_usd / (Decimal("1") - min_margin)
-                            d_usd = _round_up(target, usd_step)
+                            d_usd = _round_to_step(target, usd_step)
                             # LBP: keep same ratio if base LBP exists.
                             if base_usd > 0 and base_lbp > 0:
                                 ratio = base_lbp / base_usd
                                 d_lbp = d_usd * ratio
                                 if lbp_step and lbp_step > 0:
-                                    d_lbp = _round_up(d_lbp, lbp_step)
+                                    d_lbp = _round_to_step(d_lbp, lbp_step)
                             blocked_by_margin += 1
 
         cur.execute(
@@ -908,9 +908,9 @@ def suggested_price(
             suggested_lbp = None
             if tm < 1:
                 if cost_usd > 0:
-                    suggested_usd = _round_up(cost_usd / (Decimal("1") - tm), usd_step)
+                    suggested_usd = _round_to_step(cost_usd / (Decimal("1") - tm), usd_step)
                 if cost_lbp > 0:
-                    suggested_lbp = _round_up(cost_lbp / (Decimal("1") - tm), lbp_step)
+                    suggested_lbp = _round_to_step(cost_lbp / (Decimal("1") - tm), lbp_step)
 
             # Context: last cost change (helps explain why).
             cur.execute(

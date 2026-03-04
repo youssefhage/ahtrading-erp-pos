@@ -11,6 +11,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts
 from ..ai.policy import is_external_ai_allowed
 from ..ai.providers import get_ai_provider_config
 from ..ai.purchase_invoice_import import (
@@ -67,14 +68,6 @@ def _default_exchange_rate(cur, company_id: str) -> Decimal:
     return Decimal("90000")
 
 
-def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    # Backward compatibility for clients sending only one currency.
-    if exchange_rate and exchange_rate != 0:
-        if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
-        elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
-    return usd, lbp
 
 
 def _fetch_item_uom(cur, company_id: str, item_id: str) -> Optional[str]:
@@ -358,7 +351,7 @@ def apply_extracted_purchase_invoice_to_draft(
 
         unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
         unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
-        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+        unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
         line_total_usd = qty * unit_usd
         line_total_lbp = qty * unit_lbp
 
@@ -794,7 +787,7 @@ def build_supplier_invoice_import_review_lines(
 
         unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
         unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
-        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+        unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, ex)
 
         supplier_item_code = (ln.get("supplier_item_code") or "").strip() or None
         supplier_item_name = (ln.get("supplier_item_name") or "").strip() or None

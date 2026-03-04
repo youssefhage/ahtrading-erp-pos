@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 import argparse
 import json
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import psycopg
 from psycopg.rows import dict_row
 
 DB_URL_DEFAULT = 'postgresql://localhost/ahtrading'
 MAX_ATTEMPTS_DEFAULT = 5
 EXECUTABLE_AGENT_CODES = {"AI_PURCHASE", "AI_DEMAND", "AI_PRICING"}
+
+
+USD_Q = Decimal("0.0001")
+LBP_Q = Decimal("0.01")
+
+def q_usd(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(USD_Q, rounding=ROUND_HALF_UP)
+
+def q_lbp(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(LBP_Q, rounding=ROUND_HALF_UP)
 
 
 def is_executable_agent(agent_code: str) -> bool:
@@ -113,11 +123,11 @@ def execute_purchase_action(cur, company_id: str, action_id: str, payload: dict)
         return existing["id"]
 
     rate = latest_rate(cur, company_id)
-    unit_cost_usd = amount_usd / qty if qty else Decimal("0")
-    unit_cost_lbp = unit_cost_usd * rate
+    unit_cost_usd = q_usd(amount_usd / qty) if qty else Decimal("0")
+    unit_cost_lbp = q_lbp(unit_cost_usd * rate)
 
-    total_usd = unit_cost_usd * qty
-    total_lbp = unit_cost_lbp * qty
+    total_usd = q_usd(unit_cost_usd * qty)
+    total_lbp = q_lbp(unit_cost_lbp * qty)
 
     cur.execute(
         """

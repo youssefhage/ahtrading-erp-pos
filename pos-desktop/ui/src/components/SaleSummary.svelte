@@ -32,6 +32,8 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
+  const roundUsd = (v) => Math.round((Number(v) || 0) * 10000) / 10000;
+
   const companyLabel = (k) => (k === "unofficial" ? "UN" : "OF");
   const cartCompaniesSet = (lines) => new Set((lines || []).map((ln) => ln?.companyKey).filter(Boolean));
 
@@ -63,10 +65,10 @@
     let taxUsd = 0;
     for (const ln of cart || []) {
       const qty = Math.max(0, toNum(ln?.qty, 0));
-      const baseUsd = toNum(ln?.price_usd, 0) * qty;
+      const baseUsd = roundUsd(toNum(ln?.price_usd, 0) * qty);
       const vatRate = Math.max(0, toNum(vatRateForLine ? vatRateForLine(ln) : 0, 0));
       subtotalUsd += baseUsd;
-      taxUsd += baseUsd * vatRate;
+      taxUsd += roundUsd(baseUsd * vatRate);
     }
     return { subtotalUsd, taxUsd, totalUsd: subtotalUsd + taxUsd };
   })();

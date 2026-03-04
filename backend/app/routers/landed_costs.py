@@ -7,6 +7,7 @@ import json
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts
 
 router = APIRouter(prefix="/inventory/landed-costs", tags=["inventory"])
 
@@ -15,14 +16,6 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
     cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, doc_type))
     return cur.fetchone()["doc_no"]
 
-
-def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    if exchange_rate and exchange_rate != 0:
-        if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
-        elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
-    return usd, lbp
 
 
 class LandedCostLineIn(BaseModel):
@@ -97,7 +90,7 @@ def create_landed_cost_draft(data: LandedCostDraftIn, company_id: str = Depends(
     total_usd = Decimal("0")
     total_lbp = Decimal("0")
     for ln in data.lines:
-        usd, lbp = _normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
+        usd, lbp = normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
         total_usd += usd
         total_lbp += lbp
 
@@ -123,7 +116,7 @@ def create_landed_cost_draft(data: LandedCostDraftIn, company_id: str = Depends(
                 doc_id = cur.fetchone()["id"]
 
                 for ln in data.lines:
-                    usd, lbp = _normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
+                    usd, lbp = normalize_dual_amounts(Decimal(str(ln.amount_usd or 0)), Decimal(str(ln.amount_lbp or 0)), ex)
                     cur.execute(
                         """
                         INSERT INTO landed_cost_lines (id, company_id, landed_cost_id, description, amount_usd, amount_lbp)
@@ -206,8 +199,8 @@ def post_landed_cost(landed_cost_id: str, company_id: str = Depends(get_company_
                 base_lbp = Decimal("0")
                 for l in gr_lines:
                     qty = Decimal(str(l.get("qty") or 0))
-                    base_usd += qty * Decimal(str(l.get("unit_cost_usd") or 0))
-                    base_lbp += qty * Decimal(str(l.get("unit_cost_lbp") or 0))
+                    base_usd += q_usd(qty * Decimal(str(l.get("unit_cost_usd") or 0)))
+                    base_lbp += q_lbp(qty * Decimal(str(l.get("unit_cost_lbp") or 0)))
                 total_usd = Decimal(str(doc.get("total_usd") or 0))
                 total_lbp = Decimal(str(doc.get("total_lbp") or 0))
 
@@ -220,13 +213,13 @@ def post_landed_cost(landed_cost_id: str, company_id: str = Depends(get_company_
                     qty = Decimal(str(l.get("qty") or 0))
                     if qty <= 0:
                         continue
-                    w_usd = (qty * Decimal(str(l.get("unit_cost_usd") or 0))) if base_usd > 0 else qty
-                    w_lbp = (qty * Decimal(str(l.get("unit_cost_lbp") or 0))) if base_lbp > 0 else qty
+                    w_usd = q_usd(qty * Decimal(str(l.get("unit_cost_usd") or 0))) if base_usd > 0 else qty
+                    w_lbp = q_lbp(qty * Decimal(str(l.get("unit_cost_lbp") or 0))) if base_lbp > 0 else qty
                     denom_usd = base_usd if base_usd > 0 else Decimal(str(sum(Decimal(str(x.get("qty") or 0)) for x in gr_lines) or 0) or 1)
                     denom_lbp = base_lbp if base_lbp > 0 else Decimal(str(sum(Decimal(str(x.get("qty") or 0)) for x in gr_lines) or 0) or 1)
 
-                    alloc_usd = (total_usd * (w_usd / denom_usd)) if total_usd != 0 else Decimal("0")
-                    alloc_lbp = (total_lbp * (w_lbp / denom_lbp)) if total_lbp != 0 else Decimal("0")
+                    alloc_usd = q_usd(total_usd * (w_usd / denom_usd)) if total_usd != 0 else Decimal("0")
+                    alloc_lbp = q_lbp(total_lbp * (w_lbp / denom_lbp)) if total_lbp != 0 else Decimal("0")
 
                     # Keep GRN lines in sync for UI/reporting (v1).
                     cur.execute(

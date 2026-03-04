@@ -10,7 +10,7 @@ from ..deps import get_company_id, get_current_user, require_permission
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..validation import RateType
-from ..journal_utils import q_usd, q_lbp, assert_journal_balanced, _get_rounding_account
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, assert_journal_balanced, _get_rounding_account
 
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
@@ -158,14 +158,6 @@ def _ensure_opening_item(cur, company_id: str) -> str:
     )
     return cur.fetchone()["id"]
 
-
-def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
-    if exchange_rate and exchange_rate != 0:
-        if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
-        elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
-    return usd, lbp
 
 
 class OpeningArRowIn(BaseModel):
@@ -1367,7 +1359,7 @@ def import_opening_ar(
 
                     amount_usd = Decimal(str(r.amount_usd or 0))
                     amount_lbp = Decimal(str(r.amount_lbp or 0))
-                    amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, rate)
+                    amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, rate)
                     if amount_usd <= 0 and amount_lbp <= 0:
                         raise HTTPException(status_code=400, detail=f"row {idx+1}: amount is required and must be > 0")
 
@@ -1585,7 +1577,7 @@ def import_opening_ap(
 
                     amount_usd = Decimal(str(r.amount_usd or 0))
                     amount_lbp = Decimal(str(r.amount_lbp or 0))
-                    amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, rate)
+                    amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, rate)
                     if amount_usd <= 0 and amount_lbp <= 0:
                         raise HTTPException(status_code=400, detail=f"row {idx+1}: amount is required and must be > 0")
 
