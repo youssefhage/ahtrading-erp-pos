@@ -5658,9 +5658,12 @@
             restoredFromCache = true;
             offlineCacheFresh = true;
             const ageMinutes = cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 60000) : 0;
+            const ageHours = Math.floor(ageMinutes / 60);
+            const ageLabel = ageHours >= 1 ? `${ageHours}h` : ageMinutes > 0 ? `${ageMinutes}m` : "";
             status = "Ready";
             error = "";
-            _setOfflineNotice(`Offline mode — using cached data${ageMinutes > 0 ? ` (${ageMinutes}m old)` : ""}. Sales will sync when back online.`, 8000);
+            const staleWarning = ageHours >= 6 ? " Exchange rates may be outdated." : "";
+            _setOfflineNotice(`Offline mode — using cached data${ageLabel ? ` (${ageLabel} old)` : ""}.${staleWarning} Sales will sync when back online.`, staleWarning ? 15000 : 8000);
           }
           // Also try unofficial company cache.
           const cachedU = await loadCachedCompanyData(otherCompanyKey);
@@ -9119,6 +9122,10 @@
       if (_customerRemoteTimer) {
         clearTimeout(_customerRemoteTimer);
         _customerRemoteTimer = null;
+      }
+      if (_offlineNoticeTimer) {
+        clearTimeout(_offlineNoticeTimer);
+        _offlineNoticeTimer = null;
       }
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("resize", onWindowResize);

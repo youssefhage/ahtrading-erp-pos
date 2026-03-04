@@ -99,7 +99,7 @@ self.addEventListener("fetch", (event) => {
       fetch(event.request)
         .then((response) => {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
           return response;
         })
         .catch(() =>
@@ -129,7 +129,7 @@ self.addEventListener("fetch", (event) => {
           fetch(event.request).then((response) => {
             if (response.ok && response.type === "basic") {
               const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
             }
             return response;
           }).catch(() => new Response("", { status: 503, statusText: "Offline" }))
@@ -146,7 +146,7 @@ self.addEventListener("fetch", (event) => {
         const networkFetch = fetch(event.request).then((response) => {
           if (response.ok && response.type === "basic") {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
           }
           return response;
         }).catch(() => {
