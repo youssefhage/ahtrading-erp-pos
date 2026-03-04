@@ -124,6 +124,7 @@ export function clearSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(storageKeys.companyId);
   window.localStorage.removeItem(storageKeys.companies);
+  window.localStorage.removeItem("ahtrading.companyName");
   try { window.sessionStorage.removeItem(storageKeys.companyId); } catch { /* ignore */ }
 }
 

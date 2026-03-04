@@ -36,7 +36,6 @@ export default function CompanySelectPage() {
     try { window.sessionStorage.setItem("ahtrading.companyId", id); } catch { /* ignore */ }
     const match = companies.find((c) => c.id === id);
     if (match) {
-      window.localStorage.setItem("ahtrading.companyName", match.name);
       try { window.localStorage.setItem(`ahtrading.companyName.${id}`, match.name); } catch {}
     }
     applyCompanyMetadata(id);
