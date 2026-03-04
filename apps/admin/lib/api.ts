@@ -131,6 +131,10 @@ function headers(extra?: Record<string, string>, requestId?: string) {
   const rid = requestId || nextRequestId();
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (rid) h["X-Request-Id"] = rid;
+  // Send the tab-scoped company so each tab talks to the correct company
+  // even when another tab has switched the server session.
+  const cid = getCompanyId();
+  if (cid) h["X-Company-Id"] = cid;
   return { ...h, ...(extra || {}) };
 }
 
@@ -138,6 +142,8 @@ function headersForm(extra?: Record<string, string>, requestId?: string) {
   const rid = requestId || nextRequestId();
   const h: Record<string, string> = {};
   if (rid) h["X-Request-Id"] = rid;
+  const cid = getCompanyId();
+  if (cid) h["X-Company-Id"] = cid;
   return { ...h, ...(extra || {}) };
 }
 

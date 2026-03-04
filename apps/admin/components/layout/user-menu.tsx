@@ -21,20 +21,25 @@ export function UserMenu() {
   const [companyName, setCompanyName] = useState<string>("");
 
   useEffect(() => {
-    // Try cached name first, then resolve from API
-    const cached = window.localStorage.getItem("ahtrading.companyName");
-    if (cached) {
-      setCompanyName(cached);
-      return;
-    }
     const id = getCompanyId();
     if (!id) return;
+    // Try company-scoped cached name first, then resolve from API
+    const cached = window.localStorage.getItem(`ahtrading.companyName.${id}`)
+      || window.localStorage.getItem("ahtrading.companyName");
+    if (cached) {
+      setCompanyName(cached);
+      // Migrate to scoped key if needed
+      if (!window.localStorage.getItem(`ahtrading.companyName.${id}`)) {
+        try { window.localStorage.setItem(`ahtrading.companyName.${id}`, cached); } catch {}
+      }
+      return;
+    }
     apiGet<{ companies: Array<{ id: string; name: string }> }>("/companies")
       .then((res) => {
         const match = res.companies?.find((c) => c.id === id);
         if (match) {
           setCompanyName(match.name);
-          window.localStorage.setItem("ahtrading.companyName", match.name);
+          try { window.localStorage.setItem(`ahtrading.companyName.${id}`, match.name); } catch {}
         }
       })
       .catch(() => {});
