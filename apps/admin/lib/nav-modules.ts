@@ -197,7 +197,6 @@ export const NAV_MODULES: NavModule[] = [
         label: "Products",
         items: [
           { label: "Items", href: "/catalog/items/list", icon: Package },
-          { label: "Products", href: "/catalog/products", icon: Layers },
           { label: "Categories", href: "/catalog/item-categories", icon: Tag },
         ],
       },
