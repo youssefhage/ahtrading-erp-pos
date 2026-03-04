@@ -495,6 +495,17 @@
   let error = "";
   let isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
   let offlineCacheFresh = false;
+  let _offlineNoticeTimer = null;
+  const _setOfflineNotice = (msg, durationMs) => {
+    if (_offlineNoticeTimer) { clearTimeout(_offlineNoticeTimer); _offlineNoticeTimer = null; }
+    notice = msg;
+    if (durationMs > 0) {
+      _offlineNoticeTimer = setTimeout(() => {
+        if (notice === msg) notice = "";
+        _offlineNoticeTimer = null;
+      }, durationMs);
+    }
+  };
   let pendingCheckoutMethod = "";
   let pendingCheckoutCashTendered = 0;
   let pendingManagerAction = null;
@@ -5627,7 +5638,10 @@
     } catch(e) {
       console.warn("API Error", e);
       const isNetworkError = _isFetchNetworkError(e) || toNum(e?.status, 0) === 0;
-      if (isNetworkError) isOnline = false;
+      // Only mark offline if the browser also reports offline — avoids race
+      // where the "online" event fires mid-fetch and fetchData's catch
+      // incorrectly overrides the online state.
+      if (isNetworkError && !(typeof navigator !== "undefined" && navigator.onLine)) isOnline = false;
 
       // Try loading from IndexedDB offline cache before falling back to mocks.
       let restoredFromCache = false;
@@ -5646,8 +5660,7 @@
             const ageMinutes = cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 60000) : 0;
             status = "Ready";
             error = "";
-            notice = `Offline mode — using cached data${ageMinutes > 0 ? ` (${ageMinutes}m old)` : ""}. Sales will sync when back online.`;
-            setTimeout(() => { if (notice.startsWith("Offline mode")) notice = ""; }, 8000);
+            _setOfflineNotice(`Offline mode — using cached data${ageMinutes > 0 ? ` (${ageMinutes}m old)` : ""}. Sales will sync when back online.`, 8000);
           }
           // Also try unofficial company cache.
           const cachedU = await loadCachedCompanyData(otherCompanyKey);
@@ -8953,15 +8966,13 @@
     const onOnline = () => {
       isOnline = true;
       offlineCacheFresh = false;
-      notice = "Back online — syncing...";
-      setTimeout(() => { if (notice === "Back online — syncing...") notice = ""; }, 4000);
+      _setOfflineNotice("Back online — syncing...", 4000);
       fetchData({ background: true });
       schedulePush(1500);
     };
     const onOffline = () => {
       isOnline = false;
-      notice = "Network offline — using cached data. Sales will sync when back online.";
-      setTimeout(() => { if (notice.startsWith("Network offline")) notice = ""; }, 6000);
+      _setOfflineNotice("Network offline — using cached data. Sales will sync when back online.", 6000);
     };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);

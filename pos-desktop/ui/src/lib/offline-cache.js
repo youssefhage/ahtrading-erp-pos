@@ -17,8 +17,17 @@ const STORE_NAMES = ["config", "items", "barcodes", "customers", "cashiers", "pr
 let _dbPromise = null;
 
 /**
+ * Reset the cached DB promise so the next call to openDB() reconnects.
+ * Called when the connection is closed or invalidated.
+ */
+function resetDB() {
+  _dbPromise = null;
+}
+
+/**
  * Open (or create) the IndexedDB database.
  * Returns a cached promise so only one connection is made.
+ * Automatically reconnects if the connection is closed or invalidated.
  */
 function openDB() {
   if (_dbPromise) return _dbPromise;
@@ -36,10 +45,26 @@ function openDB() {
         }
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // If another tab upgrades the DB or the browser deletes storage,
+      // the connection becomes stale. Reset so we reconnect next time.
+      db.onversionchange = () => {
+        db.close();
+        resetDB();
+      };
+      db.onclose = () => {
+        resetDB();
+      };
+      resolve(db);
+    };
     request.onerror = () => {
-      _dbPromise = null;
+      resetDB();
       reject(request.error);
+    };
+    request.onblocked = () => {
+      resetDB();
+      reject(new Error("IndexedDB open blocked by another connection"));
     };
   });
   return _dbPromise;
@@ -77,6 +102,10 @@ export async function cacheCompanyData(companyKey, data) {
       tx.onabort = () => reject(tx.error || new Error("Transaction aborted"));
     });
   } catch (e) {
+    // If the connection went stale (e.g. DB deleted), reset for next attempt.
+    if (e?.name === "InvalidStateError" || e?.name === "TransactionInactiveError") {
+      resetDB();
+    }
     console.warn("[POS] offline cache write failed:", e?.message || e);
   }
 }
@@ -123,6 +152,9 @@ export async function loadCachedCompanyData(companyKey) {
       cachedAt: meta?.cachedAt || 0,
     };
   } catch (e) {
+    if (e?.name === "InvalidStateError" || e?.name === "TransactionInactiveError") {
+      resetDB();
+    }
     console.warn("[POS] offline cache read failed:", e?.message || e);
     return null;
   }

@@ -2,18 +2,16 @@
  * Service Worker for AH Trading POS — offline support.
  *
  * Strategy:
- *  - Static assets (JS, CSS, HTML, images): cache-first with runtime caching.
- *  - API calls: network-only, never cached by the SW (the app handles data
- *    caching in IndexedDB itself).
- *  - On install, pre-cache the app shell (index.html + icons).
- *  - On fetch failure for navigation requests, serve cached index.html so the
- *    SPA can boot offline.
+ *  - Hashed assets (Vite JS/CSS with content hashes): cache-first (immutable).
+ *  - Non-hashed assets (icons, manifest): stale-while-revalidate so updates
+ *    propagate without manual cache busting.
+ *  - API calls: network-only, never cached (app uses IndexedDB for data).
+ *  - Navigation: network-first, fall back to cached index.html for offline SPA boot.
  */
 
 const CACHE_NAME = "pos-shell-v1";
 
 // Minimal shell assets to pre-cache on install.
-// Vite-built JS/CSS filenames contain hashes and are cached at runtime.
 const PRECACHE_URLS = [
   "/",
   "/index.html",
@@ -65,13 +63,20 @@ self.addEventListener("activate", (event) => {
  */
 const isApiRequest = (url) => {
   const path = url.pathname || "";
-  // Match /api or /api/... (but not e.g. /apple-touch-icon.png)
   if (path === "/api" || path.startsWith("/api/")) return true;
-  // Cloud POS endpoints
   if (path.startsWith("/pos/")) return true;
-  // Agent receipt pages
   if (path.startsWith("/receipt")) return true;
   return false;
+};
+
+/**
+ * Vite-built JS/CSS files contain content hashes (e.g. index-Bb9miT77.js).
+ * These are immutable — the filename changes when the content changes.
+ * Safe for permanent cache-first.
+ */
+const isHashedAsset = (url) => {
+  const path = url.pathname || "";
+  return /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css)$/i.test(path);
 };
 
 const isStaticAsset = (url) => {
@@ -93,7 +98,6 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          // Cache the latest version of the page.
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
@@ -116,24 +120,45 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // For static assets, use cache-first strategy.
-  if (isStaticAsset(url)) {
+  // Hashed assets (Vite bundles): cache-first — immutable filenames.
+  if (isHashedAsset(url)) {
     event.respondWith(
       caches.match(event.request).then(
         (cached) =>
           cached ||
           fetch(event.request).then((response) => {
-            // Only cache successful same-origin responses.
             if (response.ok && response.type === "basic") {
               const clone = response.clone();
               caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
             }
             return response;
-          }).catch(() => {
-            // Both cache and network failed.
-            return new Response("", { status: 503, statusText: "Offline" });
-          })
+          }).catch(() => new Response("", { status: 503, statusText: "Offline" }))
       )
+    );
+    return;
+  }
+
+  // Non-hashed static assets (icons, manifest, fonts): stale-while-revalidate
+  // so cached version is served immediately but updated in the background.
+  if (isStaticAsset(url)) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        const networkFetch = fetch(event.request).then((response) => {
+          if (response.ok && response.type === "basic") {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        }).catch(() => {
+          // Network failed; if we had a cached version, it was already returned.
+          // If not, return offline response.
+          if (!cached) return new Response("", { status: 503, statusText: "Offline" });
+          // Cached was already returned — this fetch result is discarded.
+          return cached;
+        });
+        // Return cached immediately if available, otherwise wait for network.
+        return cached || networkFetch;
+      })
     );
     return;
   }
