@@ -14,6 +14,7 @@
   export let priceLists = [];
   export let selectedPriceListId = "";
   export let onPriceListChange = (id) => {};
+  export let priceListUpdating = false;
   export let saleMode = "sale";
   export let checkoutBlocked = false;
   export let checkoutBlockedReason = "";
@@ -95,6 +96,12 @@
 <section class="glass-panel rounded-2xl p-2.5 h-full min-h-0 flex flex-col relative">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-2xl"></div>
 
+  {#if priceListUpdating}
+    <div class="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden rounded-t-2xl">
+      <div class="h-full bg-accent/80 price-list-progress"></div>
+    </div>
+  {/if}
+
   <!-- Collapsible settings row -->
   <div class="relative z-10 shrink-0">
     <button
@@ -106,7 +113,15 @@
         <div class={`w-1.5 h-1.5 rounded-full shrink-0 ${routeHint ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`}></div>
         <span class="text-[10px] font-bold text-ink uppercase tracking-wider truncate">{routeLabel}</span>
         {#if selectedPriceListName}
-          <span class="text-[9px] text-accent font-bold uppercase">{selectedPriceListName}</span>
+          <span class="text-[9px] text-accent font-bold uppercase flex items-center gap-1">
+            {selectedPriceListName}
+            {#if priceListUpdating}
+              <svg class="w-2.5 h-2.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.3"/>
+                <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+            {/if}
+          </span>
         {/if}
         <span class="text-[9px] text-muted font-medium">VAT: {modeLabel}</span>
       </div>
@@ -260,3 +275,14 @@
     {/if}
   </div>
 </section>
+
+<style>
+  @keyframes progress-bar {
+    0% { width: 0%; margin-left: 0; }
+    50% { width: 60%; margin-left: 20%; }
+    100% { width: 0%; margin-left: 100%; }
+  }
+  .price-list-progress {
+    animation: progress-bar 1.2s ease-in-out infinite;
+  }
+</style>

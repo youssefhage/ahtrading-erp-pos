@@ -633,6 +633,7 @@
   let priceLists = []; // [{ id, code, name, is_default }]  (origin company, for dropdown)
   let companyPriceListsMap = {}; // { companyKey: [{ id, code, name, is_default }] }
   let selectedPriceListId = ""; // currently active price list (origin company ID)
+  let priceListUpdating = false; // true while re-fetching catalog after price list switch
 
   // Layout
   let catalogCollapsed = true;
@@ -6454,7 +6455,12 @@
     try { localStorage.setItem("pos.selectedPriceListId", id); } catch (_) {}
     // Invalidate catalog cache and re-fetch to pick up new prices.
     webCatalogCache.clear();
-    await fetchData({ background: false });
+    priceListUpdating = true;
+    try {
+      await fetchData({ background: false });
+    } finally {
+      priceListUpdating = false;
+    }
   };
 
   const onShowPriceDisplayControlsChange = (value) => {
@@ -10166,6 +10172,7 @@
           printVerification={printCartVerification}
           companyLabelForLine={companyLabel}
           companyToneForLine={companyTone}
+          priceListUpdating={priceListUpdating}
         />
       </div>
 
@@ -10200,6 +10207,7 @@
             priceLists={priceLists}
             selectedPriceListId={selectedPriceListId}
             onPriceListChange={onPriceListChange}
+            priceListUpdating={priceListUpdating}
             saleMode={saleMode}
             checkoutBlocked={checkoutBlocked}
             checkoutBlockedReason={checkoutBlockReason}

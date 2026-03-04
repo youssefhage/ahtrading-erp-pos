@@ -16,6 +16,7 @@
   export let printVerification = () => {};
   export let companyLabelForLine = (line) => "";
   export let companyToneForLine = (line) => "";
+  export let priceListUpdating = false;
 
   const toNum = (value, fallback = 0) => {
     const parsed = Number(value);
@@ -193,6 +194,12 @@
 
 <section class="glass-panel rounded-2xl flex flex-col h-full w-full overflow-hidden relative group/panel">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none"></div>
+
+  {#if priceListUpdating}
+    <div class="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden rounded-t-2xl">
+      <div class="h-full bg-accent/80 animate-progress-bar"></div>
+    </div>
+  {/if}
 
   <header class="relative px-2.5 py-1.5 border-b border-white/5 flex items-center justify-between shrink-0 z-10">
     <div class="flex items-center gap-2">
@@ -485,6 +492,15 @@
     .cart-line-amount {
       font-size: 1.06rem;
     }
+  }
+
+  @keyframes progress-bar {
+    0% { width: 0%; margin-left: 0; }
+    50% { width: 60%; margin-left: 20%; }
+    100% { width: 0%; margin-left: 100%; }
+  }
+  .animate-progress-bar {
+    animation: progress-bar 1.2s ease-in-out infinite;
   }
 
   @media (max-width: 1200px) {
