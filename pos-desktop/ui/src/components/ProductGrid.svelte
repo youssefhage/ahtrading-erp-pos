@@ -339,10 +339,10 @@
 
                 <div class="text-right leading-none">
                   <div class="font-bold text-sm text-ink num-readable tracking-tight">
-                    {fmtMoney(afterVatPrice(item), currencyPrimary)}
+                    {fmtMoney(afterVatPrice(item) * (toNum(sel?.qty_factor, 1) || 1), currencyPrimary)}
                   </div>
                   <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
-                    {fmtMoney(basePrice(item), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
+                    {fmtMoney(basePrice(item) * (toNum(sel?.qty_factor, 1) || 1), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
                   </div>
                 </div>
 
