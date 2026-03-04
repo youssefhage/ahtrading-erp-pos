@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { getCompanyId } from "@/lib/api";
+import { applyCompanyMetadata } from "@/lib/constants";
 
 const PUBLIC_PREFIXES = ["/login", "/company/select"];
 const PUBLIC_PREFIXES_EXTRA = ["/lite", "/full", "/light", "/dark"];
@@ -23,6 +26,13 @@ function isPublicPath(pathname: string) {
 
 export function ClientShellLayout(props: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
+
+  // Re-apply company metadata (title, favicon, accent) after hydration and
+  // on every client-side navigation so Next.js never overrides them.
+  useEffect(() => {
+    const cid = getCompanyId();
+    if (cid) applyCompanyMetadata(cid);
+  }, [pathname]);
 
   if (isPublicPath(pathname)) return props.children;
   return <AppShell>{props.children}</AppShell>;

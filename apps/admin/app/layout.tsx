@@ -21,6 +21,9 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   description: "Modern ERP admin portal",
+  // Suppress Next.js auto-generated favicon/icon tags so our dynamic
+  // company-based favicon (set by COMPANY_INIT_SCRIPT) is not overridden.
+  icons: { icon: [] },
 };
 
 // Admin portal requires auth — skip static generation for all pages.
@@ -50,7 +53,7 @@ document.title=u?"Codex Admin - Unofficial":"Codex Admin - Official";
 var s=document.createElement("link");s.rel="icon";s.type="image/svg+xml";
 var col=u?"#e11d48":"#0d9488";
 s.href="data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="'+col+'"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="18" font-family="sans-serif" font-weight="bold">A</text></svg>');
-var ex=document.querySelector('link[rel="icon"]');if(ex)ex.remove();document.head.appendChild(s)
+document.querySelectorAll('link[rel="icon"],link[rel="shortcut icon"]').forEach(function(el){el.remove()});document.head.appendChild(s)
 }catch(e){}})()`;
 
 
