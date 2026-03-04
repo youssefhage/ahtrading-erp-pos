@@ -1884,6 +1884,7 @@ class PosItemPriceOverrideIn(BaseModel):
     price_lbp: Decimal
     effective_from: date
     effective_to: Optional[date] = None
+    price_list_id: Optional[str] = None
 
 
 @router.post("/items/{item_id}/prices")
@@ -1894,6 +1895,12 @@ def pos_add_item_price(
 ):
     """
     POS manager price override: insert a new effective price for an item.
+
+    When ``price_list_id`` is provided the new price is written into
+    ``price_list_items`` (the primary price resolution table) using the same
+    upsert logic as the admin pricing endpoint, and dependent derivations are
+    automatically triggered.  When no price list is active, the price falls
+    back to the legacy ``item_prices`` table.
     """
     company_id = device["company_id"]
     with get_conn() as conn:
@@ -1907,26 +1914,80 @@ def pos_add_item_price(
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="item not found")
 
-                cur.execute(
-                    """
-                    INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, 'pos_override', gen_random_uuid())
-                    RETURNING id
-                    """,
-                    (item_id, data.price_usd, data.price_lbp, data.effective_from, data.effective_to),
-                )
-                price_id = cur.fetchone()["id"]
+                if data.price_list_id:
+                    # ── Price-list path: write to price_list_items ──
+                    cur.execute(
+                        "SELECT 1 FROM price_lists WHERE company_id = %s AND id = %s",
+                        (company_id, data.price_list_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail="invalid price_list_id")
+
+                    cur.execute(
+                        """
+                        INSERT INTO price_list_items
+                          (id, company_id, price_list_id, item_id, price_usd, price_lbp, effective_from, effective_to)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (company_id, price_list_id, item_id, effective_from) DO UPDATE
+                        SET price_usd = EXCLUDED.price_usd,
+                            price_lbp = EXCLUDED.price_lbp,
+                            effective_to = EXCLUDED.effective_to
+                        RETURNING id
+                        """,
+                        (
+                            company_id,
+                            data.price_list_id,
+                            item_id,
+                            data.price_usd,
+                            data.price_lbp,
+                            data.effective_from,
+                            data.effective_to,
+                        ),
+                    )
+                    price_id = cur.fetchone()["id"]
+
+                    # Auto-propagate derivations (same as admin pricing endpoint)
+                    from .pricing import _trigger_dependent_derivations
+                    _trigger_dependent_derivations(
+                        cur, company_id, data.price_list_id,
+                        data.effective_from,
+                        str(device.get("device_id", "")),
+                    )
+
+                    audit_action = "price_list_item_add_pos"
+                    entity_type = "price_list_item"
+                else:
+                    # ── Fallback path: no price list active, write to item_prices ──
+                    cur.execute(
+                        """
+                        INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, 'pos_override', gen_random_uuid())
+                        RETURNING id
+                        """,
+                        (item_id, data.price_usd, data.price_lbp, data.effective_from, data.effective_to),
+                    )
+                    price_id = cur.fetchone()["id"]
+                    audit_action = "item_price_added_pos"
+                    entity_type = "item"
 
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                    VALUES (gen_random_uuid(), %s, %s, 'item_price_added_pos', 'item', %s, %s::jsonb)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s::jsonb)
                     """,
                     (
                         company_id,
                         str(device.get("device_id", "")),
+                        audit_action,
+                        entity_type,
                         item_id,
-                        json.dumps({"item_price_id": str(price_id), "source": "pos_price_override", **{k: str(v) for k, v in data.model_dump().items()}}, default=str),
+                        json.dumps({
+                            "price_id": str(price_id),
+                            "source": "pos_price_override",
+                            "price_list_id": data.price_list_id,
+                            **{k: str(v) for k, v in data.model_dump().items() if k != "price_list_id"},
+                        }, default=str),
                     ),
                 )
                 return {"id": str(price_id)}
