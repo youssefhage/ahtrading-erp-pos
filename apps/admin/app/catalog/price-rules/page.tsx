@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, X, ChevronDown, Trash2 } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Play, Zap, Pencil, X, ChevronDown, Trash2, Check, Search } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiGet, apiPatch, apiPost, apiDelete } from "@/lib/api";
@@ -41,8 +41,17 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { SearchableSelect, type SearchableSelectOption } from "@/components/searchable-select";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -96,6 +105,21 @@ function pctNum(v: string | number | null | undefined) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Convert a fraction (0.05) to a display percentage string ("5") */
+function fracToDisplay(fraction: number | string): string {
+  const n = Number(fraction || 0);
+  if (!Number.isFinite(n)) return "0";
+  const pct = n * 100;
+  // Trim trailing zeros: 5.00 → "5", 5.50 → "5.5"
+  return pct % 1 === 0 ? String(pct) : pct.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/** Convert a display percentage ("5") to a fraction (0.05) */
+function displayToFrac(display: string): number {
+  const n = Number(display || 0);
+  return Number.isFinite(n) ? n / 100 : 0;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Category Overrides                                                        */
 /* -------------------------------------------------------------------------- */
@@ -111,13 +135,14 @@ function CategoryOverrides({
   value: Override[];
   onChange: (v: Override[]) => void;
 }) {
+  const [catPopoverOpen, setCatPopoverOpen] = useState(false);
   const usedIds = new Set(value.map((o) => o.category_id));
   const available = categories.filter((c) => c.is_active && !usedIds.has(c.id));
   const catMap = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
-  function addRow() {
-    if (available.length === 0) return;
-    onChange([...value, { category_id: available[0].id, mode: "exempt", pct: 0 }]);
+  function addCategory(catId: string) {
+    onChange([...value, { category_id: catId, mode: "exempt", pct: 0 }]);
+    setCatPopoverOpen(false);
   }
 
   function updateRow(idx: number, patch: Partial<Override>) {
@@ -130,48 +155,67 @@ function CategoryOverrides({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
+      {value.length === 0 && (
+        <p className="py-3 text-center text-xs text-muted-foreground italic">No category overrides.</p>
+      )}
       {value.map((ov, idx) => (
-        <div key={idx} className="flex items-center gap-2">
-          {/* Category picker */}
-          <Select value={ov.category_id} onValueChange={(v) => updateRow(idx, { category_id: v })}>
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Category" /></SelectTrigger>
-            <SelectContent>
-              {categories.filter((c) => c.is_active && (c.id === ov.category_id || !usedIds.has(c.id))).map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/* Mode */}
+        <div key={idx} className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <Badge variant="outline" className="shrink-0 font-medium">
+            {catMap.get(ov.category_id) || ov.category_id.slice(0, 8)}
+          </Badge>
           <Select value={ov.mode} onValueChange={(v) => updateRow(idx, { mode: v as Override["mode"], pct: v === "exempt" ? 0 : ov.pct })}>
-            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="exempt">Exempt</SelectItem>
-              <SelectItem value="markup_pct">Markup (%)</SelectItem>
-              <SelectItem value="discount_pct">Discount (%)</SelectItem>
+              <SelectItem value="markup_pct">Markup</SelectItem>
+              <SelectItem value="discount_pct">Discount</SelectItem>
             </SelectContent>
           </Select>
-          {/* Pct input (only when not exempt) */}
-          {ov.mode !== "exempt" ? (
-            <Input
-              className="w-[90px]"
-              value={ov.pct}
-              onChange={(e) => updateRow(idx, { pct: Number(e.target.value) || 0 })}
-              placeholder="0.05"
-              inputMode="decimal"
-            />
-          ) : (
-            <div className="w-[90px]" />
+          {ov.mode !== "exempt" && (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-8 w-[70px] text-xs"
+                value={fracToDisplay(ov.pct)}
+                onChange={(e) => updateRow(idx, { pct: displayToFrac(e.target.value) })}
+                placeholder="5"
+                inputMode="decimal"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
           )}
-          {/* Remove */}
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeRow(idx)}>
-            <X className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="ml-auto h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeRow(idx)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Remove</TooltipContent>
+          </Tooltip>
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={available.length === 0}>
-        <Plus className="mr-1 h-3 w-3" /> Add Override
-      </Button>
+      <Popover open={catPopoverOpen} onOpenChange={setCatPopoverOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm" disabled={available.length === 0} className="gap-1.5">
+            <Plus className="h-3 w-3" /> Add Category
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[240px] p-0" align="start" data-dialog-keepopen="true">
+          <Command>
+            <CommandInput placeholder="Search categories..." />
+            <CommandList>
+              <CommandEmpty>No categories found.</CommandEmpty>
+              <CommandGroup>
+                {available.map((c) => (
+                  <CommandItem key={c.id} value={c.name} onSelect={() => addCategory(c.id)}>
+                    {c.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -187,9 +231,11 @@ function ItemOverrides({
   value: ItemOverrideRow[];
   onChange: (v: ItemOverrideRow[]) => void;
 }) {
+  const [itemPopoverOpen, setItemPopoverOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<{ id: string; sku: string; name: string }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
   const usedIds = new Set(value.map((o) => o.item_id));
 
@@ -215,18 +261,23 @@ function ItemOverrides({
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  const searchOptions: SearchableSelectOption[] = useMemo(
-    () =>
-      searchResults
-        .filter((r) => !usedIds.has(r.id))
-        .map((r) => ({ value: r.id, label: `${r.sku} — ${r.name}`, keywords: r.sku })),
-    [searchResults, usedIds]
-  );
+  function togglePending(item: { id: string }) {
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+  }
 
-  function addItem(itemId: string) {
-    const found = searchResults.find((r) => r.id === itemId);
-    if (!found) return;
-    onChange([...value, { item_id: found.id, item_sku: found.sku, item_name: found.name, mode: "exempt", pct: 0 }]);
+  function commitPending() {
+    const newItems: ItemOverrideRow[] = searchResults
+      .filter((r) => pendingIds.has(r.id) && !usedIds.has(r.id))
+      .map((r) => ({ item_id: r.id, item_sku: r.sku, item_name: r.name, mode: "exempt" as const, pct: 0 }));
+    if (newItems.length > 0) onChange([...value, ...newItems]);
+    setPendingIds(new Set());
+    setItemPopoverOpen(false);
+    setSearchQuery("");
   }
 
   function updateRow(idx: number, patch: Partial<ItemOverrideRow>) {
@@ -239,53 +290,117 @@ function ItemOverrides({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
+      {value.length === 0 && (
+        <p className="py-3 text-center text-xs text-muted-foreground italic">No item overrides.</p>
+      )}
       {value.map((ov, idx) => (
-        <div key={ov.item_id} className="flex items-center gap-2">
-          {/* Item label */}
-          <div className="w-[200px] truncate text-sm" title={`${ov.item_sku} — ${ov.item_name}`}>
-            <span className="font-mono text-xs font-medium">{ov.item_sku}</span>
-            <span className="ml-1 text-xs text-muted-foreground">{ov.item_name}</span>
+        <div key={ov.item_id} className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <div className="min-w-0 flex-1" title={`${ov.item_sku} — ${ov.item_name}`}>
+            <span className="font-mono text-xs font-semibold">{ov.item_sku}</span>
+            <span className="ml-1.5 text-xs text-muted-foreground">{ov.item_name}</span>
           </div>
-          {/* Mode */}
           <Select value={ov.mode} onValueChange={(v) => updateRow(idx, { mode: v as ItemOverrideRow["mode"], pct: v === "exempt" ? 0 : ov.pct })}>
-            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-[130px] shrink-0 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="exempt">Exempt</SelectItem>
-              <SelectItem value="markup_pct">Markup (%)</SelectItem>
-              <SelectItem value="discount_pct">Discount (%)</SelectItem>
+              <SelectItem value="markup_pct">Markup</SelectItem>
+              <SelectItem value="discount_pct">Discount</SelectItem>
             </SelectContent>
           </Select>
-          {/* Pct input (only when not exempt) */}
-          {ov.mode !== "exempt" ? (
-            <Input
-              className="w-[90px]"
-              value={ov.pct}
-              onChange={(e) => updateRow(idx, { pct: Number(e.target.value) || 0 })}
-              placeholder="0.05"
-              inputMode="decimal"
-            />
-          ) : (
-            <div className="w-[90px]" />
+          {ov.mode !== "exempt" && (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-8 w-[70px] text-xs"
+                value={fracToDisplay(ov.pct)}
+                onChange={(e) => updateRow(idx, { pct: displayToFrac(e.target.value) })}
+                placeholder="5"
+                inputMode="decimal"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
           )}
-          {/* Remove */}
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeRow(idx)}>
-            <X className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="ml-auto h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeRow(idx)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Remove</TooltipContent>
+          </Tooltip>
         </div>
       ))}
-      {/* Add item via search */}
-      <div className="max-w-[360px]">
-        <SearchableSelect
-          value=""
-          onChange={addItem}
-          options={searchOptions}
-          placeholder="Search items to add..."
-          searchPlaceholder="Type SKU or name..."
-          loading={searchLoading}
-          onSearchQueryChange={setSearchQuery}
-        />
-      </div>
+      {/* Multi-select item picker */}
+      <Popover
+        open={itemPopoverOpen}
+        onOpenChange={(open) => {
+          setItemPopoverOpen(open);
+          if (!open) { setPendingIds(new Set()); setSearchQuery(""); }
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="gap-1.5">
+            <Plus className="h-3 w-3" /> Add Items
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[380px] p-0" align="start" data-dialog-keepopen="true">
+          <Command shouldFilter={false}>
+            <CommandInput placeholder="Search by SKU or name..." value={searchQuery} onValueChange={setSearchQuery} />
+            <CommandList className="max-h-[240px]">
+              {!searchQuery.trim() ? (
+                <div className="flex flex-col items-center gap-1 px-3 py-8 text-muted-foreground">
+                  <Search className="h-5 w-5 opacity-40" />
+                  <span className="text-sm">Type to search items</span>
+                </div>
+              ) : searchLoading ? (
+                <div className="flex items-center justify-center px-3 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Searching...
+                </div>
+              ) : searchResults.length === 0 ? (
+                <CommandEmpty>No items found.</CommandEmpty>
+              ) : (
+                <CommandGroup>
+                  {searchResults.map((r) => {
+                    const isUsed = usedIds.has(r.id);
+                    const isPending = pendingIds.has(r.id);
+                    return (
+                      <CommandItem
+                        key={r.id}
+                        value={r.id}
+                        disabled={isUsed}
+                        onSelect={() => !isUsed && togglePending({ id: r.id })}
+                        className="gap-2"
+                      >
+                        <div
+                          className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                            isPending || isUsed
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-muted-foreground/30"
+                          )}
+                        >
+                          {(isPending || isUsed) && <Check className="h-3 w-3" />}
+                        </div>
+                        <span className="font-mono text-xs font-medium shrink-0">{r.sku}</span>
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">{r.name}</span>
+                        {isUsed && <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">added</span>}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+            </CommandList>
+            {pendingIds.size > 0 && (
+              <div className="flex items-center justify-between border-t px-3 py-2">
+                <span className="text-xs text-muted-foreground">{pendingIds.size} selected</span>
+                <Button type="button" size="sm" className="h-7 text-xs" onClick={commitPending}>
+                  Add {pendingIds.size} item{pendingIds.size !== 1 ? "s" : ""}
+                </Button>
+              </div>
+            )}
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -307,10 +422,10 @@ export default function PriceRulesPage() {
   const [targetId, setTargetId] = useState("");
   const [baseId, setBaseId] = useState("");
   const [mode, setMode] = useState<"markup_pct" | "discount_pct">("markup_pct");
-  const [pct, setPct] = useState("0.05");
+  const [pct, setPct] = useState("5");
   const [usdStep, setUsdStep] = useState("0.25");
   const [lbpStep, setLbpStep] = useState("5000");
-  const [minMargin, setMinMargin] = useState("0.12");
+  const [minMargin, setMinMargin] = useState("12");
   const [skipIfCostMissing, setSkipIfCostMissing] = useState(true);
   const [active, setActive] = useState(true);
   const [overrides, setOverrides] = useState<Override[]>([]);
@@ -421,10 +536,10 @@ export default function PriceRulesPage() {
         target_price_list_id: targetId,
         base_price_list_id: baseId,
         mode,
-        pct: Number(pct || 0),
+        pct: displayToFrac(pct),
         usd_round_step: Number(usdStep || 0.01),
         lbp_round_step: Number(lbpStep || 0),
-        min_margin_pct: minMargin.trim() ? Number(minMargin) : null,
+        min_margin_pct: minMargin.trim() ? displayToFrac(minMargin) : null,
         skip_if_cost_missing: Boolean(skipIfCostMissing),
         is_active: Boolean(active),
         category_overrides: overrides,
@@ -434,10 +549,10 @@ export default function PriceRulesPage() {
       setTargetId("");
       setBaseId("");
       setMode("markup_pct");
-      setPct("0.05");
+      setPct("5");
       setUsdStep("0.25");
       setLbpStep("5000");
-      setMinMargin("0.12");
+      setMinMargin("12");
       setSkipIfCostMissing(true);
       setActive(true);
       setOverrides([]);
@@ -455,10 +570,10 @@ export default function PriceRulesPage() {
   const openEdit = useCallback((rule: DerivationRow) => {
     setEditId(rule.id);
     setEditMode(rule.mode);
-    setEditPct(String(pctNum(rule.pct)));
+    setEditPct(fracToDisplay(pctNum(rule.pct)));
     setEditUsdStep(String(rule.usd_round_step ?? "0.01"));
     setEditLbpStep(String(rule.lbp_round_step ?? "0"));
-    setEditMinMargin(rule.min_margin_pct == null ? "" : String(pctNum(rule.min_margin_pct)));
+    setEditMinMargin(rule.min_margin_pct == null ? "" : fracToDisplay(pctNum(rule.min_margin_pct)));
     setEditSkipIfCostMissing(rule.skip_if_cost_missing);
     setEditActive(rule.is_active);
     setEditOverrides((rule.category_overrides || []).map((o) => ({
@@ -484,10 +599,10 @@ export default function PriceRulesPage() {
     try {
       await apiPatch(`/pricing/derivations/${encodeURIComponent(editId)}`, {
         mode: editMode,
-        pct: Number(editPct || 0),
+        pct: displayToFrac(editPct),
         usd_round_step: Number(editUsdStep || 0.01),
         lbp_round_step: Number(editLbpStep || 0),
-        min_margin_pct: editMinMargin.trim() ? Number(editMinMargin) : null,
+        min_margin_pct: editMinMargin.trim() ? displayToFrac(editMinMargin) : null,
         skip_if_cost_missing: Boolean(editSkipIfCostMissing),
         is_active: Boolean(editActive),
         category_overrides: editOverrides,
@@ -720,8 +835,11 @@ export default function PriceRulesPage() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Percent (fraction, e.g. 0.05 = 5%)</Label>
-                      <Input value={pct} onChange={(e) => setPct(e.target.value)} placeholder="0.05" inputMode="decimal" />
+                      <Label>Percentage</Label>
+                      <div className="relative">
+                        <Input value={pct} onChange={(e) => setPct(e.target.value)} placeholder="5" inputMode="decimal" className="pr-7" />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                      </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-4">
@@ -734,8 +852,11 @@ export default function PriceRulesPage() {
                       <Input value={lbpStep} onChange={(e) => setLbpStep(e.target.value)} placeholder="5000" inputMode="decimal" />
                     </div>
                     <div className="space-y-2">
-                      <Label>Min Margin (fraction)</Label>
-                      <Input value={minMargin} onChange={(e) => setMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
+                      <Label>Min Margin</Label>
+                      <div className="relative">
+                        <Input value={minMargin} onChange={(e) => setMinMargin(e.target.value)} placeholder="12" inputMode="decimal" className="pr-7" />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -745,19 +866,25 @@ export default function PriceRulesPage() {
                   <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
                     <CollapsibleTrigger asChild>
                       <Button variant="ghost" type="button" className="w-full justify-between px-0">
-                        <span className="text-sm font-medium">Advanced Options</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">Overrides &amp; Advanced</span>
+                          {(overrides.length + itemOverrides.length) > 0 && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              {overrides.length + itemOverrides.length}
+                            </Badge>
+                          )}
+                        </div>
                         <ChevronDown className={cn("h-4 w-4 transition-transform", advancedOpen && "rotate-180")} />
                       </Button>
                     </CollapsibleTrigger>
                     <CollapsibleContent className="space-y-4 pt-2">
-                      <div className="space-y-2">
-                        <Label>Category Overrides</Label>
-                        <p className="text-xs text-muted-foreground">Customize pricing for specific categories (exempt, custom markup, or custom discount).</p>
+                      <div className="space-y-2 rounded-lg border p-3">
+                        <Label className="text-xs uppercase tracking-wide text-muted-foreground">Category Overrides</Label>
                         <CategoryOverrides categories={categories} value={overrides} onChange={setOverrides} />
                       </div>
-                      <div className="space-y-2">
-                        <Label>Item Overrides</Label>
-                        <p className="text-xs text-muted-foreground">Override pricing for specific items (takes priority over category overrides).</p>
+                      <div className="space-y-2 rounded-lg border p-3">
+                        <Label className="text-xs uppercase tracking-wide text-muted-foreground">Item Overrides</Label>
+                        <p className="text-xs text-muted-foreground">Takes priority over category overrides.</p>
                         <ItemOverrides value={itemOverrides} onChange={setItemOverrides} />
                       </div>
                       <div className="flex items-center gap-3">
@@ -855,8 +982,11 @@ export default function PriceRulesPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Percent (fraction, e.g. 0.05 = 5%)</Label>
-                <Input value={editPct} onChange={(e) => setEditPct(e.target.value)} placeholder="0.05" inputMode="decimal" />
+                <Label>Percentage</Label>
+                <div className="relative">
+                  <Input value={editPct} onChange={(e) => setEditPct(e.target.value)} placeholder="5" inputMode="decimal" className="pr-7" />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4">
@@ -869,8 +999,11 @@ export default function PriceRulesPage() {
                 <Input value={editLbpStep} onChange={(e) => setEditLbpStep(e.target.value)} placeholder="5000" inputMode="decimal" />
               </div>
               <div className="space-y-2">
-                <Label>Min Margin (fraction)</Label>
-                <Input value={editMinMargin} onChange={(e) => setEditMinMargin(e.target.value)} placeholder="0.12" inputMode="decimal" />
+                <Label>Min Margin</Label>
+                <div className="relative">
+                  <Input value={editMinMargin} onChange={(e) => setEditMinMargin(e.target.value)} placeholder="12" inputMode="decimal" className="pr-7" />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -880,19 +1013,25 @@ export default function PriceRulesPage() {
             <Collapsible open={editAdvancedOpen} onOpenChange={setEditAdvancedOpen}>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" type="button" className="w-full justify-between px-0">
-                  <span className="text-sm font-medium">Advanced Options</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Overrides &amp; Advanced</span>
+                    {(editOverrides.length + editItemOverrides.length) > 0 && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {editOverrides.length + editItemOverrides.length}
+                      </Badge>
+                    )}
+                  </div>
                   <ChevronDown className={cn("h-4 w-4 transition-transform", editAdvancedOpen && "rotate-180")} />
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-4 pt-2">
-                <div className="space-y-2">
-                  <Label>Category Overrides</Label>
-                  <p className="text-xs text-muted-foreground">Customize pricing for specific categories (exempt, custom markup, or custom discount).</p>
+                <div className="space-y-2 rounded-lg border p-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Category Overrides</Label>
                   <CategoryOverrides categories={categories} value={editOverrides} onChange={setEditOverrides} />
                 </div>
-                <div className="space-y-2">
-                  <Label>Item Overrides</Label>
-                  <p className="text-xs text-muted-foreground">Override pricing for specific items (takes priority over category overrides).</p>
+                <div className="space-y-2 rounded-lg border p-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Item Overrides</Label>
+                  <p className="text-xs text-muted-foreground">Takes priority over category overrides.</p>
                   <ItemOverrides value={editItemOverrides} onChange={setEditItemOverrides} />
                 </div>
                 <div className="flex items-center gap-3">
