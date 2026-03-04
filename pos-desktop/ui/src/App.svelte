@@ -2591,9 +2591,8 @@
     win.document.open();
     win.document.write(html);
     win.document.close();
-    setTimeout(() => {
-      try { win.focus(); win.print(); } catch (_) {}
-    }, 80);
+    // Print is triggered by the embedded <script> in the HTML template itself
+    // (fires on window load). Do NOT call win.print() here — that caused double prints.
     return win;
   };
 
@@ -3556,6 +3555,7 @@
     <div class="muted" style="margin-top:8px"><strong>Refunds</strong>${refundHtml}</div>
     ${footerText ? `<div class="foot">${_escapeHtml(footerText)}</div>` : ""}
   </div>
+  ${"<"}script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</${""}script>
 </body>
 </html>`;
   };
