@@ -126,6 +126,12 @@ export default function AppearanceSettingsPage() {
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === "ahtrading.companyId") {
+        // Ignore cross-tab company changes — this tab is locked to its own company
+        // via sessionStorage. Only react if this tab has no sessionStorage company
+        // (i.e. it hasn't picked a company yet).
+        try {
+          if (window.sessionStorage.getItem("ahtrading.companyId")) return;
+        } catch { /* ignore */ }
         const cid = getCompanyId();
         setCompanyId(cid);
         setAccentTheme(readAccent(cid));
