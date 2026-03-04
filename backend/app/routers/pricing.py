@@ -204,7 +204,7 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
 
 @router.patch("/derivations/{derivation_id}", dependencies=[Depends(require_permission("items:write"))])
 def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     if "pct" in patch:
@@ -441,9 +441,8 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
                 WHERE company_id = %s
                   AND price_list_id = %s::uuid
                   AND item_id = %s::uuid
-                  AND effective_from = %s
                 """,
-                (company_id, target_id, item_id, eff),
+                (company_id, target_id, item_id),
             )
             skipped_exempt += 1
             continue  # fully exempt — skip this item
