@@ -345,6 +345,13 @@ class SalesInvoiceIn(BaseModel):
     invoice_no: Optional[str] = None
     exchange_rate: Decimal
     pricing_currency: CurrencyCode = "USD"
+
+    @field_validator("exchange_rate")
+    @classmethod
+    def exchange_rate_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("exchange_rate must be greater than 0")
+        return v
     settlement_currency: CurrencyCode = "USD"
     customer_id: Optional[str] = None
     warehouse_id: Optional[str] = None
@@ -373,6 +380,13 @@ class SalesReturnIn(BaseModel):
     invoice_id: Optional[str] = None
     return_date: Optional[date] = None
     exchange_rate: Decimal
+
+    @field_validator("exchange_rate")
+    @classmethod
+    def exchange_rate_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("exchange_rate must be greater than 0")
+        return v
     warehouse_id: Optional[str] = None
     shift_id: Optional[str] = None
     refund_method: Optional[str] = None
@@ -1534,6 +1548,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         SELECT credit_limit_usd, credit_limit_lbp, credit_balance_usd, credit_balance_lbp, payment_terms_days
                         FROM customers
                         WHERE company_id = %s AND id = %s
+                        FOR UPDATE
                         """,
                         (company_id, customer_id),
                     )
@@ -2104,6 +2119,18 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
             if inv["status"] != "posted":
                 raise HTTPException(status_code=400, detail="only posted invoices can have returns")
 
+            # 1b. Prevent duplicate full returns for the same invoice
+            cur.execute(
+                """
+                SELECT id FROM sales_returns
+                WHERE company_id=%s AND invoice_id=%s AND status IN ('posted', 'pending')
+                LIMIT 1
+                """,
+                (company_id, invoice_id),
+            )
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail="a return already exists for this invoice")
+
             # 2. Fetch invoice lines
             cur.execute(
                 """
@@ -2386,12 +2413,36 @@ def void_sales_return(return_id: str, data: SalesReturnVoidIn, company_id: str =
                         cur.execute(
                             """
                             UPDATE customers
-                            SET credit_balance_usd = credit_balance_usd - %s,
-                                credit_balance_lbp = credit_balance_lbp - %s
+                            SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                                credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
                             WHERE company_id=%s AND id=%s
                             """,
                             (total_usd, total_lbp, company_id, inv_row["customer_id"]),
                         )
+
+                # Reverse loyalty points earned from the original return
+                if ret.get("invoice_id"):
+                    cur.execute(
+                        "SELECT customer_id FROM sales_invoices WHERE company_id=%s AND id=%s",
+                        (company_id, ret["invoice_id"]),
+                    )
+                    _inv_lp = cur.fetchone()
+                    if _inv_lp and _inv_lp.get("customer_id"):
+                        cur.execute(
+                            """
+                            SELECT COALESCE(SUM(points), 0) AS pts
+                            FROM loyalty_transactions
+                            WHERE company_id=%s AND source_type='sales_return' AND source_id=%s
+                            """,
+                            (company_id, return_id),
+                        )
+                        _lp_row = cur.fetchone()
+                        _lp_pts = Decimal(str((_lp_row["pts"] if _lp_row else 0)))
+                        if _lp_pts != 0:
+                            pos_processor.apply_loyalty_points(
+                                cur, company_id, str(_inv_lp["customer_id"]),
+                                "sales_return_void", str(return_id), -_lp_pts
+                            )
 
                 # Reverse bank transaction (refund)
                 cur.execute(

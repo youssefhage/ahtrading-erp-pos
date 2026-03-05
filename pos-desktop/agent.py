@@ -383,8 +383,20 @@ def load_config():
 
 
 def save_config(data):
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
+    import tempfile
+    # Atomic write: write to temp file, then rename to prevent corruption on crash
+    dir_name = os.path.dirname(CONFIG_PATH)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, CONFIG_PATH)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def db_connect():
@@ -3932,9 +3944,17 @@ class Handler(BaseHTTPRequestHandler):
         if not cloud_base:
             json_response(self, {"error": "X-Cloud-Base-Url header is required"}, status=400)
             return
+
+        # SECURITY: Only proxy to the configured cloud API base URL or localhost dev servers.
+        # This prevents SSRF attacks where an attacker provides an arbitrary URL.
+        cfg = load_config()
+        allowed_base = (cfg.get("cloud_api_base_url") or "").strip().rstrip("/")
+        is_localhost = ("localhost" in cloud_base or "127.0.0.1" in cloud_base)
+        if not is_localhost and allowed_base and not cloud_base.startswith(allowed_base):
+            json_response(self, {"error": "Cloud base URL does not match configured cloud_api_base_url"}, status=403)
+            return
         if not cloud_base.startswith("https://"):
-            # Allow http only for localhost/dev; block arbitrary http targets.
-            if "localhost" not in cloud_base and "127.0.0.1" not in cloud_base:
+            if not is_localhost:
                 json_response(self, {"error": "Cloud base URL must use HTTPS"}, status=400)
                 return
 
@@ -4252,7 +4272,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/pdf")
                 self.send_header("Content-Length", str(len(pdf_bytes)))
-                self.send_header("Content-Disposition", f'inline; filename="invoice-{invoice_id}.pdf"')
+                # Sanitize invoice_id to prevent header injection
+                safe_id = "".join(c for c in str(invoice_id) if c.isalnum() or c in "-_")[:64]
+                self.send_header("Content-Disposition", f'inline; filename="invoice-{safe_id}.pdf"')
                 self.end_headers()
                 self.wfile.write(pdf_bytes)
                 return
@@ -6009,7 +6031,7 @@ class Handler(BaseHTTPRequestHandler):
             if not draft_id or not isinstance(draft_data, dict):
                 json_response(self, {"error": "id and draft (object) are required"}, status=400)
                 return
-            now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
             created_at = (data.get("created_at") or "").strip() or now_iso
             updated_at = (data.get("updated_at") or "").strip() or now_iso
             ok = upsert_cart_draft(draft_id, cashier_id, name, json.dumps(draft_data),
@@ -6076,6 +6098,15 @@ def main():
         return
 
     init_db()
+    # Clean up expired sessions from previous runs
+    try:
+        conn = db_connect()
+        cur = conn.cursor()
+        _clean_expired_sessions(cur)
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     # Print localhost for convenience when bound locally; otherwise print the explicit host.
     public_host = "localhost" if args.host in {"127.0.0.1", "localhost"} else args.host

@@ -229,8 +229,10 @@ def _compute_costed_lines(lines_in, exchange_rate: Decimal):
     out = []
     base_usd = Decimal('0')
     base_lbp = Decimal('0')
-    for ln in lines_in or []:
+    for idx, ln in enumerate(lines_in or []):
         qty = Decimal(str(getattr(ln, 'qty', 0) or 0))
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail=f"line {idx+1}: qty must be greater than 0")
         unit_usd = Decimal(str(getattr(ln, 'unit_cost_usd', 0) or 0))
         unit_lbp = Decimal(str(getattr(ln, 'unit_cost_lbp', 0) or 0))
         unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, exchange_rate)
@@ -1624,6 +1626,7 @@ def list_supplier_invoices(
                         SELECT SUM(p2.amount_usd)
                         FROM supplier_payments p2
                         WHERE p2.supplier_invoice_id = i.id
+                          AND p2.status != 'voided'
                       ), 0)
                     ) > 0.00005
                     OR
@@ -1633,6 +1636,7 @@ def list_supplier_invoices(
                         SELECT SUM(p3.amount_lbp)
                         FROM supplier_payments p3
                         WHERE p3.supplier_invoice_id = i.id
+                          AND p3.status != 'voided'
                       ), 0)
                     ) > 100
                   )
@@ -2547,6 +2551,10 @@ def create_goods_receipt(data: GoodsReceiptIn, company_id: str = Depends(get_com
 def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if not data.lines:
         raise HTTPException(status_code=400, detail="lines is required")
+    # Recompute line totals server-side to prevent client-supplied mismatches
+    for l in data.lines:
+        l.line_total_usd = Decimal(str(l.qty)) * Decimal(str(l.unit_cost_usd))
+        l.line_total_lbp = Decimal(str(l.qty)) * Decimal(str(l.unit_cost_lbp))
     total_usd = sum([l.line_total_usd for l in data.lines])
     total_lbp = sum([l.line_total_lbp for l in data.lines])
     receipt_date = data.receipt_date or date.today()

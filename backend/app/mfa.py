@@ -1,8 +1,17 @@
 import os
+import time
+import threading
+from collections import OrderedDict
 from fastapi import HTTPException
 
 import pyotp
 from cryptography.fernet import Fernet, InvalidToken
+
+# TOTP replay prevention: track recently used codes per user secret hash.
+# Keys are (secret_hash, code), values are expiry timestamps.
+_used_totp_codes: OrderedDict = OrderedDict()
+_used_totp_lock = threading.Lock()
+_TOTP_REPLAY_WINDOW = 90  # seconds to remember a used code (> 2x the 30s step)
 
 
 def _fernet() -> Fernet:
@@ -58,5 +67,22 @@ def verify_totp_code(secret: str, code: str) -> bool:
         return False
     totp = pyotp.TOTP(secret)
     # Allow +/- 1 step drift.
-    return bool(totp.verify(c, valid_window=1))
+    if not totp.verify(c, valid_window=1):
+        return False
+
+    # Replay prevention: reject codes that were already used within the window.
+    now = time.time()
+    replay_key = (hash(secret), c)
+    with _used_totp_lock:
+        # Prune expired entries
+        while _used_totp_codes:
+            oldest_key, oldest_exp = next(iter(_used_totp_codes.items()))
+            if oldest_exp < now:
+                _used_totp_codes.pop(oldest_key, None)
+            else:
+                break
+        if replay_key in _used_totp_codes:
+            return False  # Code was already used
+        _used_totp_codes[replay_key] = now + _TOTP_REPLAY_WINDOW
+    return True
 

@@ -462,6 +462,9 @@ def create_manual_journal(
                         ),
                     )
 
+                # Safety check: ensure journal balances before commit
+                assert_journal_balanced(cur, journal_id)
+
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -881,24 +884,19 @@ def create_journal_from_template(
                 diff_usd = q_usd(total_debit_usd - total_credit_usd)
                 diff_lbp = q_lbp(total_debit_lbp - total_credit_lbp)
                 if diff_usd != 0 or diff_lbp != 0:
-                    sign_usd = _sign(diff_usd)
-                    sign_lbp = _sign(diff_lbp)
-                    if sign_usd and sign_lbp and sign_usd != sign_lbp:
-                        raise HTTPException(status_code=400, detail="journal is imbalanced (USD/LBP signs differ)")
                     if abs(diff_usd) > Decimal("0.05") or abs(diff_lbp) > Decimal("5000"):
                         raise HTTPException(status_code=400, detail="journal is imbalanced (too large to auto-balance)")
                     rounding_acc = _get_rounding_account(cur, company_id)
                     if not rounding_acc:
                         raise HTTPException(status_code=400, detail="journal is imbalanced; missing ROUNDING account default")
-                    sign = sign_usd or sign_lbp
-                    if sign > 0:
-                        resolved_lines.append(
-                            {"account_id": rounding_acc, "debit_usd": Decimal("0"), "credit_usd": abs(diff_usd), "debit_lbp": Decimal("0"), "credit_lbp": abs(diff_lbp), "memo": "Rounding (auto-balance)"}
-                        )
-                    else:
-                        resolved_lines.append(
-                            {"account_id": rounding_acc, "debit_usd": abs(diff_usd), "credit_usd": Decimal("0"), "debit_lbp": abs(diff_lbp), "credit_lbp": Decimal("0"), "memo": "Rounding (auto-balance)"}
-                        )
+                    # Handle USD and LBP independently — they can have opposite signs
+                    r_debit_usd = abs(diff_usd) if diff_usd < 0 else Decimal("0")
+                    r_credit_usd = diff_usd if diff_usd > 0 else Decimal("0")
+                    r_debit_lbp = abs(diff_lbp) if diff_lbp < 0 else Decimal("0")
+                    r_credit_lbp = diff_lbp if diff_lbp > 0 else Decimal("0")
+                    resolved_lines.append(
+                        {"account_id": rounding_acc, "debit_usd": r_debit_usd, "credit_usd": r_credit_usd, "debit_lbp": r_debit_lbp, "credit_lbp": r_credit_lbp, "memo": "Rounding (auto-balance)"}
+                    )
 
                 journal_no = _next_doc_no(cur, company_id, "MJ")
                 memo = (data.memo or "").strip() or (tpl.get("memo") or "").strip() or f"Template: {tpl.get('name')}"
@@ -935,6 +933,9 @@ def create_journal_from_template(
                             l.get("project_id"),
                         ),
                     )
+
+                # Safety check: ensure journal balances before commit
+                assert_journal_balanced(cur, journal_id)
 
                 cur.execute(
                     """
@@ -1832,6 +1833,9 @@ def reverse_journal(
                             f"Reversal: {e['memo']}" if e.get("memo") else "Reversal",
                         ),
                     )
+
+                # Safety check: ensure reversal journal balances
+                assert_journal_balanced(cur, new_id)
 
                 cur.execute(
                     """

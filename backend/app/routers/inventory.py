@@ -355,6 +355,23 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 else:
                     batch_id = batch_id or None
 
+                # Prevent negative stock when adjusting out
+                if data.qty_out > 0:
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(qty_in - qty_out), 0) AS on_hand
+                        FROM stock_moves
+                        WHERE company_id=%s AND item_id=%s AND warehouse_id=%s
+                        """,
+                        (company_id, data.item_id, data.warehouse_id),
+                    )
+                    on_hand = Decimal(str(cur.fetchone()["on_hand"]))
+                    if data.qty_out > on_hand:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"cannot adjust out {data.qty_out}; only {on_hand} on hand"
+                        )
+
                 unit_cost_usd = data.unit_cost_usd
                 unit_cost_lbp = data.unit_cost_lbp
                 if unit_cost_usd == 0 and unit_cost_lbp == 0:
@@ -423,7 +440,7 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                       (gen_random_uuid(), %s, %s, 'inventory_adjustment', %s, CURRENT_DATE, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"ADJ-{str(move_id)[:8]}", move_id, fx_rate, (data.reason or "Inventory adjustment"), user["user_id"]),
+                    (company_id, _safe_journal_no(cur, company_id, f"ADJ-{str(move_id)[:8]}"), move_id, fx_rate, (data.reason or "Inventory adjustment"), user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -515,6 +532,22 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
                     if not r:
                         raise HTTPException(status_code=400, detail="batch not found (use batch_id or existing batch_no/expiry_date)")
                     batch_id = r["id"]
+
+                # Prevent negative stock
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(qty_in - qty_out), 0) AS on_hand
+                    FROM stock_moves
+                    WHERE company_id=%s AND item_id=%s AND warehouse_id=%s
+                    """,
+                    (company_id, data.item_id, data.warehouse_id),
+                )
+                on_hand = Decimal(str(cur.fetchone()["on_hand"]))
+                if data.qty_out > on_hand:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"cannot write off {data.qty_out}; only {on_hand} on hand"
+                    )
 
                 unit_cost_usd = data.unit_cost_usd
                 unit_cost_lbp = data.unit_cost_lbp

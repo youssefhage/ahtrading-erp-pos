@@ -529,6 +529,14 @@
   let webHostHint = "";
   let runtimeVersionText = `pos-web v${POS_UI_VERSION}`;
   let webEventInvoiceMap = new Map();
+  const _WEB_EVENT_MAP_MAX = 500;
+  const _trimEventInvoiceMap = () => {
+    if (webEventInvoiceMap.size > _WEB_EVENT_MAP_MAX) {
+      const excess = webEventInvoiceMap.size - _WEB_EVENT_MAP_MAX;
+      const keys = Array.from(webEventInvoiceMap.keys()).slice(0, excess);
+      for (const k of keys) webEventInvoiceMap.delete(k);
+    }
+  };
   let webCatalogCache = new Map();
   let webLocalOutboxByCompany = { official: [], unofficial: [] };
   let webAuditByCompany = { official: [], unofficial: [] };
@@ -2320,22 +2328,23 @@
     // the event is safe in the local outbox and will be retried later.
     if (statusCode === 0 || statusCode === 408 || statusCode === 429) return false;
     if (statusCode >= 400 && statusCode < 500) return true;
-    // For 5xx errors (application-level server errors): check if the
-    // message indicates a validation/permanent error from the backend.
-    // These words only appear in HTTP response bodies (not network errors,
-    // which are already excluded by statusCode === 0 above).
-    const msg = String(err?.message || "").trim().toLowerCase();
-    if (!msg) return false;
-    return (
-      msg.includes("payment exceeds invoice total")
-      || msg.includes("payments exceed invoice total")
-      || msg.includes("checkout guardrail")
-      || msg.includes("missing")
-      || msg.includes("invalid")
-      || msg.includes("required")
-      || msg.includes("not found")
-      || msg.includes("rejected")
-    );
+    // 5xx errors are treated as transient (retryable) by default.
+    // Only mark as permanent if the backend explicitly signals it via
+    // specific business-logic error messages (not generic infrastructure errors).
+    if (statusCode >= 500) {
+      const msg = String(err?.message || "").trim().toLowerCase();
+      if (!msg) return false;
+      // Only match very specific business-logic messages from our backend,
+      // NOT generic words like "missing"/"invalid" that infrastructure errors may contain.
+      return (
+        msg.includes("payment exceeds invoice total")
+        || msg.includes("payments exceed invoice total")
+        || msg.includes("checkout guardrail")
+        || msg.includes("duplicate idempotency")
+        || msg.includes("already processed")
+      );
+    }
+    return false;
   };
 
   const _nextRetryIso = (retryCount = 0) => {
@@ -3960,8 +3969,16 @@
     }
     return false;
   };
+  const _localFlushInFlight = { official: false, unofficial: false };
   const _flushWebLocalOutbox = async (companyKey, { limit = 30, eventId = "" } = {}) => {
     const key = normalizeCompanyKey(companyKey);
+    // Concurrency guard: prevent duplicate flushes for the same company
+    if (_localFlushInFlight[key] && !eventId) return { sent: 0, failed: 0, skipped: 0 };
+    _localFlushInFlight[key] = true;
+    try { return await _flushWebLocalOutboxInner(key, { limit, eventId }); }
+    finally { _localFlushInFlight[key] = false; }
+  };
+  const _flushWebLocalOutboxInner = async (key, { limit = 30, eventId = "" } = {}) => {
     const targetId = String(eventId || "").trim();
     const nowMs = Date.now();
     const sourceRows = _webLocalOutboxRowsFor(key);
@@ -4039,6 +4056,7 @@
         failed.push({ event_id: rowEventId, error: e?.message || String(e) });
       }
     }
+    _trimEventInvoiceMap();
     return { sent, failed };
   };
 
@@ -8755,15 +8773,19 @@
         // 1. Build submission descriptors (prepare, don't fire yet).
         //    Proportion cash_tendered by each company's share of the grand total
         //    so each invoice receives its fair portion (not the full amount).
-        const _splitGrandTotal = cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
+        // Use tax-inclusive per-company totals for proportioning cash_tendered,
+        // so companies with different VAT rates get the correct cash share.
+        const _officialTotalUsd = toNum(totalsByCompany?.official?.totalUsd, 0);
+        const _unofficialTotalUsd = toNum(totalsByCompany?.unofficial?.totalUsd, 0);
+        const _splitGrandTotal = _officialTotalUsd + _unofficialTotalUsd;
         const submissions = companiesInOrder.map((companyKey) => {
           const lines = cart.filter((c) => c.companyKey === companyKey);
           if (!lines.length) return null;
           const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
           const cfg = cfgFor(companyKey);
-          const companySubtotal = lines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
+          const companyTotalUsd = normalizeCompanyKey(companyKey) === "official" ? _officialTotalUsd : _unofficialTotalUsd;
           const proportionedCash = (isPartialCash && _splitGrandTotal > 0)
-            ? roundUsd(cashTendered * (companySubtotal / _splitGrandTotal))
+            ? roundUsd(cashTendered * (companyTotalUsd / _splitGrandTotal))
             : undefined;
           const receipt_meta = {
             pilot: {
@@ -9423,11 +9445,13 @@
     try {
       loading = true;
       const results = await Promise.allSettled(
-        companiesToOpen.map((k) => apiCallFor(k, "/shift/open", {
+        companiesToOpen.map((k, idx) => apiCallFor(k, "/shift/open", {
           method: "POST",
           body: {
-            opening_cash_usd: toNum(openingCashUsd, 0),
-            opening_cash_lbp: toNum(openingCashLbp, 0),
+            // In linked mode, only assign the cash drawer amount to the first company;
+            // the second company opens with 0 to avoid double-counting the same physical drawer.
+            opening_cash_usd: (linkedOpsMode && idx > 0) ? 0 : toNum(openingCashUsd, 0),
+            opening_cash_lbp: (linkedOpsMode && idx > 0) ? 0 : toNum(openingCashLbp, 0),
             cashier_id: cashierIdForCompany(k),
           },
         })),
@@ -9504,11 +9528,12 @@
       }
 
       const results = await Promise.allSettled(
-        companiesToClose.map((k) => apiCallFor(k, "/shift/close", {
+        companiesToClose.map((k, idx) => apiCallFor(k, "/shift/close", {
           method: "POST",
           body: {
-            closing_cash_usd: toNum(closingCashUsd, 0),
-            closing_cash_lbp: toNum(closingCashLbp, 0),
+            // In linked mode, only assign closing cash to the first company to avoid double-counting.
+            closing_cash_usd: (linkedOpsMode && idx > 0) ? 0 : toNum(closingCashUsd, 0),
+            closing_cash_lbp: (linkedOpsMode && idx > 0) ? 0 : toNum(closingCashLbp, 0),
             cashier_id: cashierIdForCompany(k),
           },
         })),
