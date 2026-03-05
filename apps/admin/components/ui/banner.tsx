@@ -55,7 +55,7 @@ export function Banner(props: {
         : variant === "success"
           ? "border-success/25 bg-success/5"
           : variant === "info"
-            ? "border-info/25 bg-info/5"
+            ? "border-muted-foreground/10 bg-muted/30"
             : "border-border bg-card/80";
 
   const stripeClasses =
@@ -66,7 +66,7 @@ export function Banner(props: {
         : variant === "success"
           ? "bg-success"
           : variant === "info"
-            ? "bg-info"
+            ? "bg-muted-foreground/20"
             : "bg-border";
 
   const iconClasses =
@@ -77,7 +77,7 @@ export function Banner(props: {
         : variant === "success"
           ? "text-success"
           : variant === "info"
-            ? "text-info"
+            ? "text-muted-foreground/60"
             : "text-muted-foreground";
 
   const iconWrapClasses =
@@ -88,8 +88,13 @@ export function Banner(props: {
         : variant === "success"
           ? "bg-success/10 border-success/20"
           : variant === "info"
-            ? "bg-info/10 border-info/20"
+            ? "bg-muted/50 border-muted-foreground/10"
             : "bg-card/80 border-border";
+
+  const titleTextClasses =
+    variant === "info"
+      ? "font-medium text-muted-foreground"
+      : "font-semibold text-foreground";
 
   const rootPad = size === "sm" ? "px-3 py-2" : "px-3 py-3";
   const iconBox = size === "sm" ? "h-8 w-8" : "h-9 w-9";
@@ -104,7 +109,8 @@ export function Banner(props: {
       role={role}
       aria-live={role === "alert" ? "assertive" : "polite"}
       className={cn(
-        "relative overflow-hidden rounded-lg border text-foreground shadow-sm",
+        "relative overflow-hidden rounded-lg border text-foreground",
+        variant !== "info" && "shadow-sm",
         "animate-fade-in",
         rootPad,
         toneClasses,
@@ -131,7 +137,7 @@ export function Banner(props: {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <div className={cn("font-semibold text-foreground", titleSize)}>
+                <div className={cn(titleTextClasses, titleSize)}>
                   {props.title}
                 </div>
                 {props.badge ? (
