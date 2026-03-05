@@ -421,6 +421,11 @@
 
 .print-receipt {
   max-width: 80mm;
+  font-weight: 900 !important;
+}
+.print-receipt * {
+  font-weight: 900 !important;
+  color: #000 !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

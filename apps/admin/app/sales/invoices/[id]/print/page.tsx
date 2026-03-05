@@ -659,16 +659,16 @@ export default function SalesInvoicePrintPage() {
           <div className="py-16 text-sm text-black/70">{loading ? "Loading..." : "No data."}</div>
         ) : (
           paper === "receipt" ? (
-            <div className="space-y-3 text-[11px]">
+            <div className="space-y-3 text-[11px] font-black text-black">
               <header className="text-center">
-                <h1 className="text-base font-semibold tracking-tight">{docTitle}</h1>
-                <div className="mt-1 font-mono text-[10px] text-black/70">{primaryDocNo}</div>
-                <div className="mt-1 text-[10px] text-black/60">
+                <h1 className="text-base tracking-tight">{docTitle}</h1>
+                <div className="mt-1 font-mono text-[10px]">{primaryDocNo}</div>
+                <div className="mt-1 text-[10px]">
                   {fmtIso(detail.invoice.invoice_date)} · {detail.invoice.status}
                 </div>
               </header>
 
-              <div className="space-y-1 text-black/70">
+              <div className="space-y-1">
                 <div className="flex items-start justify-between gap-2">
                   <span>Customer</span>
                   <span className="text-right font-mono">
@@ -681,10 +681,10 @@ export default function SalesInvoicePrintPage() {
                 </div>
               </div>
 
-              <div className="border-t border-dashed border-black/30" />
+              <div className="border-t border-dashed border-black" />
 
               <table className="w-full border-collapse">
-                <thead className="text-[10px] uppercase tracking-wider text-black/60">
+                <thead className="text-[10px] uppercase tracking-wider">
                   <tr>
                     <th className="py-1 text-left">Item</th>
                     <th className="py-1 text-right">Qty</th>
@@ -693,21 +693,21 @@ export default function SalesInvoicePrintPage() {
                 </thead>
                 <tbody>
                   {(detail.lines || []).map((l) => (
-                    <tr key={l.id} className="border-t border-black/10 align-top">
+                    <tr key={l.id} className="border-t border-black align-top">
                       <td className="py-1 pr-2">
                         <div className="text-[11px]">{l.item_name || l.item_sku || l.item_id}</div>
-                        <div className="font-mono text-[10px] text-black/60">{l.item_sku || l.item_id}</div>
+                        <div className="font-mono text-[10px]">{l.item_sku || l.item_id}</div>
                       </td>
-                      <td className="py-1 text-right font-mono text-[10px] text-black/70">
+                      <td className="py-1 text-right font-mono text-[10px]">
                         {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                        {l.uom ? <span className="ml-1 text-black/50">{String(l.uom).trim()}</span> : null}
+                        {l.uom ? <span className="ml-1">{String(l.uom).trim()}</span> : null}
                       </td>
-                      <td className="py-1 text-right font-mono text-[10px] text-black/70">{fmtUsd(lineAmountUsd(l))}</td>
+                      <td className="py-1 text-right font-mono text-[10px]">{fmtUsd(lineAmountUsd(l))}</td>
                     </tr>
                   ))}
                   {(detail.lines || []).length === 0 ? (
                     <tr>
-                      <td className="py-4 text-center text-black/60" colSpan={3}>
+                      <td className="py-4 text-center" colSpan={3}>
                         No lines.
                       </td>
                     </tr>
@@ -715,9 +715,9 @@ export default function SalesInvoicePrintPage() {
                 </tbody>
               </table>
 
-              <div className="border-t border-dashed border-black/30" />
+              <div className="border-t border-dashed border-black" />
 
-              <section className="space-y-1 text-black/70">
+              <section className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span>Subtotal</span>
                   <span className="font-mono">{fmtUsd(detail.invoice.subtotal_usd ?? detail.invoice.total_usd)}</span>
@@ -729,38 +729,38 @@ export default function SalesInvoicePrintPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-1">
-                  <span className="font-medium">Total</span>
-                  <span className="font-mono font-semibold">{fmtUsd(detail.invoice.total_usd)}</span>
+                  <span>Total</span>
+                  <span className="font-mono">{fmtUsd(detail.invoice.total_usd)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-2 text-black/60">
+                <div className="flex items-center justify-between gap-2">
                   <span>Total LBP</span>
                   <span className="font-mono">{fmtLbp(detail.invoice.total_lbp)}</span>
                 </div>
 
                 {(detail.payments || []).length ? (
                   <>
-                    <div className="mt-2 border-t border-black/10 pt-2" />
+                    <div className="mt-2 border-t border-black pt-2" />
                     <div className="flex items-center justify-between gap-2">
                       <span>Paid</span>
                       <span className="font-mono">{fmtUsdLbp(totals.paidUsd, totals.paidLbp)}</span>
                     </div>
                     {Math.abs(totals.balUsd) >= 0.01 || Math.abs(totals.balLbp) >= 100 ? (
                       <div className="mt-1 flex items-center justify-between gap-2 rounded border border-destructive bg-destructive/10 px-1.5 py-1">
-                        <span className="font-semibold text-destructive">Balance Due</span>
-                        <span className="font-mono font-bold text-destructive">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
+                        <span className="text-destructive">Balance Due</span>
+                        <span className="font-mono text-destructive">{fmtUsdLbp(totals.balUsd, totals.balLbp)}</span>
                       </div>
                     ) : (
                       <div className="mt-1 flex items-center justify-between gap-2 rounded border border-success bg-success/10 px-1.5 py-1">
-                        <span className="font-semibold text-success">Settled</span>
-                        <span className="font-mono font-bold text-success">{fmtUsdLbp(0, 0)}</span>
+                        <span className="text-success">Settled</span>
+                        <span className="font-mono text-success">{fmtUsdLbp(0, 0)}</span>
                       </div>
                     )}
                   </>
                 ) : null}
               </section>
 
-              <footer className="pt-2 text-[10px] text-black/50">
-                <div className="border-t border-black/10 pt-2 font-mono">Document ID: {detail.invoice.id}</div>
+              <footer className="pt-2 text-[10px]">
+                <div className="border-t border-black pt-2 font-mono">Document ID: {detail.invoice.id}</div>
               </footer>
             </div>
           ) : company?.id === OFFICIAL_COMPANY_ID ? (

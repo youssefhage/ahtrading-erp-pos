@@ -6,11 +6,12 @@ export const pdfStyles = StyleSheet.create({
     paddingBottom: 32,
     paddingHorizontal: 28,
     fontSize: 10,
+    fontWeight: 700,
     color: "#000"
   },
   h1: { fontSize: 16, fontWeight: 700 },
   h2: { fontSize: 12, fontWeight: 700 },
-  muted: { color: "#444" },
+  muted: { color: "#000" },
   mono: { fontFamily: "Courier" },
 
   headerRow: {
@@ -32,12 +33,12 @@ export const pdfStyles = StyleSheet.create({
 
   grid3: { flexDirection: "row", gap: 10 },
   box: { border: "1pt solid #ddd", borderRadius: 6, padding: 8, flexGrow: 1, flexBasis: 0 },
-  label: { fontSize: 8, color: "#555", textTransform: "uppercase", letterSpacing: 0.6 },
+  label: { fontSize: 8, color: "#000", textTransform: "uppercase", letterSpacing: 0.6 },
   value: { marginTop: 4, fontSize: 10 },
 
   table: { border: "1pt solid #ddd", borderRadius: 6, overflow: "hidden" },
   thead: { backgroundColor: "#f6f6f6", flexDirection: "row", borderBottom: "1pt solid #ddd" },
-  th: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 8, color: "#555", textTransform: "uppercase", letterSpacing: 0.6 },
+  th: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 8, color: "#000", textTransform: "uppercase", letterSpacing: 0.6 },
   tr: { flexDirection: "row", borderBottom: "1pt solid #eee" },
   td: { paddingVertical: 6, paddingHorizontal: 8, fontSize: 9 },
 
@@ -47,7 +48,7 @@ export const pdfStyles = StyleSheet.create({
     paddingTop: 8,
     borderTop: "1pt solid #ddd",
     fontSize: 8,
-    color: "#555",
+    color: "#000",
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12
