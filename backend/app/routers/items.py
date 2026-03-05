@@ -454,6 +454,7 @@ def product_catalog(
                        COALESCE(tc.rate, 0) AS tax_rate,
                        COALESCE(plp.price_usd, p.price_usd, 0) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp, 0) AS price_lbp,
+                       COALESCE(i.standard_cost_usd, 0) AS cost_usd,
                        COALESCE(barcodes.codes, '') AS barcodes
                 FROM items i
                 LEFT JOIN tax_codes tc ON tc.id = i.tax_code_id
@@ -492,11 +493,18 @@ def product_catalog(
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
 
-            # Compute totals (price inclusive of tax)
+            # Compute totals (price inclusive of tax) and margin
             for r in rows:
                 rate = float(r.get("tax_rate") or 0)
-                r["total_usd"] = round(float(r.get("price_usd") or 0) * (1 + rate), 4)
+                price = float(r.get("price_usd") or 0)
+                cost = float(r.get("cost_usd") or 0)
+                r["total_usd"] = round(price * (1 + rate), 4)
                 r["total_lbp"] = round(float(r.get("price_lbp") or 0) * (1 + rate), 2)
+                # Margin % = (selling_price - cost) / selling_price * 100
+                if price > 0 and cost > 0:
+                    r["margin_pct"] = round((price - cost) / price * 100, 1)
+                else:
+                    r["margin_pct"] = None
 
             return {"items": rows, "total": total}
 

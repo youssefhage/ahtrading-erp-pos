@@ -65,7 +65,7 @@ export const FULL_NAV_SECTIONS: NavSectionData[] = [
       { label: "Customers", href: "/partners/customers/list" },
       { label: "Suppliers", href: "/partners/suppliers" },
       { label: "Items", href: "/catalog/items/list" },
-      { label: "Products", href: "/catalog/products" },
+      { label: "Products Catalog", href: "/catalog/products" },
       { label: "Categories", href: "/catalog/item-categories" },
       { label: "Price Lists", href: "/catalog/price-lists" },
       { label: "Promotions", href: "/catalog/promotions" }

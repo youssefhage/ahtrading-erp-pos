@@ -37,8 +37,10 @@ type CatalogRow = {
   tax_rate: number;
   price_usd: number;
   price_lbp: number;
+  cost_usd: number;
   total_usd: number;
   total_lbp: number;
+  margin_pct: number | null;
   barcodes: string;
 };
 
@@ -48,6 +50,20 @@ type PriceList = { id: string; code: string; name: string; currency: string; is_
 function fmtUsd(v: number | null | undefined): string {
   if (v == null || v === 0) return "-";
   return `$ ${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function marginColor(pct: number | null): string {
+  if (pct == null) return "text-muted-foreground";
+  if (pct >= 30) return "text-emerald-600 dark:text-emerald-400";
+  if (pct >= 15) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
+
+function marginBg(pct: number | null): string {
+  if (pct == null) return "";
+  if (pct >= 30) return "bg-emerald-50 dark:bg-emerald-950/30";
+  if (pct >= 15) return "bg-amber-50 dark:bg-amber-950/30";
+  return "bg-red-50 dark:bg-red-950/30";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -146,7 +162,7 @@ export default function ProductCatalogPage() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
       cell: ({ row }) => (
         <span
-          className="max-w-[250px] truncate block"
+          className="max-w-[250px] truncate block font-medium"
           title={row.original.description || row.original.name}
         >
           {row.original.description || row.original.name}
@@ -157,18 +173,53 @@ export default function ProductCatalogPage() {
       accessorKey: "unit_of_measure",
       header: ({ column }) => <DataTableColumnHeader column={column} title="UOM" />,
       cell: ({ row }) => (
-        <span className="whitespace-nowrap">{row.original.unit_of_measure || "-"}</span>
+        <span className="whitespace-nowrap text-muted-foreground">{row.original.unit_of_measure || "-"}</span>
+      ),
+    },
+    {
+      accessorFn: (r) => r.cost_usd,
+      id: "cost",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Cost" />,
+      cell: ({ row }) => (
+        <span className="font-mono text-xs whitespace-nowrap text-right block text-muted-foreground">
+          {fmtUsd(row.original.cost_usd)}
+        </span>
+      ),
+    },
+    {
+      accessorFn: (r) => r.price_usd,
+      id: "price",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Selling Price" />,
+      cell: ({ row }) => (
+        <span className="font-mono text-xs whitespace-nowrap text-right block font-semibold text-blue-700 dark:text-blue-400">
+          {fmtUsd(row.original.price_usd)}
+        </span>
       ),
     },
     {
       accessorFn: (r) => r.total_usd,
       id: "total",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Total" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total (incl. tax)" />,
       cell: ({ row }) => (
-        <span className="font-mono text-xs whitespace-nowrap text-right block">
+        <span className="font-mono text-xs whitespace-nowrap text-right block font-semibold">
           {fmtUsd(row.original.total_usd)}
         </span>
       ),
+    },
+    {
+      accessorFn: (r) => r.margin_pct ?? -999,
+      id: "margin",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Margin" />,
+      cell: ({ row }) => {
+        const pct = row.original.margin_pct;
+        return (
+          <span
+            className={`font-mono text-xs whitespace-nowrap text-right block font-semibold px-2 py-0.5 rounded ${marginColor(pct)} ${marginBg(pct)}`}
+          >
+            {pct != null ? `${pct.toFixed(1)}%` : "-"}
+          </span>
+        );
+      },
     },
     {
       accessorFn: (r) => categoryNameById.get(String(r.category_id || "")) || "",
@@ -193,16 +244,6 @@ export default function ProductCatalogPage() {
         ) : (
           "-"
         ),
-    },
-    {
-      accessorFn: (r) => r.price_usd,
-      id: "price",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Price" />,
-      cell: ({ row }) => (
-        <span className="font-mono text-xs whitespace-nowrap text-right block">
-          {fmtUsd(row.original.price_usd)}
-        </span>
-      ),
     },
   ], [categoryNameById]);
 
