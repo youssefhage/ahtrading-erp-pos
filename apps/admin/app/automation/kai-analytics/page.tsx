@@ -204,7 +204,7 @@ export default function KaiAnalyticsPage() {
           </div>
         </div>
 
-        {error && <ErrorBanner message={error} />}
+        {error && <ErrorBanner error={error} />}
 
         {data && (
           <>

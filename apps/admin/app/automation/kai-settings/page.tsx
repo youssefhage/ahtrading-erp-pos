@@ -254,7 +254,7 @@ export default function KaiSettingsPage() {
           </div>
         </div>
 
-        {error && <ErrorBanner message={error} />}
+        {error && <ErrorBanner error={error} />}
 
         {/* ============================================================ */}
         {/*  Channel Configuration Forms                                 */}
