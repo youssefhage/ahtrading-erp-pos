@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, RefreshCw, ListOrdered, Star } from "lucide-react";
+import { Loader2, Plus, RefreshCw, ListOrdered, Star, Pencil, X } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -46,7 +46,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 /*  Types                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type ItemRow = { id: string; sku: string; name: string; barcode: string | null; all_barcodes?: string; unit_of_measure?: string };
+type ItemRow = { id: string; sku: string; name: string; barcode: string | null; all_barcodes?: string };
 
 type PriceListRow = {
   id: string;
@@ -120,6 +120,11 @@ export default function PriceListsPage() {
   const [editUsd, setEditUsd] = useState("");
   const [editLbp, setEditLbp] = useState("");
   const [editItemSaving, setEditItemSaving] = useState(false);
+
+  /* ---- Bulk edit mode ---- */
+  const [editMode, setEditMode] = useState(false);
+  const [dirtyPrices, setDirtyPrices] = useState<Map<string, { price_usd?: string; price_lbp?: string }>>(new Map());
+  const [batchSaving, setBatchSaving] = useState(false);
 
   /* ---- Lookups ---- */
   const itemBySku = useMemo(() => {
@@ -315,6 +320,54 @@ export default function PriceListsPage() {
     }
   }
 
+  function toggleEditMode() {
+    if (editMode) {
+      setEditMode(false);
+      setDirtyPrices(new Map());
+    } else {
+      setEditMode(true);
+    }
+  }
+
+  function setDirtyField(rowId: string, field: "price_usd" | "price_lbp", value: string) {
+    setDirtyPrices((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(rowId) || {};
+      next.set(rowId, { ...existing, [field]: value });
+      return next;
+    });
+  }
+
+  async function saveBatch() {
+    if (!itemsListId || dirtyPrices.size === 0) return;
+    setBatchSaving(true);
+    setErr(null);
+    try {
+      const updates = Array.from(dirtyPrices.entries()).map(([id, vals]) => ({
+        id,
+        ...(vals.price_usd !== undefined ? { price_usd: Number(vals.price_usd || 0) } : {}),
+        ...(vals.price_lbp !== undefined ? { price_lbp: Number(vals.price_lbp || 0) } : {}),
+      }));
+      await apiPost(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/batch-update`, { updates });
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
+      setListItems(res.items || []);
+      setEditMode(false);
+      setDirtyPrices(new Map());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBatchSaving(false);
+    }
+  }
+
+  function handleEditKeyDown(e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, col: string) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const next = document.querySelector<HTMLInputElement>(`input[data-row="${rowIndex + 1}"][data-col="${col}"]`);
+      next?.focus();
+    }
+  }
+
   /* ---- Columns: price lists ---- */
   const listColumns = useMemo<ColumnDef<PriceListRow>[]>(() => [
     {
@@ -395,14 +448,9 @@ export default function PriceListsPage() {
       cell: ({ row }) => {
         const it = itemById.get(row.original.item_id);
         return (
-          <div className="flex items-center gap-2">
-            <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-medium text-primary hover:underline">
-              {it?.name || row.original.item_id}
-            </Link>
-            {it?.unit_of_measure ? (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono shrink-0">{it.unit_of_measure}</Badge>
-            ) : null}
-          </div>
+          <Link href={`/catalog/items/${encodeURIComponent(row.original.item_id)}`} className="font-medium text-primary hover:underline">
+            {it?.name || row.original.item_id}
+          </Link>
         );
       },
       sortingFn: (rowA, rowB) => {
@@ -415,13 +463,43 @@ export default function PriceListsPage() {
       accessorFn: (li) => Number(li.price_usd || 0),
       id: "price_usd",
       header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />,
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.price_usd}</span>,
+      cell: ({ row }) => {
+        if (!editMode) return <span className="font-mono text-xs">{row.original.price_usd}</span>;
+        const dirty = dirtyPrices.get(row.original.id);
+        const val = dirty?.price_usd ?? String(row.original.price_usd ?? "");
+        return (
+          <Input
+            className="h-7 w-28 font-mono text-xs"
+            value={val}
+            onChange={(e) => setDirtyField(row.original.id, "price_usd", e.target.value)}
+            onKeyDown={(e) => handleEditKeyDown(e, row.index, "usd")}
+            data-row={row.index}
+            data-col="usd"
+            inputMode="decimal"
+          />
+        );
+      },
     },
     {
       accessorFn: (li) => Number(li.price_lbp || 0),
       id: "price_lbp",
       header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
-      cell: ({ row }) => <span className="font-mono text-xs">{row.original.price_lbp}</span>,
+      cell: ({ row }) => {
+        if (!editMode) return <span className="font-mono text-xs">{row.original.price_lbp}</span>;
+        const dirty = dirtyPrices.get(row.original.id);
+        const val = dirty?.price_lbp ?? String(row.original.price_lbp ?? "");
+        return (
+          <Input
+            className="h-7 w-28 font-mono text-xs"
+            value={val}
+            onChange={(e) => setDirtyField(row.original.id, "price_lbp", e.target.value)}
+            onKeyDown={(e) => handleEditKeyDown(e, row.index, "lbp")}
+            data-row={row.index}
+            data-col="lbp"
+            inputMode="decimal"
+          />
+        );
+      },
     },
     {
       accessorKey: "effective_from",
@@ -438,6 +516,7 @@ export default function PriceListsPage() {
       id: "actions",
       enableHiding: false,
       cell: ({ row }) => {
+        if (editMode) return null;
         const li = row.original;
         return (
           <div className="flex justify-end gap-2">
@@ -476,7 +555,8 @@ export default function PriceListsPage() {
         );
       },
     },
-  ], [itemById, itemsListId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [itemById, itemsListId, editMode, dirtyPrices]);
 
   const currentList = lists.find((l) => l.id === itemsListId);
 
@@ -607,23 +687,35 @@ export default function PriceListsPage() {
       </Dialog>
 
       {/* ---- List Items Dialog (full-width) ---- */}
-      <Dialog open={itemsOpen} onOpenChange={setItemsOpen}>
+      <Dialog open={itemsOpen} onOpenChange={(o) => { setItemsOpen(o); if (!o) { setEditMode(false); setDirtyPrices(new Map()); } }}>
         <DialogContent className="w-[96vw] max-w-[1400px] h-[92vh] overflow-hidden p-0">
           <div className="flex h-full min-h-0 flex-col">
             <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6 pr-12">
-              <DialogTitle>
-                Price List Items
-                {currentList ? (
-                  <Badge variant="outline" className="ml-3 font-mono text-xs">
-                    {currentList.code} -- {currentList.name}
-                  </Badge>
-                ) : null}
-              </DialogTitle>
-              <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <DialogTitle>
+                    Price List Items
+                    {currentList ? (
+                      <Badge variant="outline" className="ml-3 font-mono text-xs">
+                        {currentList.code} -- {currentList.name}
+                      </Badge>
+                    ) : null}
+                  </DialogTitle>
+                  <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
+                </div>
+                <Button
+                  variant={editMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={toggleEditMode}
+                  className="shrink-0"
+                >
+                  {editMode ? <><X className="mr-1.5 h-3.5 w-3.5" /> Exit Edit</> : <><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit Prices</>}
+                </Button>
+              </div>
             </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,1fr)]">
+              <div className={editMode ? "" : "grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,1fr)]"}>
                 {/* Table */}
                 <div className="min-w-0">
                   <DataTable
@@ -634,71 +726,88 @@ export default function PriceListsPage() {
                   />
                 </div>
 
-                {/* Add price form */}
-                <Card className="h-fit xl:sticky xl:top-0">
-                  <CardHeader>
-                    <CardTitle className="text-base">Add / Update Price</CardTitle>
-                    <CardDescription>Insert a new row (history is preserved).</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={addPrice} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>SKU</Label>
-                          <Input
-                            value={addSku}
-                            onChange={(e) => onSkuChange(e.target.value)}
-                            placeholder="SKU"
-                            list="skuList"
-                          />
-                          <datalist id="skuList">
-                            {items.slice(0, 2000).map((it) => (
-                              <option key={it.id} value={(it.sku || "").toUpperCase()}>
-                                {it.name}
-                              </option>
-                            ))}
-                          </datalist>
-                          {addItemId ? (
-                            <p className="text-xs text-muted-foreground">
-                              {itemById.get(addItemId)?.name || addItemId}
-                              {itemById.get(addItemId)?.unit_of_measure ? (
-                                <span className="ml-1 font-mono font-medium"> · {itemById.get(addItemId)?.unit_of_measure}</span>
-                              ) : null}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">Pick a valid SKU.</p>
-                          )}
+                {/* Add price form (hidden in edit mode) */}
+                {!editMode && (
+                  <Card className="h-fit xl:sticky xl:top-0">
+                    <CardHeader>
+                      <CardTitle className="text-base">Add / Update Price</CardTitle>
+                      <CardDescription>Insert a new row (history is preserved).</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <form onSubmit={addPrice} className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>SKU</Label>
+                            <Input
+                              value={addSku}
+                              onChange={(e) => onSkuChange(e.target.value)}
+                              placeholder="SKU"
+                              list="skuList"
+                            />
+                            <datalist id="skuList">
+                              {items.slice(0, 2000).map((it) => (
+                                <option key={it.id} value={(it.sku || "").toUpperCase()}>
+                                  {it.name}
+                                </option>
+                              ))}
+                            </datalist>
+                            {addItemId ? (
+                              <p className="text-xs text-muted-foreground">
+                                Item: {itemById.get(addItemId)?.name || addItemId}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">Pick a valid SKU.</p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Effective From</Label>
+                            <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Price USD</Label>
+                            <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Price LBP</Label>
+                            <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                          </div>
                         </div>
                         <div className="space-y-2">
-                          <Label>Effective From</Label>
-                          <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
+                          <Label>Effective To (optional)</Label>
+                          <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Price USD</Label>
-                          <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                        <div className="flex justify-end">
+                          <Button type="submit" disabled={adding}>
+                            {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Add Price Row
+                          </Button>
                         </div>
-                        <div className="space-y-2">
-                          <Label>Price LBP</Label>
-                          <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Effective To (optional)</Label>
-                        <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
-                      </div>
-                      <div className="flex justify-end">
-                        <Button type="submit" disabled={adding}>
-                          {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          Add Price Row
-                        </Button>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
+                      </form>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </div>
+
+            {/* Sticky save bar for bulk edit */}
+            {editMode && dirtyPrices.size > 0 && (
+              <div className="shrink-0 border-t bg-muted/50 px-6 py-3 flex items-center justify-between">
+                <span className="text-sm font-medium">
+                  {dirtyPrices.size} item{dirtyPrices.size === 1 ? "" : "s"} changed
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => { setDirtyPrices(new Map()); setEditMode(false); }}>
+                    Discard
+                  </Button>
+                  <Button size="sm" onClick={saveBatch} disabled={batchSaving}>
+                    {batchSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Save All
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
