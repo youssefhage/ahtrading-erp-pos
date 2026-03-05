@@ -96,7 +96,9 @@ export default function NewItemPage() {
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [uoms, setUoms] = useState<string[]>([]);
+  const [allPriceLists, setAllPriceLists] = useState<PriceList[]>([]);
   const [defaultPriceList, setDefaultPriceList] = useState<PriceList | null>(null);
+  const [selectedPriceListId, setSelectedPriceListId] = useState("");
 
   /* ---- Essential fields ---- */
   const [sku, setSku] = useState("");
@@ -181,10 +183,12 @@ export default function NewItemPage() {
       const defaultSetting = (settings.settings || []).find((s) => s.key === "default_price_list_id");
       const defaultId = defaultSetting?.value_json?.id as string | undefined;
       const lists = priceLists.price_lists || [];
+      setAllPriceLists(lists);
       const resolved = defaultId
         ? lists.find((pl) => pl.id === defaultId) || null
         : lists.find((pl) => pl.is_default) || null;
       setDefaultPriceList(resolved);
+      if (resolved) setSelectedPriceListId(resolved.id);
       setStatus("");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
@@ -308,6 +312,7 @@ export default function NewItemPage() {
     setIsExcise(false);
     setSellingPriceUsd("");
     setSellingPriceLbp("");
+    if (defaultPriceList) setSelectedPriceListId(defaultPriceList.id);
     setPurchaseUomCode("");
     setPurchaseUomFactor("");
     setSalesUomCode("");
@@ -434,10 +439,11 @@ export default function NewItemPage() {
       }
       if (conversionPromises.length) await Promise.all(conversionPromises);
 
-      // Add selling price to default price list
-      if (defaultPriceList && (sellingPriceUsd || sellingPriceLbp)) {
+      // Add selling price to selected price list
+      const priceListTarget = selectedPriceListId || defaultPriceList?.id;
+      if (priceListTarget && (sellingPriceUsd || sellingPriceLbp)) {
         const today = new Date().toISOString().slice(0, 10);
-        await apiPost(`/pricing/lists/${encodeURIComponent(defaultPriceList.id)}/items`, {
+        await apiPost(`/pricing/lists/${encodeURIComponent(priceListTarget)}/items`, {
           item_id: res.id,
           price_usd: Number(sellingPriceUsd || 0),
           price_lbp: Number(sellingPriceLbp || 0),
@@ -656,46 +662,67 @@ export default function NewItemPage() {
               </div>
 
               {/* ---- Selling Price ---- */}
-              {defaultPriceList ? (
-                <>
-                  <Separator />
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-sm font-medium">Selling Price</p>
-                      <p className="text-xs text-muted-foreground">
-                        Added to your default price list:{" "}
-                        <Link href="/catalog/price-lists" className="font-medium underline underline-offset-2 hover:text-foreground">{defaultPriceList.name}</Link>
-                      </p>
+              <Separator />
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium">Selling Price</p>
+                  {allPriceLists.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>Add to price list:</span>
+                      {allPriceLists.length === 1 ? (
+                        <span className="font-medium text-foreground">{allPriceLists[0].name}</span>
+                      ) : (
+                        <SearchableSelect
+                          value={selectedPriceListId}
+                          onChange={setSelectedPriceListId}
+                          disabled={creating || loading}
+                          placeholder="Select price list..."
+                          searchPlaceholder="Search price lists..."
+                          controlClassName="h-7 w-[180px] rounded-md border border-input bg-background px-2 text-xs"
+                          options={allPriceLists.map((pl) => ({
+                            value: pl.id,
+                            label: pl.name + (pl.id === defaultPriceList?.id ? " (default)" : ""),
+                          }))}
+                        />
+                      )}
                     </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Price (USD)</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={sellingPriceUsd}
-                          onChange={(e) => setSellingPriceUsd(e.target.value)}
-                          placeholder="0.00"
-                          disabled={creating || loading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Price (LBP)</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={sellingPriceLbp}
-                          onChange={(e) => setSellingPriceLbp(e.target.value)}
-                          placeholder="0"
-                          disabled={creating || loading}
-                        />
-                      </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No price lists found.{" "}
+                      <Link href="/catalog/price-lists" className="underline underline-offset-2 hover:text-foreground">Create one</Link>{" "}
+                      to set selling prices.
+                    </p>
+                  )}
+                </div>
+                {(allPriceLists.length > 0) ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Price (USD)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={sellingPriceUsd}
+                        onChange={(e) => setSellingPriceUsd(e.target.value)}
+                        placeholder="0.00"
+                        disabled={creating || loading}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Price (LBP)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={sellingPriceLbp}
+                        onChange={(e) => setSellingPriceLbp(e.target.value)}
+                        placeholder="0"
+                        disabled={creating || loading}
+                      />
                     </div>
                   </div>
-                </>
-              ) : null}
+                ) : null}
+              </div>
 
               {/* ---- SKU Section ---- */}
               <Separator />
@@ -862,9 +889,8 @@ export default function NewItemPage() {
                     <Alert>
                       <Info className="h-4 w-4" />
                       <AlertDescription>
-                        These are cost defaults, not selling prices. Set selling prices via{" "}
-                        <Link href="/catalog/price-lists" className="underline underline-offset-2 hover:text-foreground font-medium">Catalog &rarr; Price Lists</Link>{" "}
-                        after creating the item.
+                        These are <span className="font-medium">cost</span> defaults (what you pay), not selling prices (what customers pay).
+                        Use the Selling Price fields above to set your customer-facing price.
                       </AlertDescription>
                     </Alert>
                     <div className="grid gap-4 sm:grid-cols-3">
