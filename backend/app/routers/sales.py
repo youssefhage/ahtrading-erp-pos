@@ -12,6 +12,7 @@ from backend.workers import pos_processor
 from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced, USD_Q
 from ..account_defaults import ensure_company_account_defaults
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
+from ..search_utils import escape_like
 from ..uom import load_item_uom_context, resolve_line_uom
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -587,7 +588,7 @@ def list_sales_invoices(
                 base_sql += " AND i.created_at::date <= %s"
                 params.append(date_to)
             if q:
-                needle = f"%{q.strip()}%"
+                needle = f"%{escape_like(q.strip())}%"
                 base_sql += """
                   AND (
                     COALESCE(i.invoice_no, '') ILIKE %s
@@ -2742,6 +2743,10 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
 
                 try:
                     auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 

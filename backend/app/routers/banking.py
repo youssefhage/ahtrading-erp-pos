@@ -285,6 +285,8 @@ def create_import_batch(data: BankImportBatchIn, company_id: str = Depends(get_c
 def import_batch_transactions(batch_id: str, data: BankImportTxnsIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if not data.transactions:
         raise HTTPException(status_code=400, detail="transactions is required")
+    if len(data.transactions) > 5000:
+        raise HTTPException(status_code=400, detail="too many transactions (max 5000)")
     # Basic validation up front so we fail fast.
     for t in data.transactions:
         if t.row_no <= 0:

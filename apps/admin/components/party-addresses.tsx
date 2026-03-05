@@ -112,7 +112,7 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
           is_default: isDefault
         });
       } else {
-        await apiPatch(`/party-addresses/${editId}`, {
+        await apiPatch(`/party-addresses/${encodeURIComponent(editId)}`, {
           label: label.trim() || null,
           line1: line1.trim() || null,
           line2: line2.trim() || null,
@@ -138,7 +138,7 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
     if (!id) return;
     setStatus("Deleting...");
     try {
-      await apiDelete(`/party-addresses/${id}`);
+      await apiDelete(`/party-addresses/${encodeURIComponent(id)}`);
       await load();
       setStatus("");
     } catch (err) {

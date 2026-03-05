@@ -11,6 +11,7 @@ from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
 from ..validation import RateType
+from ..search_utils import escape_like
 
 router = APIRouter(prefix="/purchases/credits", tags=["purchases"])
 
@@ -133,7 +134,7 @@ def list_supplier_credits(
                 params.append(sid)
             if qq:
                 sql += " AND (c.credit_no ILIKE %s OR COALESCE(c.memo,'') ILIKE %s)"
-                like = f"%{qq}%"
+                like = f"%{escape_like(qq)}%"
                 params.extend([like, like])
             sql += " ORDER BY c.created_at DESC LIMIT %s"
             params.append(limit)
@@ -865,8 +866,12 @@ def _reverse_gl_journal(cur, company_id: str, source_type: str, source_id: str, 
         )
     try:
         auto_balance_journal(cur, company_id, jid, memo="Rounding (void auto-balance)")
-    except ValueError:
-        pass
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        assert_journal_balanced(cur, jid)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return jid
 
 
@@ -1052,7 +1057,7 @@ def list_open_invoices_for_credit(
             params: list = [company_id, company_id, sid]
             if qq:
                 sql += " AND si.invoice_no ILIKE %s"
-                params.append(f"%{qq}%")
+                params.append(f"%{escape_like(qq)}%")
             sql += """
                 GROUP BY si.id, si.invoice_no, si.invoice_date, si.due_date, si.total_usd, si.total_lbp,
                          sp.paid_usd, sp.paid_lbp, app.credits_applied_usd, app.credits_applied_lbp

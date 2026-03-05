@@ -680,6 +680,8 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
         raise HTTPException(status_code=400, detail="warehouse_id is required")
     if not data.lines:
         raise HTTPException(status_code=400, detail="lines is required")
+    if len(data.lines) > 5000:
+        raise HTTPException(status_code=400, detail="too many lines (max 5000)")
 
     try:
         import_id = str(uuid.UUID((data.import_id or "").strip() or str(uuid.uuid4())))
@@ -694,6 +696,14 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
         with conn.transaction():
             with conn.cursor() as cur:
                 assert_period_open(cur, company_id, posting_date)
+
+                # Validate warehouse belongs to company.
+                cur.execute(
+                    "SELECT 1 FROM warehouses WHERE company_id=%s AND id=%s",
+                    (company_id, data.warehouse_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail="warehouse not found in company")
 
                 # Idempotency check.
                 cur.execute(
@@ -832,6 +842,10 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
 
                 try:
                     auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 

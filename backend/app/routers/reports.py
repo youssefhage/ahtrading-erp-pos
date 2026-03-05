@@ -7,8 +7,23 @@ import csv
 import io
 from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..search_utils import escape_like
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+_CSV_DANGEROUS_CHARS = frozenset("=+-@\t\r")
+
+
+def _sanitize_csv_value(val):
+    """Prefix string values starting with dangerous characters to prevent CSV formula injection."""
+    if isinstance(val, str) and val and val[0] in _CSV_DANGEROUS_CHARS:
+        return "'" + val
+    return val
+
+
+def _sanitize_csv_row(row):
+    """Sanitize all values in a CSV row."""
+    return [_sanitize_csv_value(v) for v in row]
 
 def _parse_company_ids(company_ids: Optional[str], fallback: str) -> list[str]:
     if company_ids:
@@ -794,7 +809,7 @@ def vat_report(
                     ]
                 )
                 for r in rows:
-                    writer.writerow(
+                    writer.writerow(_sanitize_csv_row(
                         [
                             r["tax_code_id"],
                             r["tax_name"],
@@ -808,7 +823,7 @@ def vat_report(
                             r["line_count"],
                             ",".join(r["source_types"]),
                         ]
-                    )
+                    ))
                 return Response(content=output.getvalue(), media_type="text/csv")
             return {
                 "period": str(period_month) if period_month else None,
@@ -867,7 +882,7 @@ def list_audit_logs(
                 params.append(user_id)
             if action_prefix:
                 sql += " AND l.action LIKE %s"
-                params.append(action_prefix + "%")
+                params.append(escape_like(action_prefix) + "%")
 
             sql += " ORDER BY l.created_at DESC, l.id DESC LIMIT %s OFFSET %s"
             params.extend([limit, offset])
@@ -935,7 +950,7 @@ def general_ledger(
                 writer = csv.writer(output)
                 writer.writerow(["date", "journal_no", "account_code", "account_name", "debit_usd", "credit_usd", "debit_lbp", "credit_lbp", "memo"])
                 for r in rows:
-                    writer.writerow([r["journal_date"], r["journal_no"], r["account_code"], r["name_en"], r["debit_usd"], r["credit_usd"], r["debit_lbp"], r["credit_lbp"], r["memo"]])
+                    writer.writerow(_sanitize_csv_row([r["journal_date"], r["journal_no"], r["account_code"], r["name_en"], r["debit_usd"], r["credit_usd"], r["debit_lbp"], r["credit_lbp"], r["memo"]]))
                 return Response(content=output.getvalue(), media_type="text/csv")
 
             if all:
@@ -981,7 +996,7 @@ def inventory_valuation(format: Optional[str] = None, company_id: str = Depends(
                 writer = csv.writer(output)
                 writer.writerow(["item_id", "sku", "name", "qty_on_hand", "value_usd", "value_lbp"])
                 for r in rows:
-                    writer.writerow([r["id"], r["sku"], r["name"], r["qty_on_hand"], r["value_usd"], r["value_lbp"]])
+                    writer.writerow(_sanitize_csv_row([r["id"], r["sku"], r["name"], r["qty_on_hand"], r["value_usd"], r["value_lbp"]]))
                 return Response(content=output.getvalue(), media_type="text/csv")
             return {"inventory": rows}
 
@@ -1542,7 +1557,7 @@ def customer_soa(
         for r in out_rows:
             du = Decimal(str(r.get("delta_usd") or 0))
             dl = Decimal(str(r.get("delta_lbp") or 0))
-            writer.writerow(
+            writer.writerow(_sanitize_csv_row(
                 [
                     r["tx_date"],
                     r["kind"],
@@ -1555,7 +1570,7 @@ def customer_soa(
                     r["balance_usd"],
                     r["balance_lbp"],
                 ]
-            )
+            ))
         return Response(content=output.getvalue(), media_type="text/csv")
 
     closing_usd = opening_usd + sum((Decimal(str(r.get("delta_usd") or 0)) for r in rows), Decimal("0"))
@@ -1747,7 +1762,7 @@ def supplier_soa(
         for r in out_rows:
             du = Decimal(str(r.get("delta_usd") or 0))
             dl = Decimal(str(r.get("delta_lbp") or 0))
-            writer.writerow(
+            writer.writerow(_sanitize_csv_row(
                 [
                     r["tx_date"],
                     r["kind"],
@@ -1760,7 +1775,7 @@ def supplier_soa(
                     r["balance_usd"],
                     r["balance_lbp"],
                 ]
-            )
+            ))
         return Response(content=output.getvalue(), media_type="text/csv")
 
     closing_usd = opening_usd + sum((Decimal(str(r.get("delta_usd") or 0)) for r in rows), Decimal("0"))

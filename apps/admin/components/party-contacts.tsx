@@ -22,8 +22,8 @@ type Contact = {
 };
 
 function basePath(partyKind: PartyKind, partyId: string) {
-  if (partyKind === "customer") return `/customers/${partyId}/contacts`;
-  return `/suppliers/${partyId}/contacts`;
+  if (partyKind === "customer") return `/customers/${encodeURIComponent(partyId)}/contacts`;
+  return `/suppliers/${encodeURIComponent(partyId)}/contacts`;
 }
 
 export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; partyId: string }) {
@@ -109,7 +109,7 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
           is_active: isActive
         });
       } else {
-        await apiPatch(`${basePath(partyKind, partyId)}/${editId}`, {
+        await apiPatch(`${basePath(partyKind, partyId)}/${encodeURIComponent(editId)}`, {
           name: name.trim(),
           title: title.trim() || null,
           phone: phone.trim() || null,
@@ -134,7 +134,7 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
     if (!partyId || !id) return;
     setStatus("Deleting...");
     try {
-      await apiDelete(`${basePath(partyKind, partyId)}/${id}`);
+      await apiDelete(`${basePath(partyKind, partyId)}/${encodeURIComponent(id)}`);
       await load();
       setStatus("");
     } catch (err) {

@@ -213,7 +213,7 @@ export default function PosCashiersPage() {
       const currentUserId = String(cashierById.get(editId)?.user_id || "").trim();
       if (actualUserId !== currentUserId) patch.user_id = actualUserId || null;
       if (editPin.trim()) patch.pin = editPin.trim();
-      await apiPatch<{ ok: true }>(`/pos/cashiers/${editId}`, patch);
+      await apiPatch<{ ok: true }>(`/pos/cashiers/${encodeURIComponent(editId)}`, patch);
       setEditOpen(false);
       await load();
     } catch (err) {

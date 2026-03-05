@@ -7,7 +7,7 @@ from datetime import date
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
-from ..search_utils import normalize_search_query
+from ..search_utils import normalize_search_query, escape_like
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..journal_utils import q_usd, q_lbp
@@ -54,7 +54,7 @@ def list_customers(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -119,7 +119,7 @@ def customers_typeahead(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            like = f"%{q}%"
+            like = f"%{escape_like(q)}%"
             cur.execute(
                 """
                 SELECT id, code, name, phone, email, membership_no, payment_terms_days, price_list_id, is_active, updated_at

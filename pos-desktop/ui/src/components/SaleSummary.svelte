@@ -1,4 +1,6 @@
 <script>
+  import { roundUsd } from "../lib/unified-checkout.js";
+
   export let cart = [];
   export let totals = {};
   export let totalsByCompany = null;
@@ -32,8 +34,6 @@
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
-
-  const roundUsd = (v) => Math.round((Number(v) || 0) * 10000) / 10000;
 
   const companyLabel = (k) => (k === "unofficial" ? "UN" : "OF");
   const cartCompaniesSet = (lines) => new Set((lines || []).map((ln) => ln?.companyKey).filter(Boolean));

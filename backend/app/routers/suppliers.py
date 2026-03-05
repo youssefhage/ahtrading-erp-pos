@@ -6,7 +6,7 @@ from typing import Optional, Literal, List
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
-from ..search_utils import normalize_search_query
+from ..search_utils import normalize_search_query, escape_like
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
@@ -98,7 +98,7 @@ def typeahead_suppliers(
     qq = normalize_search_query((q or "").strip())
     if limit <= 0 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:

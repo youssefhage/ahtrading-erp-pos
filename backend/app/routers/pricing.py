@@ -10,6 +10,7 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..validation import CurrencyCode
 from ..journal_utils import q_usd, q_lbp
+from ..search_utils import escape_like
 
 router = APIRouter(prefix="/pricing", tags=["pricing"])
 
@@ -64,7 +65,10 @@ def _validate_overrides(overrides: list[dict], label: str, id_key: str):
         if ov_mode not in ("exempt", "markup_pct", "discount_pct"):
             raise HTTPException(status_code=400, detail=f"{label}[{idx}]: mode must be exempt, markup_pct, or discount_pct")
         if ov_mode != "exempt":
-            ov_pct = Decimal(str(ov.get("pct", 0)))
+            try:
+                ov_pct = Decimal(str(ov.get("pct", 0)))
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"{label}[{idx}]: pct must be a valid number")
             if ov_pct < 0 or ov_pct > Decimal("0.90"):
                 raise HTTPException(status_code=400, detail=f"{label}[{idx}]: pct must be between 0 and 0.90")
 
@@ -142,6 +146,8 @@ def create_derivation(data: PriceListDerivationIn, company_id: str = Depends(get
         raise HTTPException(status_code=400, detail="usd_round_step must be > 0")
     if data.lbp_round_step < 0:
         raise HTTPException(status_code=400, detail="lbp_round_step must be >= 0")
+    if data.target_price_list_id == data.base_price_list_id:
+        raise HTTPException(status_code=400, detail="target_price_list_id and base_price_list_id must be different")
     if data.min_margin_pct is not None and (data.min_margin_pct < 0 or data.min_margin_pct > Decimal("0.90")):
         raise HTTPException(status_code=400, detail="min_margin_pct must be between 0 and 0.90")
     # Validate overrides
@@ -285,6 +291,19 @@ def update_derivation(derivation_id: str, data: PriceListDerivationUpdate, compa
                     )
                     if not cur.fetchone():
                         raise HTTPException(status_code=400, detail="invalid base_price_list_id")
+
+                # Prevent self-loop: target and base must differ.
+                if "target_price_list_id" in patch or "base_price_list_id" in patch:
+                    cur.execute(
+                        "SELECT target_price_list_id, base_price_list_id FROM price_list_derivations WHERE company_id=%s AND id=%s",
+                        (company_id, derivation_id),
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        eff_target = str(patch.get("target_price_list_id", existing["target_price_list_id"]))
+                        eff_base = str(patch.get("base_price_list_id", existing["base_price_list_id"]))
+                        if eff_target == eff_base:
+                            raise HTTPException(status_code=400, detail="target_price_list_id and base_price_list_id must be different")
 
                 cur.execute(
                     f"""
@@ -735,7 +754,7 @@ def list_cost_changes(
     Populated by triggers on `item_warehouse_costs`.
     """
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -780,7 +799,7 @@ def list_price_changes(
     Populated by triggers on `item_prices`.
     """
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -1159,7 +1178,7 @@ def catalog_typeahead(
     if not qq:
         return {"items": []}
 
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -1462,7 +1481,7 @@ def list_price_list_items(
                         OR i.barcode ILIKE %s
                     )
                 """
-                like = f"%{search.strip()}%"
+                like = f"%{escape_like(search.strip())}%"
                 params.extend([like, like, like])
 
             if latest_only:

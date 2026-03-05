@@ -8,6 +8,7 @@ import json
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 from ..period_locks import assert_period_open
+from ..search_utils import escape_like
 
 try:
     from ..workers import pos_processor
@@ -82,7 +83,7 @@ def list_transfers(
                 params.append(st)
             if qq:
                 sql += " AND (t.transfer_no ILIKE %s OR COALESCE(t.memo,'') ILIKE %s)"
-                like = f"%{qq}%"
+                like = f"%{escape_like(qq)}%"
                 params.extend([like, like])
             sql += " ORDER BY t.created_at DESC LIMIT %s"
             params.append(limit)

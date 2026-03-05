@@ -43,6 +43,28 @@ def _safe_filename_for_header(name: str) -> str:
     return n or "attachment"
 
 
+_SAFE_INLINE_CONTENT_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    "application/pdf",
+})
+
+_ALLOWED_UPLOAD_CONTENT_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/octet-stream",
+})
+
+
 @router.get("")
 def list_attachments(
     entity_type: str,
@@ -94,6 +116,8 @@ def upload_attachment(
     sha = hashlib.sha256(raw).hexdigest() if raw else None
     filename = _safe_filename_for_header(file.filename or "attachment")
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
+    if content_type not in _ALLOWED_UPLOAD_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"file type not allowed: {content_type}")
 
     # Default: store in Postgres (v1). If S3/MinIO is configured, store bytes there.
     attachment_id = str(uuid.uuid4())
@@ -231,14 +255,29 @@ def view_attachment(
             if not row:
                 raise HTTPException(status_code=404, detail="attachment not found")
             require_permission(_permission_for_entity(row["entity_type"], write=False))(company_id=company_id, user=user)
+            ct = (row["content_type"] or "application/octet-stream").strip()
+            # Only serve safe content types inline; force download for everything else
+            # to prevent stored XSS via SVG, HTML, etc.
+            if ct not in _SAFE_INLINE_CONTENT_TYPES:
+                if (row.get("storage_backend") or "db") == "s3" and row.get("object_key"):
+                    url = presign_get(
+                        key=row["object_key"],
+                        filename=_safe_filename_for_header(row["filename"]),
+                        content_type=ct,
+                        disposition="attachment",
+                    )
+                    return RedirectResponse(url=url, status_code=302)
+                data = row["bytes"] or b""
+                headers = {"Content-Disposition": f'attachment; filename="{_safe_filename_for_header(row["filename"])}"'}
+                return Response(content=data, media_type="application/octet-stream", headers=headers)
             if (row.get("storage_backend") or "db") == "s3" and row.get("object_key"):
                 url = presign_get(
                     key=row["object_key"],
                     filename=_safe_filename_for_header(row["filename"]),
-                    content_type=row["content_type"],
+                    content_type=ct,
                     disposition="inline",
                 )
                 return RedirectResponse(url=url, status_code=302)
             data = row["bytes"] or b""
             headers = {"Content-Disposition": f'inline; filename="{_safe_filename_for_header(row["filename"])}"'}
-            return Response(content=data, media_type=row["content_type"], headers=headers)
+            return Response(content=data, media_type=ct, headers=headers)

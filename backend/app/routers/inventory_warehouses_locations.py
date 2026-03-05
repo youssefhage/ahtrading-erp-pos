@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
+from ..search_utils import escape_like
 
 # Back-compat alias for the operational locations listing endpoint.
 # Primary endpoint is `GET /inventory/locations?warehouse_id=...`.
@@ -17,7 +18,7 @@ def list_locations_for_warehouse(
     company_id: str = Depends(get_company_id),
 ):
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)

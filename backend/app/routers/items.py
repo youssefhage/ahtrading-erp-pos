@@ -13,7 +13,7 @@ from psycopg import errors as pg_errors
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
 from ..ai.providers import get_ai_provider_config
 from ..ai.policy import is_external_ai_allowed
-from ..search_utils import normalize_search_query
+from ..search_utils import normalize_search_query, escape_like
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -403,7 +403,7 @@ def product_catalog(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -519,7 +519,7 @@ def list_items_list(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -658,7 +658,7 @@ def typeahead_items(
     qq = normalize_search_query((q or "").strip())
     if limit <= 0 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -723,7 +723,7 @@ def list_item_uoms(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            like = f"%{qq}%" if qq else None
+            like = f"%{escape_like(qq)}%" if qq else None
             cur.execute(
                 """
                 WITH usage AS (

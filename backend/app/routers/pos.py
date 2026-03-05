@@ -1073,55 +1073,59 @@ def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
             with conn.cursor() as cur:
                 for e in data.events:
                     try:
-                        idempotency_key = str(e.idempotency_key or "").strip() or None
-                        cur.execute(
-                            """
-                            INSERT INTO pos_events_outbox
-                              (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
-                            VALUES
-                              (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
-                            ON CONFLICT DO NOTHING
-                            RETURNING id
-                            """,
-                            (
-                                e.event_id,
-                                data.device_id,
-                                e.event_type,
-                                json.dumps(e.payload),
-                                e.created_at,
-                                idempotency_key,
-                                e.created_at,
-                            ),
-                        )
-                        inserted = cur.fetchone()
-                        status = "inserted" if inserted else "duplicate"
-                        existing_event_id = None
-                        if not inserted:
-                            if idempotency_key:
-                                cur.execute(
-                                    """
-                                    SELECT id
-                                    FROM pos_events_outbox
-                                    WHERE device_id = %s
-                                      AND event_type = %s
-                                      AND idempotency_key = %s
-                                    ORDER BY created_at ASC
-                                    LIMIT 1
-                                    """,
-                                    (data.device_id, e.event_type, idempotency_key),
-                                )
-                            else:
-                                cur.execute(
-                                    """
-                                    SELECT id
-                                    FROM pos_events_outbox
-                                    WHERE id = %s
-                                    """,
-                                    (e.event_id,),
-                                )
-                            existing = cur.fetchone()
-                            if existing:
-                                existing_event_id = str(existing["id"])
+                        # Use a savepoint per event so a DB error on one event
+                        # doesn't poison the transaction and silently roll back
+                        # previously accepted events.
+                        with conn.transaction():
+                            idempotency_key = str(e.idempotency_key or "").strip() or None
+                            cur.execute(
+                                """
+                                INSERT INTO pos_events_outbox
+                                  (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
+                                VALUES
+                                  (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
+                                ON CONFLICT DO NOTHING
+                                RETURNING id
+                                """,
+                                (
+                                    e.event_id,
+                                    data.device_id,
+                                    e.event_type,
+                                    json.dumps(e.payload),
+                                    e.created_at,
+                                    idempotency_key,
+                                    e.created_at,
+                                ),
+                            )
+                            inserted = cur.fetchone()
+                            status = "inserted" if inserted else "duplicate"
+                            existing_event_id = None
+                            if not inserted:
+                                if idempotency_key:
+                                    cur.execute(
+                                        """
+                                        SELECT id
+                                        FROM pos_events_outbox
+                                        WHERE device_id = %s
+                                          AND event_type = %s
+                                          AND idempotency_key = %s
+                                        ORDER BY created_at ASC
+                                        LIMIT 1
+                                        """,
+                                        (data.device_id, e.event_type, idempotency_key),
+                                    )
+                                else:
+                                    cur.execute(
+                                        """
+                                        SELECT id
+                                        FROM pos_events_outbox
+                                        WHERE id = %s
+                                        """,
+                                        (e.event_id,),
+                                    )
+                                existing = cur.fetchone()
+                                if existing:
+                                    existing_event_id = str(existing["id"])
                         accepted.append(str(e.event_id))
                         meta = {"event_id": str(e.event_id), "status": status}
                         if existing_event_id and existing_event_id != str(e.event_id):

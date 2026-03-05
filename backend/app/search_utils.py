@@ -22,3 +22,16 @@ def normalize_search_query(q: str) -> str:
     # Strip Arabic diacritics
     s = _ARABIC_DIACRITICS.sub("", s)
     return " ".join(s.split()).strip()
+
+
+def escape_like(value: str) -> str:
+    """
+    Escape special characters for use in SQL LIKE / ILIKE patterns.
+
+    The characters ``\\``, ``%``, and ``_`` have special meaning in LIKE
+    expressions.  This function escapes them so that user-provided search
+    terms are matched literally.
+    """
+    if not value:
+        return value
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

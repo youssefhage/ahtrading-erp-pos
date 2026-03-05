@@ -625,8 +625,18 @@ def compute_vat_breakdown(
         if tcid not in rate_by:
             continue
         rate = rate_by.get(tcid, Decimal("0"))
-        tlbp = b["lbp"] * rate if rate else Decimal("0")
-        tusd = (tlbp / exchange_rate) if exchange_rate else Decimal("0")
+        # Compute tax from whichever base is available.  When the POS sends
+        # only USD prices (line_total_lbp=0), the LBP base accumulates to 0
+        # and we must derive the tax from USD instead.
+        if rate and b["lbp"] != 0:
+            tlbp = q_lbp(b["lbp"] * rate)
+            tusd = q_usd(tlbp / exchange_rate) if exchange_rate else q_usd(b["usd"] * rate)
+        elif rate and b["usd"] != 0:
+            tusd = q_usd(b["usd"] * rate)
+            tlbp = q_lbp(tusd * exchange_rate) if exchange_rate else Decimal("0")
+        else:
+            tusd = Decimal("0")
+            tlbp = Decimal("0")
         tusd, tlbp = normalize_dual_amounts(tusd, tlbp, exchange_rate)
         tusd = q_usd(tusd)
         tlbp = q_lbp(tlbp)
@@ -1319,7 +1329,17 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             pts = Decimal(str(payload.get("loyalty_points") or 0))
         else:
             p_usd, p_lbp = fetch_loyalty_policy(cur, company_id)
-            pts = (total_usd * p_usd) + (total_lbp * p_lbp)
+            # Avoid double-counting: when both rates are configured, use the
+            # settlement currency to decide which leg to award points on.
+            # USD and LBP totals represent the SAME economic value in the
+            # dual-ledger, so summing both would inflate points.
+            if p_usd and p_lbp:
+                if (settlement_currency or "USD").upper() == "LBP":
+                    pts = total_lbp * p_lbp
+                else:
+                    pts = total_usd * p_usd
+            else:
+                pts = (total_usd * p_usd) + (total_lbp * p_lbp)
         apply_loyalty_points(cur, company_id, customer_id, "sales_invoice", str(invoice_id), pts)
 
     # Tax lines (VAT breakdown)
@@ -1782,8 +1802,16 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         restock_fee_usd = Decimal("0")
     if restock_fee_lbp < 0:
         restock_fee_lbp = Decimal("0")
-    if restock_fee_usd > base_usd or restock_fee_lbp > base_lbp:
+    # Allow small rounding tolerance for cross-currency fee derivation.
+    eps_usd = Decimal("0.01")
+    eps_lbp = Decimal("100")
+    if restock_fee_usd > base_usd + eps_usd or restock_fee_lbp > base_lbp + eps_lbp:
         raise ValueError("restocking fee cannot exceed return base amount")
+    # Clamp to base if within tolerance
+    if restock_fee_usd > base_usd:
+        restock_fee_usd = base_usd
+    if restock_fee_lbp > base_lbp:
+        restock_fee_lbp = base_lbp
     restock_fee_reason = payload.get("restocking_fee_reason") or None
     if isinstance(restock_fee_reason, str):
         restock_fee_reason = restock_fee_reason.strip() or None
@@ -2150,13 +2178,25 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     if not receivable_account:
         raise ValueError("Missing refund account mapping (AR/CASH/BANK)")
 
+    # Reconcile LBP for GL entries (same fix as process_sale): derive GL LBP
+    # from USD * exchange_rate so both sides are rate-consistent and avoid
+    # exceeding the 5,000 LBP auto-balance threshold on multi-line returns.
+    if exchange_rate and exchange_rate > 0:
+        gl_base_lbp = q_lbp(base_usd * exchange_rate)
+        gl_tax_lbp = q_lbp(tax_usd * exchange_rate) if tax else Decimal("0")
+    else:
+        gl_base_lbp = base_lbp
+        gl_tax_lbp = tax_lbp
+
+    gl_refund_total_lbp = gl_base_lbp + gl_tax_lbp - restock_fee_lbp
+
     # Debit sales returns
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
         VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales return')
         """,
-        (journal_id, sales_returns, base_usd, base_lbp),
+        (journal_id, sales_returns, base_usd, gl_base_lbp),
     )
 
     # Credit receivable/cash net of any restocking fee.
@@ -2165,7 +2205,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Return refund')
         """,
-        (journal_id, receivable_account, refund_total_usd, refund_total_lbp),
+        (journal_id, receivable_account, refund_total_usd, gl_refund_total_lbp),
     )
 
     # Restocking fee income (optional).
@@ -2190,7 +2230,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
             VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'VAT payable reduction')
             """,
-            (journal_id, vat_payable, tax_usd, tax_lbp),
+            (journal_id, vat_payable, tax_usd, gl_tax_lbp),
         )
 
     # Inventory / COGS reversal
@@ -2322,7 +2362,15 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             pts = -Decimal(str(payload.get("loyalty_points") or 0))
         else:
             p_usd, p_lbp = fetch_loyalty_policy(cur, company_id)
-            pts = -((total_usd * p_usd) + (total_lbp * p_lbp))
+            ret_settle = (payload.get("settlement_currency") or "USD").upper()
+            # Avoid double-counting (same fix as process_sale).
+            if p_usd and p_lbp:
+                if ret_settle == "LBP":
+                    pts = -(total_lbp * p_lbp)
+                else:
+                    pts = -(total_usd * p_usd)
+            else:
+                pts = -((total_usd * p_usd) + (total_lbp * p_lbp))
         apply_loyalty_points(cur, company_id, return_customer_id, "sales_return", str(return_id), pts)
 
     emit_event(

@@ -11,6 +11,7 @@ from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..validation import RateType
 from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, assert_journal_balanced, _get_rounding_account
+from ..search_utils import escape_like
 
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
@@ -226,8 +227,8 @@ def list_journals(
                 params.append(source_type)
             if q:
                 sql += " AND (j.journal_no ILIKE %s OR COALESCE(j.memo,'') ILIKE %s)"
-                params.append(f"%{q}%")
-                params.append(f"%{q}%")
+                params.append(f"%{escape_like(q)}%")
+                params.append(f"%{escape_like(q)}%")
             sql += " ORDER BY j.journal_date DESC, j.journal_no DESC LIMIT 500"
             cur.execute(sql, params)
             return {"journals": cur.fetchall()}
@@ -1376,7 +1377,7 @@ def import_opening_ar(
                     # Idempotency by (company_id, invoice_no).
                     cur.execute(
                         """
-                        SELECT id, status, COALESCE(doc_subtype,'standard') AS doc_subtype
+                        SELECT id, status, customer_id, COALESCE(doc_subtype,'standard') AS doc_subtype
                         FROM sales_invoices
                         WHERE company_id=%s AND invoice_no=%s
                         """,
@@ -1390,7 +1391,10 @@ def import_opening_ar(
                             skipped += 1
                             continue
                         invoice_id = existing["id"]
+                        old_customer_id = str(existing["customer_id"])
                         # Reverse old credit balance before re-importing to prevent double-counting.
+                        # Use the OLD customer_id from the existing invoice, not the new one,
+                        # in case the customer changed between imports.
                         cur.execute(
                             "SELECT total_usd, total_lbp FROM sales_invoices WHERE company_id=%s AND id=%s",
                             (company_id, invoice_id),
@@ -1404,7 +1408,7 @@ def import_opening_ar(
                                     credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
                                 WHERE company_id=%s AND id=%s
                                 """,
-                                (Decimal(str(old_inv["total_usd"] or 0)), Decimal(str(old_inv["total_lbp"] or 0)), company_id, customer_id),
+                                (Decimal(str(old_inv["total_usd"] or 0)), Decimal(str(old_inv["total_lbp"] or 0)), company_id, old_customer_id),
                             )
                         cur.execute(
                             """

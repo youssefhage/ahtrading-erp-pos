@@ -7838,9 +7838,17 @@
   const _draftTotalUsd = (draft) => {
     let total = 0;
     for (const line of draft?.cart || []) {
+      const companyKey = line?.companyKey === "unofficial" ? "unofficial" : "official";
       const qty = Math.max(0, toNum(line?.qty, 0));
-      const baseUsd = toNum(line?.price_usd, 0) * qty;
-      const taxUsd = baseUsd * Math.max(0, toNum(vatRateForLine(line), 0));
+      const baseUsd = roundUsd(toNum(line?.price_usd, 0) * qty);
+      const rawBaseLbp = roundLbp(toNum(line?.price_lbp, 0) * qty);
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const fallbackEx = toNum(cfg?.exchange_rate, toNum(config?.exchange_rate, 0));
+      const baseLbp = rawBaseLbp === 0 && fallbackEx > 0 ? roundLbp(baseUsd * fallbackEx) : rawBaseLbp;
+      const vatRate = Math.max(0, toNum(vatRateForLine(line), 0));
+      // LBP-first tax (matches cartLineAmounts and finalized sale computation).
+      const taxLbp = roundLbp(baseLbp * vatRate);
+      const taxUsd = fallbackEx > 0 ? roundUsd(taxLbp / fallbackEx) : roundUsd(baseUsd * vatRate);
       total += (baseUsd + taxUsd);
     }
     return total;
@@ -8892,15 +8900,22 @@
                 const companyLines = splitCartSnap.filter((ln) => ln.companyKey === o.companyKey);
                 const ocfg = cfgFor(o.companyKey);
                 const cashName = normalizeCompanyKey(o.companyKey) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
+                const _splitExRate = toNum(ocfg?.exchange_rate, 0);
                 const _splitSubUsd = companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
                 const _splitSubLbp = companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
-                const _splitTaxUsd = companyLines.reduce((s, ln) => {
-                  const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
-                  return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
-                }, 0);
+                // LBP-first tax (matches cartLineAmounts / backend).
                 const _splitTaxLbp = companyLines.reduce((s, ln) => {
-                  const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
-                  return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                  const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+                  const effectiveLbp = baseLbp === 0 && _splitExRate > 0 ? toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0) * _splitExRate : baseLbp;
+                  return s + roundLbp(effectiveLbp * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                }, 0);
+                const _splitTaxUsd = companyLines.reduce((s, ln) => {
+                  const baseUsd = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+                  const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+                  const effectiveLbp = baseLbp === 0 && _splitExRate > 0 ? baseUsd * _splitExRate : baseLbp;
+                  const vatRate = Math.max(0, toNum(vatRateForLine(ln), 0));
+                  const lineTaxLbp = roundLbp(effectiveLbp * vatRate);
+                  return s + (_splitExRate > 0 ? roundUsd(lineTaxLbp / _splitExRate) : roundUsd(baseUsd * vatRate));
                 }, 0);
                 _printOfflineReceipt(companyLines, {
                   companyKey: o.companyKey,
@@ -9004,15 +9019,23 @@
       const snapCashierName = queuedLocal
         ? String((normalizeCompanyKey(invoiceCompany) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName) || "").trim()
         : "";
+      const _snapExRate = queuedLocal ? toNum(cfg?.exchange_rate, 0) : 0;
       const _snapSubUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
       const _snapSubLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
-      const _snapTaxUsd = queuedLocal ? cart.reduce((s, ln) => {
-        const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
-        return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
-      }, 0) : 0;
+      // LBP-first tax: compute tax on LBP amounts then back-convert to USD
+      // (matches cartLineAmounts, _buildSalePayloadWeb, and backend computation).
       const _snapTaxLbp = queuedLocal ? cart.reduce((s, ln) => {
-        const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
-        return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+        const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+        const effectiveLbp = baseLbp === 0 && _snapExRate > 0 ? toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0) * _snapExRate : baseLbp;
+        return s + roundLbp(effectiveLbp * Math.max(0, toNum(vatRateForLine(ln), 0)));
+      }, 0) : 0;
+      const _snapTaxUsd = queuedLocal ? cart.reduce((s, ln) => {
+        const baseUsd = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+        const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+        const effectiveLbp = baseLbp === 0 && _snapExRate > 0 ? baseUsd * _snapExRate : baseLbp;
+        const vatRate = Math.max(0, toNum(vatRateForLine(ln), 0));
+        const lineTaxLbp = roundLbp(effectiveLbp * vatRate);
+        return s + (_snapExRate > 0 ? roundUsd(lineTaxLbp / _snapExRate) : roundUsd(baseUsd * vatRate));
       }, 0) : 0;
       const snapTotalUsd = _snapSubUsd + _snapTaxUsd;
       const snapTotalLbp = _snapSubLbp + _snapTaxLbp;
