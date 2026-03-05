@@ -9795,6 +9795,7 @@
   showTabs={true}
   plainBackground={activeScreen === "pos"}
   pendingCount={totalPendingEvents}
+  isOnline={isOnline}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "h-7 px-2.5 rounded-lg text-[11px] font-bold border transition-all whitespace-nowrap"}
