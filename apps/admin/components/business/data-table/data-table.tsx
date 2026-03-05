@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type ColumnOrderState,
   type SortingState,
   type VisibilityState,
   type PaginationState,
@@ -16,15 +17,31 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import {
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { DataTableToolbar } from "./data-table-toolbar";
 import { DataTablePagination } from "./data-table-pagination";
+import { DraggableHeader } from "./data-table-draggable-header";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -66,6 +83,8 @@ interface DataTableProps<TData, TValue> {
   toolbarActions?: React.ReactNode;
   /** Callback when the search input changes (for server-side search) */
   onSearchChange?: (value: string) => void;
+  /** Unique ID for persisting column order to localStorage */
+  tableId?: string;
 }
 
 export function DataTable<TData, TValue>({
@@ -82,6 +101,7 @@ export function DataTable<TData, TValue>({
   filterableColumns,
   toolbarActions,
   onSearchChange,
+  tableId,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] =
@@ -104,6 +124,58 @@ export function DataTable<TData, TValue>({
     pageSize,
   });
 
+  // ---------- Column order (drag-and-drop) ----------
+  const storageKey = tableId ? `dt-col-order:${tableId}` : null;
+
+  const defaultColumnIds = React.useMemo(
+    () => columns.map((c) => {
+      if ("accessorKey" in c && c.accessorKey) return String(c.accessorKey);
+      return (c as any).id ?? "";
+    }),
+    [columns],
+  );
+
+  const [columnOrder, setColumnOrder] = React.useState<ColumnOrderState>(() => {
+    if (!storageKey) return [];
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as string[];
+        // Merge: keep saved order for columns that still exist, append new ones
+        const validSaved = parsed.filter((id) => defaultColumnIds.includes(id));
+        const newCols = defaultColumnIds.filter((id) => !parsed.includes(id));
+        return [...validSaved, ...newCols];
+      }
+    } catch { /* ignore */ }
+    return [];
+  });
+
+  // Persist column order to localStorage
+  React.useEffect(() => {
+    if (storageKey && columnOrder.length > 0) {
+      localStorage.setItem(storageKey, JSON.stringify(columnOrder));
+    }
+  }, [storageKey, columnOrder]);
+
+  // Drag-and-drop sensors
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    setColumnOrder((prev) => {
+      const currentOrder = prev.length > 0 ? prev : defaultColumnIds;
+      const oldIndex = currentOrder.indexOf(String(active.id));
+      const newIndex = currentOrder.indexOf(String(over.id));
+      return arrayMove(currentOrder, oldIndex, newIndex);
+    });
+  }
+
   // When onSearchChange is provided, the server handles filtering — disable
   // client-side global filter to prevent double-filtering (the server may match
   // on fields that aren't in column accessors, e.g. barcode or brand).
@@ -119,6 +191,7 @@ export function DataTable<TData, TValue>({
       columnFilters,
       columnVisibility,
       rowSelection,
+      columnOrder,
       globalFilter: isServerSearch ? "" : globalFilter,
       pagination,
     },
@@ -126,6 +199,7 @@ export function DataTable<TData, TValue>({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    onColumnOrderChange: setColumnOrder,
     onGlobalFilterChange: setGlobalFilter,
     onPaginationChange: (updater) => {
       const next =
@@ -144,6 +218,12 @@ export function DataTable<TData, TValue>({
     manualPagination,
   });
 
+  const columnIds = React.useMemo(
+    () => table.getHeaderGroups()[0]?.headers.map((h) => h.column.id) ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [table.getState().columnOrder, table.getState().columnVisibility],
+  );
+
   return (
     <div className="space-y-4">
       <DataTableToolbar
@@ -155,66 +235,71 @@ export function DataTable<TData, TValue>({
         actions={toolbarActions}
       />
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="h-10">
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToHorizontalAxis]}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  <SortableContext
+                    items={columnIds}
+                    strategy={horizontalListSortingStrategy}
+                  >
+                    {headerGroup.headers.map((header) => (
+                      <DraggableHeader key={header.id} header={header} />
+                    ))}
+                  </SortableContext>
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={`skeleton-${i}`}>
+                    {columns.map((_, j) => (
+                      <TableCell key={`skeleton-cell-${j}`}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : table.getRowModel().rows?.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() && "selected"}
+                    className={onRowClick ? "cursor-pointer" : undefined}
+                    onClick={() => onRowClick?.(row.original)}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
                         )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={`skeleton-${i}`}>
-                  {columns.map((_, j) => (
-                    <TableCell key={`skeleton-cell-${j}`}>
-                      <Skeleton className="h-4 w-full" />
-                    </TableCell>
-                  ))}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={columns.length}
+                    className="h-24 text-center text-muted-foreground"
+                  >
+                    No results.
+                  </TableCell>
                 </TableRow>
-              ))
-            ) : table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  className={onRowClick ? "cursor-pointer" : undefined}
-                  onClick={() => onRowClick?.(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center text-muted-foreground"
-                >
-                  No results.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </DndContext>
 
       <DataTablePagination table={table} totalRows={totalRows} />
     </div>
