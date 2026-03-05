@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, field_validator
 from typing import List
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
+import json
 from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
 from ..account_defaults import ensure_company_account_defaults
-from ..journal_utils import auto_balance_journal, assert_journal_balanced, q_usd, q_lbp
+from ..journal_utils import auto_balance_journal, assert_journal_balanced, fetch_exchange_rate, q_usd, q_lbp
 
 router = APIRouter(prefix="/intercompany", tags=["intercompany"])
 
@@ -30,11 +31,33 @@ def _assert_user_perm_in_company(user_id: str, company_id: str, perm_code: str):
                 raise HTTPException(status_code=403, detail=f"missing permission {perm_code} for company {company_id}")
 
 
+def _fetch_market_rate(cur, company_id: str) -> Decimal:
+    """Fetch current market exchange rate for a company; raise if unavailable."""
+    rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
+    if not rate or rate <= 0:
+        raise HTTPException(status_code=400, detail=f"No valid exchange rate found for company {company_id}")
+    return rate
+
+
 class IntercompanyLine(BaseModel):
     item_id: str
     qty: Decimal
     unit_cost_usd: Decimal
     unit_cost_lbp: Decimal
+
+    @field_validator("qty")
+    @classmethod
+    def qty_must_be_positive(cls, v):
+        if v is None or v <= 0:
+            raise ValueError("qty must be greater than 0")
+        return v
+
+    @field_validator("unit_cost_usd", "unit_cost_lbp")
+    @classmethod
+    def cost_must_be_non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("unit cost must be >= 0")
+        return v
 
 
 class IntercompanyIssueIn(BaseModel):
@@ -54,11 +77,30 @@ class IntercompanySettleIn(BaseModel):
     exchange_rate: Decimal
     method: str = "bank"  # cash|bank
 
+    @field_validator("amount_usd", "amount_lbp")
+    @classmethod
+    def amounts_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("amount must be greater than 0")
+        return v
+
+    @field_validator("exchange_rate")
+    @classmethod
+    def exchange_rate_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("exchange_rate must be greater than 0")
+        return v
+
 
 @router.post("/issue", dependencies=[Depends(require_permission("intercompany:write"))])
 def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    # -- MEDIUM: Self-transfer check --
     if data.issue_company_id == data.sell_company_id:
         raise HTTPException(status_code=400, detail="issue and sell company must differ")
+
+    # -- MEDIUM: Input validation on lines --
+    if not data.lines:
+        raise HTTPException(status_code=400, detail="at least one line is required")
 
     # Caller must be operating from one of the involved companies and must have intercompany:write
     # in all companies we will touch.
@@ -74,34 +116,103 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
         total_cost_usd += q_usd(l.qty * l.unit_cost_usd)
         total_cost_lbp += q_lbp(l.qty * l.unit_cost_lbp)
 
-    # Create intercompany document
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # Use source company context for the document
-            set_company_context(conn, data.source_company_id)
-            cur.execute(
-                """
-                INSERT INTO intercompany_documents
-                  (id, source_company_id, issue_company_id, sell_company_id, source_type, source_id, settlement_status)
-                VALUES
-                  (gen_random_uuid(), %s, %s, %s, 'sales_invoice', %s, 'open')
-                RETURNING id
-                """,
-                (
-                    data.source_company_id,
-                    data.issue_company_id,
-                    data.sell_company_id,
-                    data.source_invoice_id,
-                ),
-            )
-            doc_id = cur.fetchone()["id"]
+    # -- CRITICAL 1: Wrap ALL operations in a SINGLE admin transaction --
+    # Admin conn bypasses RLS so we can operate across companies atomically.
+    with get_admin_conn() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                # -- MEDIUM: Company existence validation --
+                for cid, label in [
+                    (data.source_company_id, "source_company_id"),
+                    (data.issue_company_id, "issue_company_id"),
+                    (data.sell_company_id, "sell_company_id"),
+                ]:
+                    cur.execute("SELECT 1 FROM companies WHERE id=%s", (cid,))
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail=f"Company not found: {label}")
 
-    # Issue company: stock out + intercompany AR
-    with get_conn() as conn_issue:
-        with conn_issue.transaction():
-            with conn_issue.cursor() as cur:
-                set_company_context(conn_issue, data.issue_company_id)
+                # -- HIGH 2: Warehouse ownership validation --
+                cur.execute(
+                    "SELECT 1 FROM warehouses WHERE id=%s AND company_id=%s",
+                    (data.warehouse_id, data.issue_company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="warehouse_id not found or does not belong to the issue company",
+                    )
 
+                # -- HIGH 3: Item existence validation --
+                item_ids = sorted({str(l.item_id) for l in data.lines})
+                cur.execute(
+                    "SELECT id FROM items WHERE company_id=%s AND id = ANY(%s::uuid[])",
+                    (data.issue_company_id, item_ids),
+                )
+                found_items = {str(r["id"]) for r in cur.fetchall()}
+                missing_items = [iid for iid in item_ids if iid not in found_items]
+                if missing_items:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Items not found in issue company: {', '.join(missing_items[:5])}",
+                    )
+
+                # -- HIGH 4: Stock availability validation --
+                for l in data.lines:
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(qty_in), 0) - COALESCE(SUM(qty_out), 0) AS available
+                        FROM stock_moves
+                        WHERE company_id=%s AND item_id=%s AND warehouse_id=%s
+                        """,
+                        (data.issue_company_id, l.item_id, data.warehouse_id),
+                    )
+                    row = cur.fetchone()
+                    available = Decimal(str(row["available"])) if row else Decimal("0")
+                    if available < l.qty:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"Insufficient stock for item {l.item_id}: available={available}, requested={l.qty}",
+                        )
+
+                # -- MEDIUM: Duplicate transfer detection --
+                cur.execute(
+                    """
+                    SELECT id FROM intercompany_documents
+                    WHERE source_company_id=%s AND issue_company_id=%s AND sell_company_id=%s
+                      AND source_id=%s AND settlement_status='open'
+                      AND created_at > now() - interval '5 minutes'
+                    LIMIT 1
+                    """,
+                    (data.source_company_id, data.issue_company_id, data.sell_company_id, data.source_invoice_id),
+                )
+                if cur.fetchone():
+                    raise HTTPException(
+                        status_code=409,
+                        detail="A similar intercompany document was created recently; possible duplicate",
+                    )
+
+                # -- CRITICAL 2: Fetch actual exchange rate --
+                fx_rate = _fetch_market_rate(cur, data.issue_company_id)
+
+                # Create intercompany document
+                cur.execute(
+                    """
+                    INSERT INTO intercompany_documents
+                      (id, source_company_id, issue_company_id, sell_company_id, source_type, source_id, settlement_status)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, 'sales_invoice', %s, 'open')
+                    RETURNING id
+                    """,
+                    (
+                        data.source_company_id,
+                        data.issue_company_id,
+                        data.sell_company_id,
+                        data.source_invoice_id,
+                    ),
+                )
+                doc_id = cur.fetchone()["id"]
+
+                # ---- Issue company: stock out + intercompany AR ----
                 # Stock moves
                 for l in data.lines:
                     cur.execute(
@@ -125,7 +236,7 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                         ),
                     )
 
-                # GL posting
+                # GL posting (issue company)
                 defaults = ensure_company_account_defaults(cur, data.issue_company_id, roles=("INTERCO_AR", "INVENTORY", "AR"))
                 interco_ar = defaults.get("INTERCO_AR")
                 inventory = defaults.get("INVENTORY")
@@ -146,12 +257,12 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                         data.issue_company_id,
                         f"IC-ISSUE-{str(doc_id)[:8]}",
                         doc_id,
-                        0,
+                        fx_rate,
                         f"Intercompany issue {str(doc_id)[:8]}",
                         user["user_id"],
                     ),
                 )
-                journal_id = cur.fetchone()["id"]
+                issue_journal_id = cur.fetchone()["id"]
 
                 # Debit intercompany receivable
                 cur.execute(
@@ -159,7 +270,7 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Intercompany receivable')
                     """,
-                    (journal_id, interco_ar, total_cost_usd, total_cost_lbp),
+                    (issue_journal_id, interco_ar, total_cost_usd, total_cost_lbp),
                 )
 
                 # Credit inventory
@@ -168,20 +279,19 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
                     VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory issued', %s)
                     """,
-                    (journal_id, inventory, total_cost_usd, total_cost_lbp, data.warehouse_id),
+                    (issue_journal_id, inventory, total_cost_usd, total_cost_lbp, data.warehouse_id),
                 )
 
                 try:
-                    auto_balance_journal(cur, data.issue_company_id, journal_id, warehouse_id=data.warehouse_id)
+                    auto_balance_journal(cur, data.issue_company_id, issue_journal_id, warehouse_id=data.warehouse_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
-                assert_journal_balanced(cur, journal_id)
+                assert_journal_balanced(cur, issue_journal_id)
 
-    # Sell company: COGS + intercompany AP
-    with get_conn() as conn_sell:
-        with conn_sell.transaction():
-            with conn_sell.cursor() as cur:
-                set_company_context(conn_sell, data.sell_company_id)
+                # ---- Sell company: COGS + intercompany AP ----
+                # Fetch sell company rate (may differ from issue company)
+                fx_rate_sell = _fetch_market_rate(cur, data.sell_company_id)
+
                 defaults = ensure_company_account_defaults(cur, data.sell_company_id, roles=("INTERCO_AP", "COGS", "AP"))
                 interco_ap = defaults.get("INTERCO_AP")
                 cogs = defaults.get("COGS")
@@ -202,12 +312,12 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                         data.sell_company_id,
                         f"IC-SELL-{str(doc_id)[:8]}",
                         doc_id,
-                        0,
+                        fx_rate_sell,
                         f"Intercompany sell-side COGS {str(doc_id)[:8]}",
                         user["user_id"],
                     ),
                 )
-                journal_id = cur.fetchone()["id"]
+                sell_journal_id = cur.fetchone()["id"]
 
                 # Debit COGS
                 cur.execute(
@@ -215,7 +325,7 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'COGS (intercompany)')
                     """,
-                    (journal_id, cogs, total_cost_usd, total_cost_lbp),
+                    (sell_journal_id, cogs, total_cost_usd, total_cost_lbp),
                 )
 
                 # Credit intercompany payable
@@ -224,34 +334,53 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Intercompany payable')
                     """,
-                    (journal_id, interco_ap, total_cost_usd, total_cost_lbp),
+                    (sell_journal_id, interco_ap, total_cost_usd, total_cost_lbp),
                 )
 
                 try:
-                    auto_balance_journal(cur, data.sell_company_id, journal_id)
+                    auto_balance_journal(cur, data.sell_company_id, sell_journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
-                assert_journal_balanced(cur, journal_id)
+                assert_journal_balanced(cur, sell_journal_id)
 
-    # Settlement row
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            set_company_context(conn, data.sell_company_id)
-            cur.execute(
-                """
-                INSERT INTO intercompany_settlements
-                  (id, from_company_id, to_company_id, amount_usd, amount_lbp, exchange_rate, journal_id)
-                VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, NULL)
-                """,
-                (
-                    data.sell_company_id,
-                    data.issue_company_id,
-                    total_cost_usd,
-                    total_cost_lbp,
-                    0,
-                ),
-            )
+                # -- HIGH 5: Settlement row with journal_id (use sell-side journal) --
+                cur.execute(
+                    """
+                    INSERT INTO intercompany_settlements
+                      (id, from_company_id, to_company_id, amount_usd, amount_lbp, exchange_rate, journal_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        data.sell_company_id,
+                        data.issue_company_id,
+                        total_cost_usd,
+                        total_cost_lbp,
+                        fx_rate,
+                        sell_journal_id,
+                    ),
+                )
+
+                # -- MEDIUM: Audit trail --
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'intercompany_issue_created', 'intercompany_document', %s, %s::jsonb)
+                    """,
+                    (
+                        data.source_company_id,
+                        user["user_id"],
+                        doc_id,
+                        json.dumps({
+                            "issue_company_id": str(data.issue_company_id),
+                            "sell_company_id": str(data.sell_company_id),
+                            "warehouse_id": str(data.warehouse_id),
+                            "total_cost_usd": str(total_cost_usd),
+                            "total_cost_lbp": str(total_cost_lbp),
+                            "lines": len(data.lines),
+                        }),
+                    ),
+                )
 
     return {"intercompany_document_id": doc_id}
 
@@ -263,18 +392,42 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
     if method not in {"cash", "bank"}:
         raise HTTPException(status_code=400, detail="method must be cash or bank")
 
+    # -- MEDIUM: Self-transfer check --
+    if data.from_company_id == data.to_company_id:
+        raise HTTPException(status_code=400, detail="from and to company must differ")
+
     if company_id not in {data.from_company_id, data.to_company_id}:
         raise HTTPException(status_code=403, detail="active company must be payer or receiver company")
     _assert_user_perm_in_company(user["user_id"], data.from_company_id, "intercompany:write")
     _assert_user_perm_in_company(user["user_id"], data.to_company_id, "intercompany:write")
 
     # Both payer and receiver journals + settlement record in a single connection/transaction.
-    # Since both companies share the same database, we can use one transaction to ensure atomicity.
-    with get_conn() as conn:
+    # Use admin conn to bypass RLS for cross-company atomicity.
+    with get_admin_conn() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
+                # -- MEDIUM: Company existence validation --
+                for cid, label in [
+                    (data.from_company_id, "from_company_id"),
+                    (data.to_company_id, "to_company_id"),
+                ]:
+                    cur.execute("SELECT 1 FROM companies WHERE id=%s", (cid,))
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail=f"Company not found: {label}")
+
+                # -- HIGH 6: FOR UPDATE lock on open settlement documents --
+                cur.execute(
+                    """
+                    SELECT id FROM intercompany_documents
+                    WHERE (issue_company_id=%s AND sell_company_id=%s)
+                       OR (issue_company_id=%s AND sell_company_id=%s)
+                    AND settlement_status='open'
+                    FOR UPDATE
+                    """,
+                    (data.from_company_id, data.to_company_id, data.to_company_id, data.from_company_id),
+                )
+
                 # Payer company: Dr Interco AP, Cr Cash/Bank
-                set_company_context(conn, data.from_company_id)
                 defaults = ensure_company_account_defaults(cur, data.from_company_id, roles=("INTERCO_AP", "CASH", "BANK", "AP"))
                 interco_ap = defaults.get("INTERCO_AP")
                 pay_account = defaults.get("BANK") if method == "bank" else defaults.get("CASH")
@@ -324,7 +477,6 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                 assert_journal_balanced(cur, payer_journal_id)
 
                 # Receiver company: Dr Cash/Bank, Cr Interco AR
-                set_company_context(conn, data.to_company_id)
                 defaults = ensure_company_account_defaults(cur, data.to_company_id, roles=("INTERCO_AR", "CASH", "BANK", "AR"))
                 interco_ar = defaults.get("INTERCO_AR")
                 recv_account = defaults.get("BANK") if method == "bank" else defaults.get("CASH")
@@ -373,13 +525,14 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                     raise HTTPException(status_code=400, detail=str(e))
                 assert_journal_balanced(cur, recv_journal_id)
 
-                # Settlement record (in same transaction)
+                # -- HIGH 5: Settlement record with journal_id (use payer journal) --
                 cur.execute(
                     """
                     INSERT INTO intercompany_settlements
                       (id, from_company_id, to_company_id, amount_usd, amount_lbp, exchange_rate, journal_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, NULL)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s)
+                    RETURNING id
                     """,
                     (
                         data.from_company_id,
@@ -387,16 +540,56 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                         data.amount_usd,
                         data.amount_lbp,
                         data.exchange_rate,
+                        payer_journal_id,
+                    ),
+                )
+                settlement_id = cur.fetchone()["id"]
+
+                # -- HIGH 1: Update settlement_status on related open documents --
+                cur.execute(
+                    """
+                    UPDATE intercompany_documents
+                    SET settlement_status = 'settled'
+                    WHERE settlement_status = 'open'
+                      AND (
+                        (issue_company_id=%s AND sell_company_id=%s)
+                        OR (issue_company_id=%s AND sell_company_id=%s)
+                      )
+                    """,
+                    (data.from_company_id, data.to_company_id, data.to_company_id, data.from_company_id),
+                )
+
+                # -- MEDIUM: Audit trail --
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'intercompany_settlement_created', 'intercompany_settlement', %s, %s::jsonb)
+                    """,
+                    (
+                        data.from_company_id,
+                        user["user_id"],
+                        settlement_id,
+                        json.dumps({
+                            "to_company_id": str(data.to_company_id),
+                            "amount_usd": str(data.amount_usd),
+                            "amount_lbp": str(data.amount_lbp),
+                            "method": method,
+                            "payer_journal_id": str(payer_journal_id),
+                            "recv_journal_id": str(recv_journal_id),
+                        }),
                     ),
                 )
 
-    return {"ok": True}
+    return {"ok": True, "settlement_id": settlement_id}
 
 
+# -- MEDIUM: Pagination on list endpoints --
 @router.get("/documents", dependencies=[Depends(require_permission("intercompany:write"))])
-def list_intercompany_documents(limit: int = 200, company_id: str = Depends(get_company_id)):
-    if limit <= 0 or limit > 2000:
-        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+def list_intercompany_documents(
+    limit: int = Query(200, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    company_id: str = Depends(get_company_id),
+):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -415,17 +608,19 @@ def list_intercompany_documents(limit: int = 200, company_id: str = Depends(get_
                    OR d.issue_company_id = %s
                    OR d.sell_company_id = %s
                 ORDER BY d.created_at DESC
-                LIMIT %s
+                LIMIT %s OFFSET %s
                 """,
-                (company_id, company_id, company_id, limit),
+                (company_id, company_id, company_id, limit, offset),
             )
             return {"documents": cur.fetchall()}
 
 
 @router.get("/settlements", dependencies=[Depends(require_permission("intercompany:write"))])
-def list_intercompany_settlements(limit: int = 200, company_id: str = Depends(get_company_id)):
-    if limit <= 0 or limit > 2000:
-        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+def list_intercompany_settlements(
+    limit: int = Query(200, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    company_id: str = Depends(get_company_id),
+):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -440,8 +635,8 @@ def list_intercompany_settlements(limit: int = 200, company_id: str = Depends(ge
                 LEFT JOIN companies tc ON tc.id = s.to_company_id
                 WHERE s.from_company_id = %s OR s.to_company_id = %s
                 ORDER BY s.created_at DESC
-                LIMIT %s
+                LIMIT %s OFFSET %s
                 """,
-                (company_id, company_id, limit),
+                (company_id, company_id, limit, offset),
             )
             return {"settlements": cur.fetchall()}

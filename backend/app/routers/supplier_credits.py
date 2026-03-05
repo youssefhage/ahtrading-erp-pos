@@ -142,6 +142,66 @@ def list_supplier_credits(
             return {"credits": cur.fetchall()}
 
 
+@router.get("/open-invoices", dependencies=[Depends(require_permission("purchases:read"))])
+def list_open_invoices_for_credit(
+    supplier_id: str = Query(..., description="Supplier id"),
+    q: str = Query("", description="Search invoice no"),
+    limit: int = Query(50, ge=1, le=200),
+    company_id: str = Depends(get_company_id),
+):
+    qq = (q or "").strip()
+    sid = (supplier_id or "").strip()
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT
+                  si.id, si.invoice_no, si.invoice_date, si.due_date,
+                  si.total_usd, si.total_lbp,
+                  COALESCE(sp.paid_usd, 0) AS paid_usd,
+                  COALESCE(sp.paid_lbp, 0) AS paid_lbp,
+                  COALESCE(app.credits_applied_usd, 0) AS credits_applied_usd,
+                  COALESCE(app.credits_applied_lbp, 0) AS credits_applied_lbp,
+                  (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(app.credits_applied_usd, 0)) AS balance_usd,
+                  (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(app.credits_applied_lbp, 0)) AS balance_lbp
+                FROM supplier_invoices si
+                LEFT JOIN (
+                  SELECT supplier_invoice_id,
+                         SUM(amount_usd) AS paid_usd,
+                         SUM(amount_lbp) AS paid_lbp
+                  FROM supplier_payments
+                  WHERE voided_at IS NULL
+                  GROUP BY supplier_invoice_id
+                ) sp ON sp.supplier_invoice_id = si.id
+                LEFT JOIN (
+                  SELECT supplier_invoice_id,
+                         SUM(amount_usd) AS credits_applied_usd,
+                         SUM(amount_lbp) AS credits_applied_lbp
+                  FROM supplier_credit_note_applications
+                  WHERE company_id = %s
+                  GROUP BY supplier_invoice_id
+                ) app ON app.supplier_invoice_id = si.id
+                WHERE si.company_id=%s
+                  AND si.status='posted'
+                  AND si.supplier_id=%s
+            """
+            params: list = [company_id, company_id, sid]
+            if qq:
+                sql += " AND si.invoice_no ILIKE %s"
+                params.append(f"%{escape_like(qq)}%")
+            sql += """
+                GROUP BY si.id, si.invoice_no, si.invoice_date, si.due_date, si.total_usd, si.total_lbp,
+                         sp.paid_usd, sp.paid_lbp, app.credits_applied_usd, app.credits_applied_lbp
+                HAVING (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(app.credits_applied_usd, 0)) > 0
+                    OR (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(app.credits_applied_lbp, 0)) > 0
+                ORDER BY si.due_date ASC, si.invoice_no ASC
+                LIMIT %s
+            """
+            params.append(limit)
+            cur.execute(sql, params)
+            return {"invoices": cur.fetchall()}
+
+
 @router.get("/{credit_id}", dependencies=[Depends(require_permission("purchases:read"))])
 def get_supplier_credit(credit_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -1012,65 +1072,6 @@ def cancel_supplier_credit(credit_id: str, data: CancelIn, company_id: str = Dep
                 return {"ok": True, "journal_id": void_journal_id}
 
 
-@router.get("/open-invoices", dependencies=[Depends(require_permission("purchases:read"))])
-def list_open_invoices_for_credit(
-    supplier_id: str = Query(..., description="Supplier id"),
-    q: str = Query("", description="Search invoice no"),
-    limit: int = Query(50, ge=1, le=200),
-    company_id: str = Depends(get_company_id),
-):
-    qq = (q or "").strip()
-    sid = (supplier_id or "").strip()
-    with get_conn() as conn:
-        set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            sql = """
-                SELECT
-                  si.id, si.invoice_no, si.invoice_date, si.due_date,
-                  si.total_usd, si.total_lbp,
-                  COALESCE(sp.paid_usd, 0) AS paid_usd,
-                  COALESCE(sp.paid_lbp, 0) AS paid_lbp,
-                  COALESCE(app.credits_applied_usd, 0) AS credits_applied_usd,
-                  COALESCE(app.credits_applied_lbp, 0) AS credits_applied_lbp,
-                  (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(app.credits_applied_usd, 0)) AS balance_usd,
-                  (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(app.credits_applied_lbp, 0)) AS balance_lbp
-                FROM supplier_invoices si
-                LEFT JOIN (
-                  SELECT supplier_invoice_id,
-                         SUM(amount_usd) AS paid_usd,
-                         SUM(amount_lbp) AS paid_lbp
-                  FROM supplier_payments
-                  GROUP BY supplier_invoice_id
-                ) sp ON sp.supplier_invoice_id = si.id
-                LEFT JOIN (
-                  SELECT supplier_invoice_id,
-                         SUM(amount_usd) AS credits_applied_usd,
-                         SUM(amount_lbp) AS credits_applied_lbp
-                  FROM supplier_credit_note_applications
-                  WHERE company_id = %s
-                  GROUP BY supplier_invoice_id
-                ) app ON app.supplier_invoice_id = si.id
-                WHERE si.company_id=%s
-                  AND si.status='posted'
-                  AND si.supplier_id=%s
-            """
-            params: list = [company_id, company_id, sid]
-            if qq:
-                sql += " AND si.invoice_no ILIKE %s"
-                params.append(f"%{escape_like(qq)}%")
-            sql += """
-                GROUP BY si.id, si.invoice_no, si.invoice_date, si.due_date, si.total_usd, si.total_lbp,
-                         sp.paid_usd, sp.paid_lbp, app.credits_applied_usd, app.credits_applied_lbp
-                HAVING (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(app.credits_applied_usd, 0)) > 0
-                    OR (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(app.credits_applied_lbp, 0)) > 0
-                ORDER BY si.due_date ASC, si.invoice_no ASC
-                LIMIT %s
-            """
-            params.append(limit)
-            cur.execute(sql, params)
-            return {"invoices": cur.fetchall()}
-
-
 @router.post("/{credit_id}/apply", dependencies=[Depends(require_permission("purchases:write"))])
 def apply_credit_to_invoice(credit_id: str, data: ApplyIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     inv_id = (data.supplier_invoice_id or "").strip()
@@ -1135,7 +1136,7 @@ def apply_credit_to_invoice(credit_id: str, data: ApplyIn, company_id: str = Dep
                     """
                     SELECT COALESCE(SUM(amount_usd),0) AS paid_usd, COALESCE(SUM(amount_lbp),0) AS paid_lbp
                     FROM supplier_payments
-                    WHERE supplier_invoice_id=%s
+                    WHERE supplier_invoice_id=%s AND voided_at IS NULL
                     """,
                     (inv_id,),
                 )

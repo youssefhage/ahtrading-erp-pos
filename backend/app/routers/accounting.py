@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Literal, Optional
+from collections import deque
 import json
 
 from ..db import get_conn, set_company_context
@@ -25,8 +26,8 @@ def _sign(v: Decimal) -> int:
     return 0
 
 
-_stale_rate_warnings: list[str] = []  # populated per-request if rate is stale; capped to prevent unbounded growth
 _STALE_RATE_WARNINGS_MAX = 100
+_stale_rate_warnings: deque = deque(maxlen=_STALE_RATE_WARNINGS_MAX)
 
 
 def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateType) -> Decimal:
@@ -35,8 +36,6 @@ def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateT
     if rate is None:
         raise HTTPException(status_code=400, detail="missing exchange rate")
     if is_stale:
-        if len(_stale_rate_warnings) >= _STALE_RATE_WARNINGS_MAX:
-            _stale_rate_warnings.clear()
         _stale_rate_warnings.append(
             f"Exchange rate for {rate_date} ({rate_type}) is stale — using fallback from >7 days ago"
         )

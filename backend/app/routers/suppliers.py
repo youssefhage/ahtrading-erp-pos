@@ -247,7 +247,7 @@ class SupplierUpdate(BaseModel):
 def update_supplier(supplier_id: str, data: SupplierUpdate, company_id: str = Depends(get_company_id)):
     fields = []
     params = []
-    payload = data.model_dump(exclude_none=True)
+    payload = data.model_dump(exclude_unset=True)
     if "code" in payload:
         payload["code"] = (payload.get("code") or "").strip() or None
     if "legal_name" in payload:
@@ -471,6 +471,9 @@ def merge_supplier(data: SupplierMergeExecuteIn, company_id: str = Depends(get_c
                 cur.execute("UPDATE supplier_invoices SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE supplier_credit_notes SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE batches SET received_supplier_id=%s WHERE company_id=%s AND received_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                # Re-point preferred supplier references on items and warehouse policies.
+                cur.execute("UPDATE items SET preferred_supplier_id=%s WHERE company_id=%s AND preferred_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE item_warehouse_policies SET preferred_supplier_id=%s WHERE company_id=%s AND preferred_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE party_contacts SET party_id=%s WHERE company_id=%s AND party_kind='supplier' AND party_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE party_addresses SET party_id=%s WHERE company_id=%s AND party_kind='supplier' AND party_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE document_attachments SET entity_id=%s WHERE company_id=%s AND entity_type='supplier' AND entity_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))

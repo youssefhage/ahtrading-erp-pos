@@ -1011,16 +1011,16 @@ def metrics(company_id: str = Depends(get_company_id)):
                 SELECT
                   (SELECT COALESCE(SUM(total_usd), 0)
                    FROM sales_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS sales_today_usd,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS sales_today_usd,
                   (SELECT COALESCE(SUM(total_lbp), 0)
                    FROM sales_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS sales_today_lbp,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS sales_today_lbp,
                   (SELECT COALESCE(SUM(total_usd), 0)
                    FROM supplier_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS purchases_today_usd,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS purchases_today_usd,
                   (SELECT COALESCE(SUM(total_lbp), 0)
                    FROM supplier_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS purchases_today_lbp,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS purchases_today_lbp,
                   ((SELECT COALESCE(SUM(total_usd), 0)
                     FROM sales_invoices
                     WHERE company_id = %s AND status = 'posted')
@@ -1058,7 +1058,7 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_usd), 0)
                     FROM supplier_payments sp
                     JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')
+                    WHERE si.company_id = %s AND si.status = 'posted' AND sp.voided_at IS NULL)
                    -
                    (SELECT COALESCE(SUM(sca.amount_usd), 0)
                     FROM supplier_credit_note_applications sca
@@ -1074,7 +1074,7 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_lbp), 0)
                     FROM supplier_payments sp
                     JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')
+                    WHERE si.company_id = %s AND si.status = 'posted' AND sp.voided_at IS NULL)
                    -
                    (SELECT COALESCE(SUM(sca.amount_lbp), 0)
                     FROM supplier_credit_note_applications sca
@@ -1156,14 +1156,14 @@ def daily_summary(days: int = 7, company_id: str = Depends(get_company_id)):
                         FROM sales_invoices si
                         WHERE si.company_id = %s
                           AND si.status = 'posted'
-                          AND si.created_at::date = ds.d
+                          AND si.invoice_date = ds.d
                     ), 0) AS sales,
                     COALESCE((
                         SELECT SUM(pi.total_usd)::float
                         FROM supplier_invoices pi
                         WHERE pi.company_id = %s
                           AND pi.status = 'posted'
-                          AND pi.created_at::date = ds.d
+                          AND pi.invoice_date = ds.d
                     ), 0) AS purchases
                 FROM date_series ds
                 ORDER BY ds.d
@@ -1319,6 +1319,7 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                          SUM(amount_lbp) AS paid_lbp
                   FROM supplier_payments
                   WHERE COALESCE(payment_date, created_at::date) <= %s
+                    AND voided_at IS NULL
                   GROUP BY supplier_invoice_id
                 ) sp ON sp.supplier_invoice_id = si.id
                 LEFT JOIN (
@@ -1655,6 +1656,7 @@ def supplier_soa(
                   WHERE si.company_id=%s
                     AND si.status='posted'
                     AND si.supplier_id=%s
+                    AND sp.voided_at IS NULL
 
                   UNION ALL
 
@@ -2355,4 +2357,29 @@ def balance_sheet(as_of: Optional[date] = None, company_id: str = Depends(get_co
                 """,
                 (company_id, as_of),
             )
-            return {"as_of": str(as_of), "rows": cur.fetchall()}
+            rows = cur.fetchall()
+
+            # Compute retained earnings = Revenue (4xx credit balances) - Expenses (5xx debit balances).
+            revenue_usd = Decimal("0")
+            revenue_lbp = Decimal("0")
+            expense_usd = Decimal("0")
+            expense_lbp = Decimal("0")
+            for r in rows:
+                code = str(r.get("account_code") or "")
+                bal_usd = Decimal(str(r.get("balance_usd") or 0))
+                bal_lbp = Decimal(str(r.get("balance_lbp") or 0))
+                if code.startswith("4"):
+                    revenue_usd += bal_usd
+                    revenue_lbp += bal_lbp
+                elif code.startswith("5"):
+                    expense_usd += bal_usd
+                    expense_lbp += bal_lbp
+            retained_earnings_usd = revenue_usd - expense_usd
+            retained_earnings_lbp = revenue_lbp - expense_lbp
+
+            return {
+                "as_of": str(as_of),
+                "rows": rows,
+                "retained_earnings_usd": float(retained_earnings_usd),
+                "retained_earnings_lbp": float(retained_earnings_lbp),
+            }

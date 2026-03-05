@@ -4540,7 +4540,7 @@ def cancel_supplier_invoice(invoice_id: str, data: SupplierInvoiceCancelIn, comp
                 if inv["status"] != "posted":
                     raise HTTPException(status_code=400, detail="only posted invoices can be canceled")
 
-                cur.execute("SELECT 1 FROM supplier_payments WHERE supplier_invoice_id=%s LIMIT 1", (invoice_id,))
+                cur.execute("SELECT 1 FROM supplier_payments WHERE supplier_invoice_id=%s AND voided_at IS NULL LIMIT 1", (invoice_id,))
                 if cur.fetchone():
                     raise HTTPException(status_code=400, detail="cannot cancel an invoice with payments; use a debit note/refund flow")
 
@@ -5112,7 +5112,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                     SELECT COALESCE(SUM(amount_usd), 0) AS paid_usd,
                            COALESCE(SUM(amount_lbp), 0) AS paid_lbp
                     FROM supplier_payments
-                    WHERE supplier_invoice_id = %s
+                    WHERE supplier_invoice_id = %s AND voided_at IS NULL
                     """,
                     (data.supplier_invoice_id,),
                 )
