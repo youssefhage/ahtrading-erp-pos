@@ -133,23 +133,25 @@ def update_company(
     if not set_parts:
         raise HTTPException(status_code=400, detail="no fields to update")
 
+    # Bug 3 fix: wrap update_company in a transaction for atomicity
     with get_admin_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE companies
-                SET {", ".join(set_parts)}, updated_at = now()
-                WHERE id = %s
-                RETURNING id, name, legal_name, registration_no, vat_no,
-                          base_currency, vat_currency, default_rate_type,
-                          created_at, updated_at
-                """,
-                (*params, company_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="company not found")
-            return {"company": row}
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE companies
+                    SET {", ".join(set_parts)}, updated_at = now()
+                    WHERE id = %s
+                    RETURNING id, name, legal_name, registration_no, vat_no,
+                              base_currency, vat_currency, default_rate_type,
+                              created_at, updated_at
+                    """,
+                    (*params, company_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="company not found")
+                return {"company": row}
 
 
 @router.post("", dependencies=[Depends(require_company_access), Depends(require_permission("users:write"))])
@@ -160,7 +162,9 @@ def create_company(
 ):
     # Creating companies is a privileged operation. For now we gate it behind
     # `users:write` in an existing company (header X-Company-Id), so only admins can bootstrap more companies.
-    with get_conn() as conn:
+    # Bug 2 fix: use get_admin_conn to avoid RLS interference, and set_company_context
+    # with the new company_id before inserting company-scoped data.
+    with get_admin_conn() as conn:
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(

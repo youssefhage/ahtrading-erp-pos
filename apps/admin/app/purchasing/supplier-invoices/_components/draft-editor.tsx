@@ -113,8 +113,10 @@ function toNum(v: string) {
   return r.ok ? r.value : 0;
 }
 
-function roundUsd(v: number) { return Math.round((v || 0) * 10000) / 10000; }
-function roundLbp(v: number) { return Math.round((v || 0) * 100) / 100; }
+/** Round USD to 2 decimal places for GL-consistent totals. */
+function roundUsd(v: number) { return Math.round((v || 0) * 100) / 100; }
+/** Round LBP to whole numbers (no decimals). */
+function roundLbp(v: number) { return Math.round(v || 0); }
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -180,7 +182,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [supplierRef, setSupplierRef] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(() => todayIso());
   const [dueDate, setDueDate] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("90000");
+  const [exchangeRate, setExchangeRate] = useState("0");
   const [taxCodeId, setTaxCodeId] = useState("");
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
 
@@ -236,7 +238,11 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         getFxRateUsdToLbp(),
       ]);
       setTaxCodes(tc.tax_codes || []);
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
+      const fxVal = Number(fx?.usd_to_lbp || 0);
+      if (fxVal <= 0) {
+        throw new Error("Unable to fetch exchange rate. Please set the USD\u2192LBP rate in System \u2192 Config before creating invoices.");
+      }
+      const defaultEx = fxVal;
 
       if (props.mode === "edit") {
         const id = props.invoiceId || "";
@@ -666,8 +672,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         if (ex > 0) {
           const usd = toNum(String(out.unit_cost_usd || 0));
           const lbp = toNum(String(out.unit_cost_lbp || 0));
-          if (patch.unit_cost_usd !== undefined && usd > 0 && lbp === 0) out.unit_cost_lbp = String(usd * ex);
-          if (patch.unit_cost_lbp !== undefined && lbp > 0 && usd === 0) out.unit_cost_usd = String(lbp / ex);
+          if (patch.unit_cost_usd !== undefined && usd > 0 && lbp === 0) out.unit_cost_lbp = String(roundLbp(usd * ex));
+          if (patch.unit_cost_lbp !== undefined && lbp > 0 && usd === 0) out.unit_cost_usd = String(roundUsd(lbp / ex));
         }
         return out;
       })
@@ -700,6 +706,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   ) {
     e?.preventDefault();
     if (!supplierId) return setStatus("supplier is required");
+    if (!lines || lines.length === 0 || !lines.some((l) => toNum(l.qty) > 0))
+      return setStatus("At least one line item with qty > 0 is required.");
     const navigateOnEdit = opts?.navigateOnEdit ?? true;
 
     const exRes = parseNumberInput(exchangeRate);
@@ -739,13 +747,15 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       const uom = String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || null;
       if (!uom) return setStatus(`Missing UOM (item ${i + 1}).`);
       if (ex > 0) {
-        if (unitEnteredUsd === 0 && unitEnteredLbp > 0) unitEnteredUsd = unitEnteredLbp / ex;
-        if (unitEnteredLbp === 0 && unitEnteredUsd > 0) unitEnteredLbp = unitEnteredUsd * ex;
+        if (unitEnteredUsd === 0 && unitEnteredLbp > 0) unitEnteredUsd = roundUsd(unitEnteredLbp / ex);
+        if (unitEnteredLbp === 0 && unitEnteredUsd > 0) unitEnteredLbp = roundLbp(unitEnteredUsd * ex);
       }
+      unitEnteredUsd = roundUsd(unitEnteredUsd);
+      unitEnteredLbp = roundLbp(unitEnteredLbp);
       if (unitEnteredUsd === 0 && unitEnteredLbp === 0) return setStatus(`Set USD or LBP unit cost (item ${i + 1}).`);
       const qtyBase = qtyEntered * qtyFactor;
-      const unitUsd = unitEnteredUsd / qtyFactor;
-      const unitLbp = unitEnteredLbp / qtyFactor;
+      const unitUsd = roundUsd(unitEnteredUsd / qtyFactor);
+      const unitLbp = roundLbp(unitEnteredLbp / qtyFactor);
       linesOut.push({
         item_id: l.item_id,
         goods_receipt_line_id: l.goods_receipt_line_id || undefined,

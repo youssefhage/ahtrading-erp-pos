@@ -1156,9 +1156,10 @@ def catalog(
                     FROM item_barcodes b
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
+                WHERE i.company_id = %s
                 ORDER BY i.sku
                 """,
-                (default_pl_id, default_pl_id),
+                (default_pl_id, default_pl_id, company_id),
             )
             return {"items": cur.fetchall()}
 

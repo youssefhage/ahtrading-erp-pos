@@ -19,6 +19,9 @@ from ..db import get_conn, set_company_context
 
 logger = logging.getLogger(__name__)
 
+# Maximum audio file size: 25 MB
+_MAX_AUDIO_SIZE = 25 * 1024 * 1024
+
 # Supported audio MIME types and their file extensions
 _MIME_TO_EXT = {
     "audio/ogg": ".ogg",
@@ -48,7 +51,15 @@ def transcribe_audio(
     if not audio_bytes:
         return None
 
-    # Determine file extension
+    # Enforce maximum file size (25 MB)
+    if len(audio_bytes) > _MAX_AUDIO_SIZE:
+        logger.warning(
+            "transcribe_audio: file too large (%d bytes, max %d)",
+            len(audio_bytes), _MAX_AUDIO_SIZE,
+        )
+        return None
+
+    # Determine file extension and build a safe filename
     ext = _MIME_TO_EXT.get(mime_type.split(";")[0].strip(), ".ogg")
     filename = f"voice{ext}"
 
@@ -86,6 +97,26 @@ def transcribe_audio(
         return None
 
 
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize a filename for use in multipart form data.
+
+    Strips path separators, limits to alphanumeric + safe characters,
+    and truncates length.
+    """
+    import re as _re
+    # Strip any path components
+    filename = filename.replace("/", "").replace("\\", "").replace("\x00", "")
+    # Only allow alphanumeric, dot, hyphen, underscore
+    filename = _re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    # Truncate to reasonable length
+    if len(filename) > 100:
+        filename = filename[:100]
+    # Ensure we have something valid
+    if not filename or filename.startswith("."):
+        filename = "voice.ogg"
+    return filename
+
+
 def _call_whisper_api(
     url: str,
     api_key: str,
@@ -94,6 +125,9 @@ def _call_whisper_api(
     filename: str,
 ) -> str | None:
     """Send audio to a Whisper-compatible transcription API."""
+    # Sanitize filename before using in multipart form data
+    filename = _sanitize_filename(filename)
+
     # Build multipart/form-data request
     boundary = "----KaiVoiceBoundary"
     body = io.BytesIO()

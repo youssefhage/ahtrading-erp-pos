@@ -22,6 +22,51 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
+def _sanitize_for_prompt(text: str, max_length: int = 200) -> str:
+    """Sanitize a database string before including it in AI prompt text.
+
+    Strips control characters and truncates to prevent prompt injection.
+    """
+    if not text:
+        return ""
+    # Strip control characters (keep printable + common whitespace)
+    import re
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+    # Collapse excessive whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length] + "..."
+    return cleaned
+
+
+def _validate_internal_url(page: str) -> str:
+    """Validate that a URL is internal (relative path only).
+
+    Blocks external URLs, javascript: URIs, data: URIs, etc.
+    Returns the sanitized path or raises ValueError.
+    """
+    from urllib.parse import urlparse
+
+    page = (page or "").strip()
+    if not page:
+        return "/"
+
+    # Block absolute URLs with schemes (http://, https://, javascript:, data:, etc.)
+    parsed = urlparse(page)
+    if parsed.scheme or parsed.netloc:
+        raise ValueError(f"External URLs are not allowed: {page[:100]}")
+
+    # Must start with /
+    if not page.startswith("/"):
+        page = "/" + page
+
+    # Block dangerous patterns
+    if "//" in page or "\\" in page:
+        raise ValueError(f"Invalid URL path: {page[:100]}")
+
+    return page
+
 def _json_safe(val: Any) -> Any:
     if val is None:
         return None
@@ -90,9 +135,10 @@ def search_items(
                 (company_id, pattern, pattern, pattern, pattern, limit),
             )
             rows = cur.fetchall()
+            safe_query = _sanitize_for_prompt(query, 100)
             return ToolResult(
                 data={"items": _rows(rows), "count": len(rows)},
-                message=f"Found {len(rows)} item(s) matching '{query}'.",
+                message=f"Found {len(rows)} item(s) matching '{safe_query}'.",
             )
 
 
@@ -333,9 +379,10 @@ def customer_lookup(
                 (company_id, pattern, pattern, pattern, limit),
             )
             rows = cur.fetchall()
+            safe_query = _sanitize_for_prompt(query, 100)
             return ToolResult(
                 data={"customers": _rows(rows), "count": len(rows)},
-                message=f"Found {len(rows)} customer(s) matching '{query}'.",
+                message=f"Found {len(rows)} customer(s) matching '{safe_query}'.",
             )
 
 
@@ -381,9 +428,10 @@ def supplier_lookup(
                 (company_id, pattern, pattern, pattern, limit),
             )
             rows = cur.fetchall()
+            safe_query = _sanitize_for_prompt(query, 100)
             return ToolResult(
                 data={"suppliers": _rows(rows), "count": len(rows)},
-                message=f"Found {len(rows)} supplier(s) matching '{query}'.",
+                message=f"Found {len(rows)} supplier(s) matching '{safe_query}'.",
             )
 
 
@@ -737,6 +785,10 @@ def navigate(
     reason: str = "",
 ) -> ToolResult:
     """Navigate the user to a specific page in the application."""
+    try:
+        page = _validate_internal_url(page)
+    except ValueError as e:
+        return ToolResult(error=str(e))
     return ToolResult(
         data={"navigated": True, "page": page, "reason": reason},
         actions=[{"type": "navigate", "href": page, "label": reason}],

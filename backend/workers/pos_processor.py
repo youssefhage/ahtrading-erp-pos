@@ -975,6 +975,12 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     exchange_rate = Decimal(str(payload.get("exchange_rate", 0)))
     if exchange_rate < 0:
         raise ValueError("exchange_rate must not be negative")
+    # Bug 5 fix: reject exchange_rate of 0 when dual-currency settlement is needed
+    if exchange_rate == 0:
+        _settle = (payload.get("settlement_currency") or "USD").upper()
+        _pricing = (payload.get("pricing_currency") or "USD").upper()
+        if _settle != _pricing:
+            raise ValueError("exchange_rate must be > 0 for cross-currency settlement")
     pricing_currency = payload.get("pricing_currency", "USD")
     settlement_currency = payload.get("settlement_currency", "USD")
     invoice_date = resolve_business_date(payload, "invoice_date")

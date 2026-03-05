@@ -18,10 +18,26 @@ import logging
 from decimal import Decimal
 from typing import Any, Optional
 
+import re as _re
+
 from ...db import get_conn, set_company_context
 from .registry import ToolResult, register_tool
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_for_prompt(text: str, max_length: int = 200) -> str:
+    """Sanitize a database string before including it in AI prompt/tool responses.
+
+    Strips control characters and truncates to prevent prompt injection.
+    """
+    if not text:
+        return ""
+    cleaned = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', str(text))
+    cleaned = _re.sub(r'\s+', ' ', cleaned).strip()
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length] + "..."
+    return cleaned
 
 
 def _default_exchange_rate(cur, company_id: str) -> Decimal:
@@ -266,19 +282,24 @@ def create_purchase_order(
                     ),
                 )
 
-                line_summaries = [f"  • {l['item_name']} — {l['qty']} × ${l['unit_cost_usd']}" for l in lines]
+                line_summaries = [
+                    f"  • {_sanitize_for_prompt(l['item_name'])} — {l['qty']} × ${l['unit_cost_usd']}"
+                    for l in lines
+                ]
+                safe_sup = _sanitize_for_prompt(sup["name"])
+                safe_wh = _sanitize_for_prompt(wh["name"])
                 return ToolResult(
                     data={
                         "po_id": po_id,
                         "order_no": order_no,
-                        "supplier": sup["name"],
-                        "warehouse": wh["name"],
+                        "supplier": safe_sup,
+                        "warehouse": safe_wh,
                         "total_usd": str(total_usd),
                         "line_count": len(lines),
                     },
                     message=(
-                        f"Purchase Order **{order_no}** created for {sup['name']}.\n"
-                        f"Warehouse: {wh['name']}\n"
+                        f"Purchase Order **{order_no}** created for {safe_sup}.\n"
+                        f"Warehouse: {safe_wh}\n"
                         + "\n".join(line_summaries) + "\n"
                         f"**Total: ${total_usd} USD**"
                     ),
@@ -408,18 +429,21 @@ def update_item_price(
                     ),
                 )
 
+                safe_item_name = _sanitize_for_prompt(item["name"])
+                safe_sku = _sanitize_for_prompt(item["sku"], 50)
+                safe_pl = _sanitize_for_prompt(pl["name"])
                 return ToolResult(
                     data={
                         "price_list_item_id": new_id,
-                        "item_name": item["name"],
-                        "item_sku": item["sku"],
-                        "price_list": pl["name"],
+                        "item_name": safe_item_name,
+                        "item_sku": safe_sku,
+                        "price_list": safe_pl,
                         "new_price_usd": str(price_usd),
                         "new_price_lbp": str(price_lbp),
                     },
                     message=(
-                        f"Price updated for **{item['name']}** ({item['sku']}) "
-                        f"on price list '{pl['name']}': **${price_usd} USD** "
+                        f"Price updated for **{safe_item_name}** ({safe_sku}) "
+                        f"on price list '{safe_pl}': **${price_usd} USD** "
                         f"(LBP {price_lbp}), effective today."
                     ),
                 )
@@ -784,17 +808,22 @@ def create_stock_adjustment(
                 )
 
                 direction = "added" if qty > 0 else "removed"
+                safe_item_name = _sanitize_for_prompt(item["name"])
+                safe_sku = _sanitize_for_prompt(item["sku"], 50)
+                safe_wh = _sanitize_for_prompt(wh["name"])
+                safe_uom = _sanitize_for_prompt(item["unit_of_measure"], 30)
+                safe_reason = _sanitize_for_prompt(reason, 300)
                 return ToolResult(
                     data={
                         "move_id": move_id,
-                        "item_name": item["name"],
-                        "warehouse": wh["name"],
+                        "item_name": safe_item_name,
+                        "warehouse": safe_wh,
                         "qty_change": str(qty),
                     },
                     message=(
-                        f"Stock adjustment: {direction} {abs(qty)} {item['unit_of_measure']} "
-                        f"of **{item['name']}** ({item['sku']}) at {wh['name']}. "
-                        f"Reason: {reason}"
+                        f"Stock adjustment: {direction} {abs(qty)} {safe_uom} "
+                        f"of **{safe_item_name}** ({safe_sku}) at {safe_wh}. "
+                        f"Reason: {safe_reason}"
                     ),
                 )
 
@@ -875,10 +904,11 @@ def create_customer(
                     ),
                 )
 
+                safe_name = _sanitize_for_prompt(name)
                 return ToolResult(
-                    data={"customer_id": cust_id, "name": name},
-                    message=f"Customer **{name}** created successfully.",
-                    actions=[{"type": "navigate", "href": "/partners/customers", "label": f"View {name}"}],
+                    data={"customer_id": cust_id, "name": safe_name},
+                    message=f"Customer **{safe_name}** created successfully.",
+                    actions=[{"type": "navigate", "href": "/partners/customers", "label": f"View {safe_name}"}],
                 )
 
 

@@ -191,6 +191,23 @@ TOOLS: list[dict[str, Any]] = [
 # 3. Tool execution (read-only DB queries)
 # ---------------------------------------------------------------------------
 
+def _validate_internal_url(page: str) -> str:
+    """Validate that a URL is internal (relative path only)."""
+    from urllib.parse import urlparse
+
+    page = (page or "").strip()
+    if not page:
+        return "/"
+    parsed = urlparse(page)
+    if parsed.scheme or parsed.netloc:
+        return "/"  # Silently block external URLs
+    if not page.startswith("/"):
+        page = "/" + page
+    if "//" in page or "\\" in page:
+        return "/"
+    return page
+
+
 def _execute_tool_call(
     tool_name: str,
     arguments: dict[str, Any],
@@ -203,7 +220,7 @@ def _execute_tool_call(
     if tool_name == "navigate":
         # Navigation is a client-side action; echo it back.
         # Include both page/reason (internal) and href/label (frontend KaiAction).
-        page = arguments.get("page", "/")
+        page = _validate_internal_url(arguments.get("page", "/"))
         reason = arguments.get("reason", "")
         return {"navigated": True, "page": page, "reason": reason, "href": page, "label": reason}
 

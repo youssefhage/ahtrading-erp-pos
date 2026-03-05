@@ -39,6 +39,22 @@ def _extract_output_text(res: dict[str, Any]) -> str:
     raise RuntimeError("OpenAI response did not contain output_text")
 
 
+def _sanitize_raw_name(raw_name: str, max_length: int = 300) -> str:
+    """Sanitize a raw item name before including it in an AI prompt.
+
+    Strips control characters and truncates to prevent prompt injection.
+    """
+    if not raw_name:
+        return ""
+    # Strip control characters (keep printable + common whitespace)
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', raw_name)
+    # Collapse excessive whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length]
+    return cleaned
+
+
 def _smart_unit_normalize(s: str) -> str:
     t = re.sub(r"\s+", " ", (s or "").strip())
     # normalize common unit typos: "20gram" -> "20 g"
@@ -54,6 +70,7 @@ def heuristic_item_name_suggestions(raw_name: str) -> list[dict[str, str]]:
     """
     Deterministic fallback suggestions when an external LLM isn't configured.
     """
+    raw_name = _sanitize_raw_name(raw_name)
     base = _smart_unit_normalize(raw_name)
     if not base:
         return []
@@ -78,6 +95,10 @@ def openai_item_name_suggestions(
     base_url: str | None = None,
     api_key: str | None = None,
 ) -> list[dict[str, str]]:
+    raw_name = _sanitize_raw_name(raw_name)
+    if not raw_name:
+        return []
+
     use_model = (
         model
         or os.environ.get("AI_ITEM_NAMING_MODEL")

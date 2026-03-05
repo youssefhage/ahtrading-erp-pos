@@ -131,8 +131,8 @@ def get_all_tools() -> list[ToolDef]:
 def get_tools_for_user(user_permissions: set[str] | None = None) -> list[ToolDef]:
     """Return tools the given user is allowed to invoke."""
     if user_permissions is None:
-        # No permission info → return only read tools (safe default).
-        return [t for t in _REGISTRY.values() if t.category == "read"]
+        # No permission info → return read + compound tools (both are safe/read-only).
+        return [t for t in _REGISTRY.values() if t.category in ("read", "compound")]
     out = []
     for t in _REGISTRY.values():
         if t.permission is None or t.permission in user_permissions:
