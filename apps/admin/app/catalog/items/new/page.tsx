@@ -51,6 +51,8 @@ import {
 
 type TaxCode = { id: string; name: string; rate: string | number };
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
+type PriceList = { id: string; code: string; name: string; is_default?: boolean };
+type CompanySetting = { key: string; value_json: Record<string, unknown> | null };
 type ItemLookupRow = {
   id: string;
   sku: string;
@@ -94,6 +96,7 @@ export default function NewItemPage() {
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [uoms, setUoms] = useState<string[]>([]);
+  const [defaultPriceList, setDefaultPriceList] = useState<PriceList | null>(null);
 
   /* ---- Essential fields ---- */
   const [sku, setSku] = useState("");
@@ -103,6 +106,10 @@ export default function NewItemPage() {
   const [taxCodeId, setTaxCodeId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [active, setActive] = useState(true);
+
+  /* ---- Selling price (added to default price list) ---- */
+  const [sellingPriceUsd, setSellingPriceUsd] = useState("");
+  const [sellingPriceLbp, setSellingPriceLbp] = useState("");
 
   /* ---- Classification & Identity ---- */
   const [itemType, setItemType] = useState<"stocked" | "service" | "bundle">("stocked");
@@ -159,14 +166,25 @@ export default function NewItemPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tc, cats, uo] = await Promise.all([
+      const [tc, cats, uo, settings, priceLists] = await Promise.all([
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
         apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] })),
+        apiGet<{ settings: CompanySetting[] }>("/pricing/company-settings").catch(() => ({ settings: [] as CompanySetting[] })),
+        apiGet<{ price_lists: PriceList[] }>("/pricing/lists").catch(() => ({ price_lists: [] as PriceList[] })),
       ]);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
       setUoms((uo.uoms || []).map((x) => String(x || "").trim()).filter(Boolean));
+
+      // Resolve default price list
+      const defaultSetting = (settings.settings || []).find((s) => s.key === "default_price_list_id");
+      const defaultId = defaultSetting?.value_json?.id as string | undefined;
+      const lists = priceLists.price_lists || [];
+      const resolved = defaultId
+        ? lists.find((pl) => pl.id === defaultId) || null
+        : lists.find((pl) => pl.is_default) || null;
+      setDefaultPriceList(resolved);
       setStatus("");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
@@ -288,6 +306,8 @@ export default function NewItemPage() {
     setDescription("");
     setTaxCodeId("");
     setIsExcise(false);
+    setSellingPriceUsd("");
+    setSellingPriceLbp("");
     setPurchaseUomCode("");
     setPurchaseUomFactor("");
     setSalesUomCode("");
@@ -413,6 +433,17 @@ export default function NewItemPage() {
         );
       }
       if (conversionPromises.length) await Promise.all(conversionPromises);
+
+      // Add selling price to default price list
+      if (defaultPriceList && (sellingPriceUsd || sellingPriceLbp)) {
+        const today = new Date().toISOString().slice(0, 10);
+        await apiPost(`/pricing/lists/${encodeURIComponent(defaultPriceList.id)}/items`, {
+          item_id: res.id,
+          price_usd: Number(sellingPriceUsd || 0),
+          price_lbp: Number(sellingPriceLbp || 0),
+          effective_from: today,
+        }).catch(() => { /* best-effort — user can add price from Price Lists page */ });
+      }
 
       if (mode === "addAnother") {
         setSku("");
@@ -623,6 +654,48 @@ export default function NewItemPage() {
                   />
                 </div>
               </div>
+
+              {/* ---- Selling Price ---- */}
+              {defaultPriceList ? (
+                <>
+                  <Separator />
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Selling Price</p>
+                      <p className="text-xs text-muted-foreground">
+                        Added to your default price list:{" "}
+                        <Link href="/catalog/price-lists" className="font-medium underline underline-offset-2 hover:text-foreground">{defaultPriceList.name}</Link>
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Price (USD)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={sellingPriceUsd}
+                          onChange={(e) => setSellingPriceUsd(e.target.value)}
+                          placeholder="0.00"
+                          disabled={creating || loading}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Price (LBP)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={sellingPriceLbp}
+                          onChange={(e) => setSellingPriceLbp(e.target.value)}
+                          placeholder="0"
+                          disabled={creating || loading}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
 
               {/* ---- SKU Section ---- */}
               <Separator />
