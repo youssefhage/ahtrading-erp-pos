@@ -173,7 +173,7 @@ export default function NewItemPage() {
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
         apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] })),
         apiGet<{ settings: CompanySetting[] }>("/pricing/company-settings").catch(() => ({ settings: [] as CompanySetting[] })),
-        apiGet<{ price_lists: PriceList[] }>("/pricing/lists").catch(() => ({ price_lists: [] as PriceList[] })),
+        apiGet<{ lists: PriceList[] }>("/pricing/lists").catch(() => ({ lists: [] as PriceList[] })),
       ]);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
@@ -182,7 +182,7 @@ export default function NewItemPage() {
       // Resolve default price list
       const defaultSetting = (settings.settings || []).find((s) => s.key === "default_price_list_id");
       const defaultId = defaultSetting?.value_json?.id as string | undefined;
-      const lists = priceLists.price_lists || [];
+      const lists = priceLists.lists || [];
       setAllPriceLists(lists);
       const resolved = defaultId
         ? lists.find((pl) => pl.id === defaultId) || null
