@@ -1149,6 +1149,332 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                 return {"id": invoice_id, "invoice_no": invoice_no}
 
 
+# ---------------------------------------------------------------------------
+#  Helper: re-post GL/tax after editing a posted invoice
+# ---------------------------------------------------------------------------
+
+def _repost_edited_posted_invoice(cur, company_id: str, invoice_id: str, old_inv: dict, user_id: str):
+    """
+    After editing a posted invoice's lines, reverse old GL/tax and re-post
+    with updated amounts.  Adjusts customer credit balance for the difference.
+    """
+    inv_date = old_inv.get("invoice_date") or date.today()
+    exchange_rate = Decimal(str(old_inv.get("exchange_rate") or 0))
+    old_total_usd = Decimal(str(old_inv.get("total_usd") or 0))
+    old_total_lbp = Decimal(str(old_inv.get("total_lbp") or 0))
+    warehouse_id = old_inv.get("warehouse_id")
+    customer_id = old_inv.get("customer_id")
+    doc_subtype = old_inv.get("doc_subtype") or "standard"
+    invoice_no = old_inv.get("invoice_no") or ""
+    settle = str(old_inv.get("settlement_currency") or "USD").upper()
+
+    # ── 1. Check if invoice had VAT (before we delete tax lines) ──────────
+    cur.execute(
+        "SELECT COUNT(*) AS cnt FROM tax_lines WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s",
+        (company_id, invoice_id),
+    )
+    had_vat = cur.fetchone()["cnt"] > 0
+
+    # ── 2. Reverse latest GL journal for this invoice ─────────────────────
+    cur.execute(
+        """
+        SELECT id, journal_no, rate_type, exchange_rate
+        FROM gl_journals
+        WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (company_id, invoice_id),
+    )
+    orig_journal = cur.fetchone()
+    if orig_journal:
+        rev_jno = _safe_journal_no("EDIT-REV", orig_journal["journal_no"])
+        cur.execute(
+            """
+            INSERT INTO gl_journals
+              (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+            VALUES
+              (gen_random_uuid(), %s, %s, 'sales_invoice_edit_reversal', %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                company_id, rev_jno, invoice_id, inv_date,
+                orig_journal["rate_type"], orig_journal.get("exchange_rate") or 0,
+                f"Edit reversal for {invoice_no}", user_id,
+            ),
+        )
+        rev_journal_id = cur.fetchone()["id"]
+        cur.execute(
+            "SELECT account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id FROM gl_entries WHERE journal_id=%s ORDER BY id",
+            (orig_journal["id"],),
+        )
+        for e in cur.fetchall():
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (rev_journal_id, e["account_id"], e["credit_usd"], e["debit_usd"], e["credit_lbp"], e["debit_lbp"], e["memo"], e["warehouse_id"]),
+            )
+
+    # ── 3. Delete old tax lines ───────────────────────────────────────────
+    cur.execute(
+        "DELETE FROM tax_lines WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s",
+        (company_id, invoice_id),
+    )
+
+    # ── 4. Load updated lines ─────────────────────────────────────────────
+    cur.execute(
+        """
+        SELECT item_id, qty, line_total_usd, line_total_lbp
+        FROM sales_invoice_lines WHERE invoice_id=%s ORDER BY id
+        """,
+        (invoice_id,),
+    )
+    lines = cur.fetchall()
+    base_usd = sum(q_usd(Decimal(str(l["line_total_usd"] or 0))) for l in lines)
+    base_lbp = sum(q_lbp(Decimal(str(l["line_total_lbp"] or 0))) for l in lines)
+
+    # ── 5. Recalculate VAT ────────────────────────────────────────────────
+    tax_usd = Decimal("0")
+    tax_lbp = Decimal("0")
+    tax_rows: list[dict] = []
+    if had_vat and doc_subtype != "opening_balance":
+        tax_code_id = _resolve_default_vat_tax_code_id(cur, company_id)
+        item_ids = sorted({str(l["item_id"]) for l in lines if l.get("item_id")})
+        item_tax: dict[str, Optional[str]] = {}
+        if item_ids:
+            cur.execute(
+                "SELECT id, tax_code_id FROM items WHERE company_id=%s AND id = ANY(%s::uuid[])",
+                (company_id, item_ids),
+            )
+            item_tax = {str(r["id"]): (str(r["tax_code_id"]) if r.get("tax_code_id") else None) for r in cur.fetchall()}
+
+        base_by_tax: dict[str, dict[str, Decimal]] = {}
+        for l in lines:
+            itid = str(l.get("item_id") or "")
+            tcid = item_tax.get(itid) or (str(tax_code_id) if tax_code_id else None)
+            if not tcid:
+                continue
+            if tcid not in base_by_tax:
+                base_by_tax[tcid] = {"usd": Decimal("0"), "lbp": Decimal("0")}
+            base_by_tax[tcid]["usd"] += Decimal(str(l.get("line_total_usd") or 0))
+            base_by_tax[tcid]["lbp"] += Decimal(str(l.get("line_total_lbp") or 0))
+
+        if base_by_tax:
+            tcids = list(base_by_tax.keys())
+            cur.execute(
+                "SELECT id, rate FROM tax_codes WHERE company_id=%s AND tax_type='vat' AND id = ANY(%s::uuid[])",
+                (company_id, tcids),
+            )
+            rate_by = {str(r["id"]): Decimal(str(r.get("rate") or 0)) for r in cur.fetchall()}
+            for tcid, b in base_by_tax.items():
+                if tcid not in rate_by:
+                    continue
+                rate = rate_by.get(tcid, Decimal("0"))
+                tlbp = b["lbp"] * rate if rate else Decimal("0")
+                tusd = (tlbp / exchange_rate) if exchange_rate else Decimal("0")
+                tusd, tlbp = _normalize_dual_amounts(tusd, tlbp, exchange_rate)
+                tax_usd += tusd
+                tax_lbp += tlbp
+                tax_rows.append({"tax_code_id": tcid, "base_usd": b["usd"], "base_lbp": b["lbp"], "tax_usd": tusd, "tax_lbp": tlbp})
+
+    total_usd = q_usd(base_usd + tax_usd)
+    total_lbp = q_lbp(base_lbp + tax_lbp)
+
+    # ── 6. Create new tax lines ───────────────────────────────────────────
+    for tr in tax_rows:
+        cur.execute(
+            """
+            INSERT INTO tax_lines
+              (id, company_id, source_type, source_id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+            VALUES (gen_random_uuid(), %s, 'sales_invoice', %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (company_id, invoice_id, tr["tax_code_id"], tr["base_usd"], tr["base_lbp"], tr["tax_usd"], tr["tax_lbp"], inv_date),
+        )
+
+    # ── 7. Recalculate COGS ───────────────────────────────────────────────
+    total_cost_usd = Decimal("0")
+    total_cost_lbp = Decimal("0")
+    if doc_subtype != "opening_balance" and warehouse_id:
+        for l in lines:
+            qty = Decimal(str(l["qty"] or 0))
+            uc_usd, uc_lbp = pos_processor.get_avg_cost(cur, company_id, l["item_id"], warehouse_id)
+            total_cost_usd += q_usd(qty * uc_usd)
+            total_cost_lbp += q_lbp(qty * uc_lbp)
+        total_cost_usd = q_usd(total_cost_usd)
+        total_cost_lbp = q_lbp(total_cost_lbp)
+
+    # ── 8. Fetch existing payments (unchanged) ────────────────────────────
+    cur.execute(
+        "SELECT method, amount_usd, amount_lbp FROM sales_payments WHERE invoice_id=%s AND voided_at IS NULL",
+        (invoice_id,),
+    )
+    payments = cur.fetchall()
+    total_paid_usd = q_usd(sum(Decimal(str(p["amount_usd"] or 0)) for p in payments))
+    total_paid_lbp = q_lbp(sum(Decimal(str(p["amount_lbp"] or 0)) for p in payments))
+
+    # Credit remaining
+    if settle == "USD":
+        credit_usd = max(total_usd - total_paid_usd, Decimal("0"))
+        credit_usd, credit_lbp = _normalize_dual_amounts(credit_usd, Decimal("0"), exchange_rate)
+    else:
+        credit_lbp = max(total_lbp - total_paid_lbp, Decimal("0"))
+        credit_usd, credit_lbp = _normalize_dual_amounts(Decimal("0"), credit_lbp, exchange_rate)
+    credit_usd = q_usd(credit_usd)
+    credit_lbp = q_lbp(credit_lbp)
+    credit_sale = credit_usd > Decimal("0.01") or credit_lbp > Decimal("100")
+
+    # ── 9. Create new GL journal ──────────────────────────────────────────
+    defaults = _fetch_account_defaults(cur, company_id)
+    ar = defaults.get("AR")
+    sales_acct = defaults.get("SALES")
+    vat_payable = defaults.get("VAT_PAYABLE")
+    inventory_acct = defaults.get("INVENTORY")
+    cogs_acct = defaults.get("COGS")
+    opening_bal = defaults.get("OPENING_BALANCE") or defaults.get("OPENING_STOCK")
+
+    jno_base = f"GL-EDIT-{invoice_no}"
+    journal_id = None
+    for attempt in range(10):
+        candidate_no = jno_base if attempt == 0 else f"{jno_base}-{uuid.uuid4().hex[:6]}"
+        cur.execute(
+            """
+            INSERT INTO gl_journals
+              (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+            VALUES
+              (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s, 'market', %s, %s, %s)
+            ON CONFLICT (company_id, journal_no) DO NOTHING
+            RETURNING id
+            """,
+            (company_id, candidate_no, invoice_id, inv_date, exchange_rate,
+             f"Re-posted: sales invoice {invoice_no} (edited)", user_id),
+        )
+        row = cur.fetchone()
+        if row:
+            journal_id = str(row["id"])
+            break
+    if not journal_id:
+        raise HTTPException(status_code=409, detail="unable to allocate unique journal number for edited invoice")
+
+    # Payment GL entries
+    payment_accounts = _fetch_payment_method_accounts(cur, company_id)
+    for p in payments:
+        acc = payment_accounts.get(p["method"])
+        if acc:
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receipt', %s)
+                """,
+                (journal_id, acc, p["amount_usd"], p["amount_lbp"], warehouse_id),
+            )
+
+    # AR for credit sale
+    if credit_sale and ar:
+        cur.execute(
+            """
+            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receivable', %s)
+            """,
+            (journal_id, ar, credit_usd, credit_lbp, warehouse_id),
+        )
+
+    # Revenue
+    if doc_subtype == "opening_balance":
+        if opening_bal:
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Opening balance offset', %s)
+                """,
+                (journal_id, opening_bal, base_usd, base_lbp, warehouse_id),
+            )
+    else:
+        if sales_acct:
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue', %s)
+                """,
+                (journal_id, sales_acct, base_usd, base_lbp, warehouse_id),
+            )
+
+    # VAT
+    if tax_usd != 0 or tax_lbp != 0:
+        if vat_payable:
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable', %s)
+                """,
+                (journal_id, vat_payable, tax_usd, tax_lbp, warehouse_id),
+            )
+
+    # COGS / Inventory
+    if doc_subtype != "opening_balance" and (total_cost_usd > 0 or total_cost_lbp > 0):
+        if inventory_acct and cogs_acct:
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'COGS', %s)
+                """,
+                (journal_id, cogs_acct, total_cost_usd, total_cost_lbp, warehouse_id),
+            )
+            cur.execute(
+                """
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory reduction', %s)
+                """,
+                (journal_id, inventory_acct, total_cost_usd, total_cost_lbp, warehouse_id),
+            )
+
+    # Balance the journal
+    try:
+        auto_balance_journal(cur, company_id, journal_id, warehouse_id=warehouse_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        assert_journal_balanced(cur, journal_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # ── 10. Update invoice total (including tax) ──────────────────────────
+    cur.execute(
+        "UPDATE sales_invoices SET total_usd=%s, total_lbp=%s WHERE company_id=%s AND id=%s",
+        (total_usd, total_lbp, company_id, invoice_id),
+    )
+
+    # ── 11. Adjust customer credit balance ────────────────────────────────
+    if customer_id:
+        diff_usd = total_usd - old_total_usd
+        diff_lbp = total_lbp - old_total_lbp
+        if diff_usd != 0 or diff_lbp != 0:
+            cur.execute(
+                """
+                UPDATE customers
+                SET credit_balance_usd = credit_balance_usd + %s,
+                    credit_balance_lbp = credit_balance_lbp + %s
+                WHERE company_id=%s AND id=%s
+                """,
+                (diff_usd, diff_lbp, company_id, customer_id),
+            )
+
+    # ── 12. Audit log ─────────────────────────────────────────────────────
+    cur.execute(
+        """
+        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+        VALUES (gen_random_uuid(), %s, %s, 'sales_invoice_edited_posted', 'sales_invoice', %s, %s::jsonb)
+        """,
+        (company_id, user_id, invoice_id, json.dumps({
+            "journal_id": str(journal_id),
+            "old_total_usd": str(old_total_usd),
+            "old_total_lbp": str(old_total_lbp),
+            "new_total_usd": str(total_usd),
+            "new_total_lbp": str(total_lbp),
+        })),
+    )
+
+
 @router.patch("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:write"))])
 def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     patch = data.model_dump(exclude_none=True)
@@ -1158,17 +1484,36 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, status, exchange_rate, invoice_date, due_date, customer_id
+                    SELECT id, status, exchange_rate, invoice_date, due_date, customer_id,
+                           total_usd, total_lbp, warehouse_id, settlement_currency,
+                           COALESCE(doc_subtype,'standard') AS doc_subtype, invoice_no
                     FROM sales_invoices
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, invoice_id),
                 )
                 inv = cur.fetchone()
                 if not inv:
                     raise HTTPException(status_code=404, detail="invoice not found")
-                if inv["status"] != "draft":
-                    raise HTTPException(status_code=400, detail="only draft invoices can be edited")
+                is_posted_edit = inv["status"] == "posted"
+                if inv["status"] not in ("draft", "posted"):
+                    raise HTTPException(status_code=400, detail="only draft or posted invoices can be edited")
+                if is_posted_edit:
+                    # Require elevated permission for editing posted invoices.
+                    cur.execute(
+                        """
+                        SELECT 1 FROM user_roles ur
+                        JOIN role_permissions rp ON rp.role_id = ur.role_id
+                        JOIN permissions p ON p.id = rp.permission_id
+                        WHERE ur.user_id = %s AND ur.company_id = %s AND p.code = 'sales:edit_posted'
+                        LIMIT 1
+                        """,
+                        (user["user_id"], company_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=403, detail="editing posted invoices requires sales:edit_posted permission")
+                    assert_period_open(cur, company_id, inv.get("invoice_date") or date.today())
 
                 # If customer_id/invoice_date changes and due_date isn't explicitly set, keep the draft consistent by
                 # recomputing due_date from payment terms. This avoids stale due dates.
@@ -1347,13 +1692,25 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                         params,
                     )
 
-                cur.execute(
-                    """
-                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                    VALUES (gen_random_uuid(), %s, %s, 'sales_invoice_draft_update', 'sales_invoice', %s, %s::jsonb)
-                    """,
-                    (company_id, user["user_id"], invoice_id, json.dumps(list(patch.keys()))),
-                )
+                # Re-post GL/tax for edited posted invoices.
+                if is_posted_edit and "lines" in patch:
+                    _repost_edited_posted_invoice(cur, company_id, invoice_id, inv, user["user_id"])
+                elif is_posted_edit:
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'sales_invoice_edited_posted', 'sales_invoice', %s, %s::jsonb)
+                        """,
+                        (company_id, user["user_id"], invoice_id, json.dumps({"fields": list(patch.keys())})),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'sales_invoice_draft_update', 'sales_invoice', %s, %s::jsonb)
+                        """,
+                        (company_id, user["user_id"], invoice_id, json.dumps(list(patch.keys()))),
+                    )
                 return {"ok": True}
 
 
@@ -2109,9 +2466,10 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
             # 1. Validate invoice
             cur.execute(
                 """
-                SELECT id, status, exchange_rate, warehouse_id, device_id
+                SELECT id, status, exchange_rate, warehouse_id, device_id,
+                       customer_id, settlement_currency
                 FROM sales_invoices
-                WHERE company_id=%s AND id=%s
+                WHERE company_id=%s AND id=%s::uuid
                 """,
                 (company_id, invoice_id),
             )
@@ -2139,7 +2497,7 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
                 SELECT item_id, qty, unit_price_usd, unit_price_lbp,
                        line_total_usd, line_total_lbp
                 FROM sales_invoice_lines
-                WHERE invoice_id=%s
+                WHERE invoice_id=%s::uuid
                 ORDER BY line_no
                 """,
                 (invoice_id,),
@@ -2163,6 +2521,8 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
                     )
                 device_id = dev["id"]
 
+            device_id_str = str(device_id)
+
             # 4. Build return payload
             return_lines = [
                 {
@@ -2177,9 +2537,9 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
             ]
 
             payload = {
-                "device_id": str(device_id),
-                "invoice_id": str(invoice_id),
-                "exchange_rate": str(inv["exchange_rate"]),
+                "device_id": device_id_str,
+                "invoice_id": str(inv["id"]),
+                "exchange_rate": str(inv["exchange_rate"] or 0),
                 "warehouse_id": str(inv["warehouse_id"]) if inv.get("warehouse_id") else None,
                 "refund_method": data.refund_method or None,
                 "reason": (data.reason or "").strip() or None,
@@ -2191,10 +2551,10 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
             cur.execute(
                 """
                 INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
-                VALUES (gen_random_uuid(), %s, 'sale.returned', %s::jsonb)
+                VALUES (gen_random_uuid(), %s::uuid, 'sale.returned', %s::jsonb)
                 RETURNING id
                 """,
-                (str(device_id), json.dumps(payload, default=str)),
+                (device_id_str, json.dumps(payload, default=str)),
             )
             return {"event_id": cur.fetchone()["id"]}
 

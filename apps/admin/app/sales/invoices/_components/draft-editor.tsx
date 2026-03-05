@@ -368,7 +368,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         const id = props.invoiceId || "";
         if (!id) throw new Error("missing invoice id");
         const det = await apiGet<InvoiceDetail>(`/sales/invoices/${id}`);
-        if (det.invoice.status !== "draft") throw new Error("Only draft invoices can be edited.");
+        if (det.invoice.status !== "draft" && det.invoice.status !== "posted") throw new Error("Only draft or posted invoices can be edited.");
 
       const uniq = Array.from(new Set((det.lines || []).map((l) => l.item_id).filter(Boolean)));
       const look = uniq.length

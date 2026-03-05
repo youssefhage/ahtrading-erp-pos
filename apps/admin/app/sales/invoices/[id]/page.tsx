@@ -604,7 +604,7 @@ function SalesInvoiceShowInner() {
           { label: "Download PDF", onClick: () => { if (inv) window.open(`/exports/sales-invoices/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
           { label: "Print Receipt", onClick: () => { if (inv) window.open(`/sales/invoices/${encodeURIComponent(inv.id)}/print?paper=receipt&doc=receipt`, "_blank", "noopener,noreferrer"); }, visible: isPosted },
           { label: "Receipt PDF", onClick: () => { if (inv) window.open(`/exports/sales-receipts/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: isPosted },
-          { label: "Edit Draft", onClick: () => { if (inv) router.push(`/sales/invoices/${encodeURIComponent(inv.id)}/edit`); }, visible: isDraft },
+          { label: isDraft ? "Edit Draft" : "Edit Invoice", onClick: () => { if (inv) router.push(`/sales/invoices/${encodeURIComponent(inv.id)}/edit`); }, visible: isDraft || isPosted },
         ],
         destructive: isDraft
           ? { label: "Cancel Draft", onClick: () => setCancelDraftOpen(true) }
