@@ -1459,10 +1459,6 @@
     return false;
   };
   const ensureShiftForCompanies = (companyKeys, actionLabel = "checkout") => {
-    // Allow sales to proceed when offline even without an open shift.
-    // The sale event is queued locally with shift_id: null and synced
-    // once the employee opens a shift and connection is restored.
-    if (typeof navigator !== "undefined" && !navigator.onLine) return true;
     const unique = Array.from(new Set((companyKeys || []).map((k) => normalizeCompanyKey(k))));
     const missing = unique.filter((k) => !shiftIdForCompany(k));
     if (!missing.length) return true;
@@ -2324,14 +2320,21 @@
     // the event is safe in the local outbox and will be retried later.
     if (statusCode === 0 || statusCode === 408 || statusCode === 429) return false;
     if (statusCode >= 400 && statusCode < 500) return true;
+    // For 5xx errors (application-level server errors): check if the
+    // message indicates a validation/permanent error from the backend.
+    // These words only appear in HTTP response bodies (not network errors,
+    // which are already excluded by statusCode === 0 above).
     const msg = String(err?.message || "").trim().toLowerCase();
     if (!msg) return false;
-    // Only match specific known permanent error patterns — avoid broad
-    // terms like "invalid" or "missing" that could match network-layer messages.
     return (
       msg.includes("payment exceeds invoice total")
       || msg.includes("payments exceed invoice total")
       || msg.includes("checkout guardrail")
+      || msg.includes("missing")
+      || msg.includes("invalid")
+      || msg.includes("required")
+      || msg.includes("not found")
+      || msg.includes("rejected")
     );
   };
 
