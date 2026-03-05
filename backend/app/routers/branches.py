@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
+from psycopg import sql as psycopg_sql
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
 
@@ -57,35 +58,36 @@ def create_branch(data: BranchIn, company_id: str = Depends(get_company_id)):
             return {"id": cur.fetchone()["id"]}
 
 
+_BRANCH_UPDATABLE_COLUMNS = frozenset({"name", "address", "default_warehouse_id", "invoice_prefix", "operating_hours"})
+
 @router.patch("/{branch_id}", dependencies=[Depends(require_permission("config:write"))])
 def update_branch(branch_id: str, data: BranchUpdate, company_id: str = Depends(get_company_id)):
     import json
     fields = []
     params = []
-    payload = data.model_dump(exclude_none=True)
+    payload = data.model_dump(exclude_unset=True)
     if "invoice_prefix" in payload:
         payload["invoice_prefix"] = (payload.get("invoice_prefix") or "").strip() or None
     for k, v in payload.items():
+        if k not in _BRANCH_UPDATABLE_COLUMNS:
+            continue
         if k == "operating_hours":
-            fields.append("operating_hours = %s::jsonb")
+            fields.append(psycopg_sql.SQL("{} = %s::jsonb").format(psycopg_sql.Identifier(k)))
             params.append(json.dumps(v) if v is not None else None)
         else:
-            fields.append(f"{k} = %s")
+            fields.append(psycopg_sql.SQL("{} = %s").format(psycopg_sql.Identifier(k)))
             params.append(v)
     if not fields:
         return {"ok": True}
     params.extend([company_id, branch_id])
+    set_clause = psycopg_sql.SQL(", ").join(fields)
+    query = psycopg_sql.SQL(
+        "UPDATE branches SET {}, updated_at = now() WHERE company_id = %s AND id = %s"
+    ).format(set_clause)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE branches
-                SET {', '.join(fields)}, updated_at = now()
-                WHERE company_id = %s AND id = %s
-                """,
-                params,
-            )
+            cur.execute(query, params)
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="branch not found")
             return {"ok": True}

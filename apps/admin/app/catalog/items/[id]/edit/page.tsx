@@ -666,6 +666,7 @@ export default function ItemEditPage() {
   }
 
   async function deleteBarcode(barcodeId: string) {
+    if (!window.confirm("Delete this barcode? This action cannot be undone.")) return;
     setStatus("Deleting barcode...");
     try {
       await apiDelete(`/items/barcodes/${encodeURIComponent(barcodeId)}`);
@@ -728,6 +729,7 @@ export default function ItemEditPage() {
 
   async function deleteConversion(uomCode: string) {
     if (!item) return;
+    if (!window.confirm(`Delete the UOM conversion "${uomCode}"? This action cannot be undone.`)) return;
     setStatus("Deleting conversion...");
     try {
       await apiDelete(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(uomCode.trim().toUpperCase())}`);

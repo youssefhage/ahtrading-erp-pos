@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 import threading
@@ -72,7 +73,7 @@ def verify_totp_code(secret: str, code: str) -> bool:
 
     # Replay prevention: reject codes that were already used within the window.
     now = time.time()
-    replay_key = (hash(secret), c)
+    replay_key = (hashlib.sha256(secret.encode()).hexdigest(), c)
     with _used_totp_lock:
         # Prune expired entries
         while _used_totp_codes:

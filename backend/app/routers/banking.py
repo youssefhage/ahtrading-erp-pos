@@ -86,7 +86,7 @@ def create_bank_account(data: BankAccountIn, company_id: str = Depends(get_compa
 
 @router.patch("/accounts/{account_id}", dependencies=[Depends(require_permission("accounting:write"))])
 def update_bank_account(account_id: str, data: BankAccountUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     if "currency" in patch and patch["currency"] not in {"USD", "LBP"}:

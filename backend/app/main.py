@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from psycopg import errors as pg_errors
 import json
+import re
 import sys
 import time
 import uuid
@@ -140,10 +141,13 @@ def _unhandled_exception(req: Request, exc: Exception):
         content["error"] = str(exc)
     return JSONResponse(status_code=500, content=content)
 
+_SAFE_REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9_.\-]{1,128}$")
+
 # Correlation id + basic structured request logging.
 @app.middleware("http")
 async def _request_logging(request: Request, call_next):
-    rid = (request.headers.get("X-Request-Id") or "").strip() or uuid.uuid4().hex
+    client_rid = (request.headers.get("X-Request-Id") or "").strip()
+    rid = client_rid if (client_rid and _SAFE_REQUEST_ID_RE.match(client_rid)) else uuid.uuid4().hex
     request.state.request_id = rid
     started = time.time()
     path = request.url.path

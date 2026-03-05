@@ -26,6 +26,19 @@ def _json_log(level: str, event: str, **fields):
     rec = {"level": level, "event": event, **fields}
     print(json.dumps(rec, default=str), file=sys.stderr)
 
+
+def _sanitize_error(msg: str, max_len: int = 500) -> str:
+    """Strip sensitive patterns (Bearer tokens, API keys) from error messages before DB storage."""
+    import re
+    s = (msg or "")[:max_len]
+    # Strip Bearer tokens
+    s = re.sub(r'Bearer\s+[A-Za-z0-9\-._~+/]+=*', 'Bearer [REDACTED]', s)
+    # Strip API key patterns (sk-..., key-..., etc.)
+    s = re.sub(r'(?:sk|key|api[_-]?key)[_-]?[A-Za-z0-9]{10,}', '[REDACTED_KEY]', s, flags=re.IGNORECASE)
+    # Strip Authorization header values
+    s = re.sub(r'[Aa]uthorization["\s:]+\S+', 'Authorization: [REDACTED]', s)
+    return s
+
 def _set_company_context_session(cur, company_id: str):
     """
     Important for this job: we run with `conn.autocommit = True` to avoid holding long transactions
@@ -256,9 +269,10 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                         )
                         filled += 1
             except Exception as ex:
-                _json_log("error", "supplier_invoice_import.failed", company_id=company_id, invoice_id=invoice_id, error=str(ex))
+                _json_log("error", "supplier_invoice_import.failed", company_id=company_id, invoice_id=invoice_id, error=_sanitize_error(str(ex)))
                 traceback.print_exc(file=sys.stderr)
                 try:
+                    safe_error = _sanitize_error(str(ex))
                     with conn.transaction():
                         with conn.cursor() as cur3:
                             _set_company_context_session(cur3, company_id)
@@ -268,14 +282,14 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                                 SET import_status='failed', import_finished_at=now(), import_error=%s
                                 WHERE company_id=%s AND id=%s
                                 """,
-                                (str(ex)[:1000], company_id, invoice_id),
+                                (safe_error, company_id, invoice_id),
                             )
                             cur3.execute(
                                 """
                                 INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                                 VALUES (gen_random_uuid(), %s, NULL, 'supplier_invoice_import_failed', 'supplier_invoice', %s, %s::jsonb)
                                 """,
-                                (company_id, invoice_id, json.dumps({"error": str(ex), "warnings": warnings[:50]})),
+                                (company_id, invoice_id, json.dumps({"error": safe_error, "warnings": warnings[:50]})),
                             )
                 except Exception:
                     # Never crash the worker loop due to import status update errors.

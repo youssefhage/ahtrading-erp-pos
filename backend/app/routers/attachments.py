@@ -61,7 +61,6 @@ _ALLOWED_UPLOAD_CONTENT_TYPES = frozenset({
     "text/csv",
     "application/zip",
     "application/x-zip-compressed",
-    "application/octet-stream",
 })
 
 

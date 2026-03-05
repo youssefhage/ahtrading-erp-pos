@@ -365,7 +365,7 @@ export default function PosDevicesPage() {
     setStatus("Resetting token...");
     setLastSetup(null);
     try {
-      const res = await apiPost<{ id: string; token: string }>(`/pos/devices/${device.id}/reset-token`, {});
+      const res = await apiPost<{ id: string; token: string }>(`/pos/devices/${encodeURIComponent(device.id)}/reset-token`, {});
       const branch = device.branch_id ? branchById.get(device.branch_id) : null;
       setLastSetup({
         company_id: companyId,

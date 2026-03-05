@@ -8264,7 +8264,7 @@
 
   // Checkout
   const handleCheckoutRequest = () => {
-    if (cart.length === 0 || loading || checkoutInFlight) return;
+    if (cart.length === 0 || loading || checkoutInFlight || showPaymentModal) return;
     if (checkoutMissingCashiers.length) {
       cashierCompanyKey = checkoutMissingCashiers[0] || originCompanyKey;
       showCashierModal = true;
@@ -8283,6 +8283,7 @@
 
   const handleProcessSale = async (method, cashTendered = 0) => {
     if (checkoutInFlight) return;
+    cashTendered = Math.max(0, Number(cashTendered) || 0);
     checkoutInFlight = true;
     showPaymentModal = false;
     loading = true;

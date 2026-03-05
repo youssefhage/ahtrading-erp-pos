@@ -463,6 +463,8 @@ def debug_list_updates(
     }
 
 
+_MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
+
 @router.post("/upload")
 async def upload_update_file(
     rel_path: str = Form(...),
@@ -490,11 +492,18 @@ async def upload_update_file(
     os.close(fd)
     tmp = Path(tmp_path)
     try:
+        bytes_written = 0
         with tmp.open("wb") as out:
             while True:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
+                bytes_written += len(chunk)
+                if bytes_written > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"upload too large (max {_MAX_UPLOAD_BYTES // (1024 * 1024)}MB)",
+                    )
                 out.write(chunk)
         tmp.replace(target)
         _make_world_readable(target, base)
