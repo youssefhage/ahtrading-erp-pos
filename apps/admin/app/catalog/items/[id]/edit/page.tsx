@@ -840,7 +840,7 @@ export default function ItemEditPage() {
     <div className="mx-auto max-w-4xl space-y-6 p-6">
       {/* Header */}
       <PageHeader
-        title={`Edit ${item.sku}`}
+        title={`Edit ${item.name || item.sku}`}
         backHref={`/catalog/items/${encodeURIComponent(id)}`}
         badge={<StatusBadge status={item.is_active === false ? "inactive" : "active"} />}
         actions={
@@ -853,7 +853,7 @@ export default function ItemEditPage() {
           </>
         }
       >
-        <p className="font-mono text-xs text-muted-foreground">{id}</p>
+        <p className="font-mono text-xs text-muted-foreground">{item.sku}</p>
       </PageHeader>
 
       {status ? (
