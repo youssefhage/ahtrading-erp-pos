@@ -2629,6 +2629,58 @@
     return null;
   };
 
+  /**
+   * Iframe-based print fallback for when window.open() is blocked
+   * (common in PWA mode, offline mode, or when popups are disabled).
+   * Creates a hidden iframe, writes the receipt HTML into it, then
+   * triggers print from the parent context so only the receipt prints.
+   */
+  const _printViaIframe = (html) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;width:0;height:0;border:none;left:0;bottom:0;opacity:0;pointer-events:none;";
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    // Strip the auto-print/close script — we trigger print from the parent
+    // context via contentWindow.print() so only the iframe content prints.
+    const cleanHtml = html.replace(
+      /<script>window\.addEventListener\(['"]load['"].*?<\/script>/gs,
+      "",
+    );
+    iframeDoc.write(cleanHtml);
+    iframeDoc.close();
+
+    const cleanup = () => {
+      setTimeout(() => {
+        try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (_) {}
+      }, 1000);
+    };
+
+    // Wait for content to render, then print just the iframe content.
+    const triggerPrint = () => {
+      setTimeout(() => {
+        try {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+        } catch (e) {
+          console.warn("[POS] iframe print failed:", e?.message || e);
+        }
+        // Clean up after print dialog closes.
+        try { iframe.contentWindow.addEventListener("afterprint", cleanup); } catch (_) {}
+        // Fallback cleanup after 60s if afterprint doesn't fire.
+        setTimeout(cleanup, 60000);
+      }, 350);
+    };
+
+    // Use load event if available, otherwise trigger after short delay.
+    try {
+      iframe.contentWindow.addEventListener("load", triggerPrint);
+    } catch (_) {
+      triggerPrint();
+    }
+  };
+
   const _openPrintWindowWithHtml = (html, receiptWin = null) => {
     let win = receiptWin;
     try {
@@ -2639,7 +2691,9 @@
       win = null;
     }
     if (!win) {
-      throw new Error("Unable to open print window. Please allow popups for this site.");
+      // Popup blocked (common in PWA / offline mode) — use iframe fallback.
+      _printViaIframe(html);
+      return null;
     }
     win.document.open();
     win.document.write(html);
