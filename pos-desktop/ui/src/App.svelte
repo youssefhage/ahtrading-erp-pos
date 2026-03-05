@@ -2730,8 +2730,10 @@
       return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div></td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(unitPrice, 2))}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(lineTotal, 2))}</td></tr>`;
     }).join("");
 
-    const totalUsd = cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
-    const totalLbp = cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
+    const subtotalUsd = toNum(totals?.subtotalUsd, 0);
+    const taxUsd = toNum(totals?.taxUsd, 0);
+    const totalUsd = toNum(totals?.totalUsd, 0);
+    const totalLbp = toNum(totals?.totalLbp, 0);
     const itemCount = cart.reduce((s, ln) => s + toNum(ln?.qty_entered ?? ln?.qty, 0), 0);
 
     const html = `<!doctype html>
@@ -2783,6 +2785,8 @@
   <div class="sep"></div>
   <section class="totals">
     <div class="tr"><span>Items</span><span class="mono">${itemCount}</span></div>
+    <div class="tr"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(subtotalUsd, 2))}</span></div>
+    ${taxUsd > 0 ? `<div class="tr"><span>VAT</span><span class="mono">${_escapeHtml(_fmtMoney(taxUsd, 2))}</span></div>` : ""}
     <div class="tr total-main"><span>Total USD</span><span class="mono">${_escapeHtml(_fmtMoney(totalUsd, 2))}</span></div>
     ${totalLbp ? `<div class="tr total-lbp"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(totalLbp, 0))}</span></div>` : ""}
   </section>
