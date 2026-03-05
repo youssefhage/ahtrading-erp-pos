@@ -519,13 +519,13 @@ def apply_extracted_purchase_invoice_to_draft(
         cur.execute(
             """
             INSERT INTO supplier_invoice_lines
-              (id, company_id, supplier_invoice_id, item_id, qty,
+              (id, company_id, supplier_invoice_id, item_id, line_no, qty,
                uom, qty_factor, qty_entered,
                unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                line_total_usd, line_total_lbp,
                supplier_item_code, supplier_item_name)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s,
+              (gen_random_uuid(), %s, %s, %s, %s, %s,
                %s, 1, %s,
                %s, %s, %s, %s,
                %s, %s,
@@ -536,6 +536,7 @@ def apply_extracted_purchase_invoice_to_draft(
                 company_id,
                 invoice_id,
                 item_id,
+                idx + 1,
                 qty,
                 _fetch_item_uom(cur, company_id, item_id),
                 qty,

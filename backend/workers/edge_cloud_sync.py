@@ -111,7 +111,7 @@ def _build_sales_invoice_bundle(cur, company_id: str, invoice_id: str) -> dict:
     if not inv:
         raise ValueError("invoice not found on edge")
 
-    lines = _fetch_all(cur, "SELECT * FROM sales_invoice_lines WHERE invoice_id=%s ORDER BY created_at ASC", (invoice_id,))
+    lines = _fetch_all(cur, "SELECT * FROM sales_invoice_lines WHERE invoice_id=%s ORDER BY line_no ASC", (invoice_id,))
     payments = _fetch_all(cur, "SELECT * FROM sales_payments WHERE invoice_id=%s ORDER BY created_at ASC", (invoice_id,))
     tax_lines = _fetch_all(
         cur,

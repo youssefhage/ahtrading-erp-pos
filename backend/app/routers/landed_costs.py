@@ -186,7 +186,7 @@ def post_landed_cost(landed_cost_id: str, company_id: str = Depends(get_company_
                     SELECT l.id AS goods_receipt_line_id, l.item_id, l.batch_id, l.qty, l.unit_cost_usd, l.unit_cost_lbp
                     FROM goods_receipt_lines l
                     WHERE l.company_id=%s AND l.goods_receipt_id=%s
-                    ORDER BY l.id
+                    ORDER BY l.line_no
                     """,
                     (company_id, doc["goods_receipt_id"]),
                 )

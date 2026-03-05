@@ -718,7 +718,7 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                 LEFT JOIN items it
                   ON it.company_id = %s AND it.id = l.item_id
                 WHERE l.invoice_id = %s
-                ORDER BY l.id
+                ORDER BY l.line_no
                 """,
                 (company_id, invoice_id),
             )
@@ -1089,11 +1089,11 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                 )
                 invoice_id = cur.fetchone()["id"]
 
-                for l in lines_norm:
+                for line_no, l in enumerate(lines_norm, 1):
                     cur.execute(
                         """
                         INSERT INTO sales_invoice_lines
-                          (id, invoice_id, item_id,
+                          (id, invoice_id, item_id, line_no,
                            qty, qty_entered, uom, qty_factor,
                            unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
                            pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
@@ -1101,7 +1101,7 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                            line_total_usd, line_total_lbp,
                            price_override, original_list_price_usd, original_list_price_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s,
+                          (gen_random_uuid(), %s, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s,
@@ -1112,6 +1112,7 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                         (
                             invoice_id,
                             l["item_id"],
+                            line_no,
                             l["qty"],
                             l["qty_entered"],
                             l["uom"],
@@ -1275,7 +1276,7 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                         cur.execute(
                             """
                             INSERT INTO sales_invoice_lines
-                              (id, invoice_id, item_id,
+                              (id, invoice_id, item_id, line_no,
                                qty, qty_entered, uom, qty_factor,
                                unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
                                pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
@@ -1283,7 +1284,7 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                                line_total_usd, line_total_lbp,
                                price_override, original_list_price_usd, original_list_price_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s,
+                              (gen_random_uuid(), %s, %s, %s,
                                %s, %s, %s, %s,
                                %s, %s, %s, %s,
                                %s, %s,
@@ -1294,6 +1295,7 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                             (
                                 invoice_id,
                                 l.item_id,
+                                idx + 1,
                                 qty_base,
                                 qty_entered,
                                 uom,
@@ -1410,7 +1412,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     SELECT item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp
                     FROM sales_invoice_lines
                     WHERE invoice_id = %s
-                    ORDER BY id
+                    ORDER BY line_no
                     """,
                     (invoice_id,),
                 )
@@ -2138,7 +2140,7 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
                        line_total_usd, line_total_lbp
                 FROM sales_invoice_lines
                 WHERE invoice_id=%s
-                ORDER BY created_at
+                ORDER BY line_no
                 """,
                 (invoice_id,),
             )

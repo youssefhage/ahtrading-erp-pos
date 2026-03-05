@@ -2188,7 +2188,7 @@ def _fetch_pos_sales_invoice_detail(cur, company_id: str, invoice_id: str, devic
         LEFT JOIN items it
           ON it.company_id = %s AND it.id = l.item_id
         WHERE l.invoice_id = %s
-        ORDER BY l.id
+        ORDER BY l.line_no
         """,
         (company_id, invoice_id),
     )

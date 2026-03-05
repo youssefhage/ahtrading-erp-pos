@@ -1254,7 +1254,7 @@ def apply_supplier_invoice_import_lines(
                         if str(l.get("status") or "").lower() != "skipped" and (l.get("resolved_item_id") or l.get("suggested_item_id"))
                     ],
                 )
-                for l in lines:
+                for line_no, l in enumerate(lines, 1):
                     if str(l.get("status") or "").lower() == "skipped":
                         continue
                     item_id = l.get("resolved_item_id") or l.get("suggested_item_id")
@@ -1274,13 +1274,13 @@ def apply_supplier_invoice_import_lines(
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, item_id, qty,
+                          (id, company_id, supplier_invoice_id, item_id, line_no, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp,
                            supplier_item_code, supplier_item_name)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s,
                            %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s,
@@ -1290,6 +1290,7 @@ def apply_supplier_invoice_import_lines(
                             company_id,
                             invoice_id,
                             item_id,
+                            line_no,
                             qty,
                             base_uom,
                             qty,
@@ -1521,7 +1522,7 @@ def get_goods_receipt(receipt_id: str, company_id: str = Depends(get_company_id)
                 FROM goods_receipt_lines l
                 LEFT JOIN batches b ON b.id = l.batch_id
                 WHERE l.company_id = %s AND l.goods_receipt_id = %s
-                ORDER BY l.id
+                ORDER BY l.line_no
                 """,
                 (company_id, receipt_id),
             )
@@ -1773,7 +1774,7 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 LEFT JOIN items it
                   ON it.company_id = l.company_id AND it.id = l.item_id
                 WHERE l.company_id = %s AND l.supplier_invoice_id = %s
-                ORDER BY l.id
+                ORDER BY l.line_no
                 """,
                 (company_id, invoice_id),
             )
@@ -1860,7 +1861,7 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
                 LEFT JOIN items it
                   ON it.company_id = l.company_id AND it.id = l.item_id
                 WHERE l.company_id = %s AND l.purchase_order_id = %s
-                ORDER BY l.id
+                ORDER BY l.line_no
                 """,
                 (company_id, order_id),
             )
@@ -1972,17 +1973,17 @@ def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_c
                 po_id = cur.fetchone()["id"]
 
                 uom_by_item = _fetch_item_uoms(cur, company_id, [l.item_id for l in (data.lines or [])])
-                for l in data.lines:
+                for line_no, l in enumerate(data.lines, 1):
                     base_uom = (uom_by_item.get(str(l.item_id)) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO purchase_order_lines
-                          (id, company_id, purchase_order_id, item_id,
+                          (id, company_id, purchase_order_id, item_id, line_no,
                            qty, uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s,
                            %s, %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s)
@@ -1991,6 +1992,7 @@ def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_c
                             company_id,
                             po_id,
                             l.item_id,
+                            line_no,
                             l.qty,
                             base_uom,
                             l.qty,  # qty_entered (factor=1)
@@ -2089,17 +2091,17 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
                 order_id = cur.fetchone()["id"]
 
                 uom_by_item = _fetch_item_uoms(cur, company_id, [ln.get("item_id") for ln in (normalized or [])])
-                for ln in (normalized or []):
+                for line_no, ln in enumerate((normalized or []), 1):
                     base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO purchase_order_lines
-                          (id, company_id, purchase_order_id, item_id,
+                          (id, company_id, purchase_order_id, item_id, line_no,
                            qty, uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s,
                            %s, %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s)
@@ -2108,6 +2110,7 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
                             company_id,
                             order_id,
                             ln["item_id"],
+                            line_no,
                             ln["qty"],
                             base_uom,
                             ln["qty"],
@@ -2173,17 +2176,17 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                         (company_id, order_id),
                     )
                     uom_by_item = _fetch_item_uoms(cur, company_id, [ln.get("item_id") for ln in (normalized or [])])
-                    for ln in (normalized or []):
+                    for line_no, ln in enumerate((normalized or []), 1):
                         base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                         cur.execute(
                             """
                             INSERT INTO purchase_order_lines
-                              (id, company_id, purchase_order_id, item_id,
+                              (id, company_id, purchase_order_id, item_id, line_no,
                                qty, uom, qty_factor, qty_entered,
                                unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                                line_total_usd, line_total_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s,
+                              (gen_random_uuid(), %s, %s, %s, %s,
                                %s, %s, 1, %s,
                                %s, %s, %s, %s,
                                %s, %s)
@@ -2192,6 +2195,7 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                                 company_id,
                                 order_id,
                                 ln["item_id"],
+                                line_no,
                                 ln["qty"],
                                 base_uom,
                                 ln["qty"],
@@ -2472,18 +2476,18 @@ def create_goods_receipt_draft_from_order(
                 receipt_id = cur.fetchone()["id"]
 
                 uom_by_item = _fetch_item_uoms(cur, company_id, [ln.get("item_id") for ln in (receipt_lines or [])])
-                for ln in receipt_lines:
+                for line_no, ln in enumerate(receipt_lines, 1):
                     base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
-                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
+                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp,
                            location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, NULL, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, NULL, %s,
                            %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s,
@@ -2494,6 +2498,7 @@ def create_goods_receipt_draft_from_order(
                             receipt_id,
                             ln["purchase_order_line_id"],
                             ln["item_id"],
+                            line_no,
                             ln["qty"],
                             base_uom,
                             ln["qty"],
@@ -2606,13 +2611,13 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
-                          (id, company_id, goods_receipt_id, item_id, batch_id, qty,
+                          (id, company_id, goods_receipt_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp,
                            location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (%s, %s, %s, %s, %s, %s,
+                          (%s, %s, %s, %s, %s, %s, %s,
                            %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s,
@@ -2623,6 +2628,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             company_id,
                             receipt_id,
                             l.item_id,
+                            idx + 1,
                             batch_id,
                             l.qty,
                             base_uom,
@@ -2803,13 +2809,13 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
-                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
+                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp,
                            location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s,
                            %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s,
@@ -2820,6 +2826,7 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                             receipt_id,
                             ln.get("purchase_order_line_id"),
                             ln["item_id"],
+                            idx + 1,
                             batch_id,
                             ln["qty"],
                             base_uom,
@@ -2899,13 +2906,13 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                         cur.execute(
                             """
                             INSERT INTO goods_receipt_lines
-                              (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
+                              (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, line_no, batch_id, qty,
                                uom, qty_factor, qty_entered,
                                unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                                line_total_usd, line_total_lbp,
                                location_id, landed_cost_total_usd, landed_cost_total_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s,
                                %s, 1, %s,
                                %s, %s, %s, %s,
                                %s, %s,
@@ -2916,6 +2923,7 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                                 receipt_id,
                                 ln.get("purchase_order_line_id"),
                                 ln["item_id"],
+                                idx + 1,
                                 batch_id,
                                 ln["qty"],
                                 base_uom,
@@ -3547,17 +3555,17 @@ def create_supplier_invoice_draft_from_receipt(
                 invoice_id = cur.fetchone()["id"]
 
                 uom_by_item = _fetch_item_uoms(cur, company_id, [ln.get("item_id") for ln in (inv_lines or [])])
-                for ln in inv_lines:
+                for line_no, ln in enumerate(inv_lines, 1):
                     base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
+                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s,
                            %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s)
@@ -3567,6 +3575,7 @@ def create_supplier_invoice_draft_from_receipt(
                             invoice_id,
                             ln["goods_receipt_line_id"],
                             ln["item_id"],
+                            line_no,
                             ln["batch_id"],
                             ln["qty"],
                             base_uom,
@@ -3674,13 +3683,13 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
+                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp,
                            supplier_item_code, supplier_item_name)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s,
                            %s, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s,
@@ -3691,6 +3700,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                             invoice_id,
                             ln.get("goods_receipt_line_id"),
                             ln["item_id"],
+                            idx + 1,
                             batch_id,
                             ln["qty"],
                             ln["uom"],
@@ -3778,13 +3788,13 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                         cur.execute(
                             """
                             INSERT INTO supplier_invoice_lines
-                              (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
+                              (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, line_no, batch_id, qty,
                                uom, qty_factor, qty_entered,
                                unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                                line_total_usd, line_total_lbp,
                                supplier_item_code, supplier_item_name)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s,
                                %s, %s, %s,
                                %s, %s, %s, %s,
                                %s, %s,
@@ -3795,6 +3805,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                                 invoice_id,
                                 ln.get("goods_receipt_line_id"),
                                 ln['item_id'],
+                                idx + 1,
                                 batch_id,
                                 ln['qty'],
                                 ln["uom"],
@@ -4838,12 +4849,12 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, item_id, batch_id, qty,
+                          (id, company_id, supplier_invoice_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
                            %s, 1, %s,
                            %s, %s, %s, %s,
                            %s, %s)
@@ -4852,6 +4863,7 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                             company_id,
                             invoice_id,
                             l.item_id,
+                            idx + 1,
                             batch_id,
                             l.qty,
                             base_uom,

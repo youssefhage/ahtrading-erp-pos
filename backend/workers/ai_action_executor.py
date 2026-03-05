@@ -151,12 +151,12 @@ def execute_purchase_action(cur, company_id: str, action_id: str, payload: dict)
     cur.execute(
         """
         INSERT INTO purchase_order_lines
-          (id, company_id, purchase_order_id, item_id,
+          (id, company_id, purchase_order_id, item_id, line_no,
            qty, uom, qty_factor, qty_entered,
            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
            line_total_usd, line_total_lbp)
         VALUES
-          (gen_random_uuid(), %s, %s, %s,
+          (gen_random_uuid(), %s, %s, %s, 1,
            %s, %s, 1, %s,
            %s, %s, %s, %s,
            %s, %s)

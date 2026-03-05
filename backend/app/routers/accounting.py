@@ -1449,12 +1449,12 @@ def import_opening_ar(
                     cur.execute(
                         """
                         INSERT INTO sales_invoice_lines
-                          (id, invoice_id, item_id, qty,
+                          (id, invoice_id, item_id, line_no, qty,
                            uom, qty_factor, qty_entered,
                            unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, 1,
+                          (gen_random_uuid(), %s, %s, 1, 1,
                            %s, 1, 1,
                            %s, %s, %s, %s,
                            %s, %s)
@@ -1664,12 +1664,12 @@ def import_opening_ap(
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
+                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, line_no, batch_id, qty,
                            uom, qty_factor, qty_entered,
                            unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, NULL, %s, NULL, 1,
+                          (gen_random_uuid(), %s, %s, NULL, %s, 1, NULL, 1,
                            %s, 1, 1,
                            %s, %s, %s, %s,
                            %s, %s)

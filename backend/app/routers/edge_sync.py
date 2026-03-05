@@ -269,7 +269,7 @@ def import_sales_invoice_bundle(
                 )
 
                 # Lines
-                for l in data.lines or []:
+                for line_no, l in enumerate(data.lines or [], 1):
                     try:
                         factor = float(l.get("qty_factor") or 1)
                     except Exception:
@@ -302,7 +302,7 @@ def import_sales_invoice_bundle(
                     cur.execute(
                         """
                         INSERT INTO sales_invoice_lines
-                          (id, invoice_id, item_id, qty,
+                          (id, invoice_id, item_id, line_no, qty,
                            unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
                            uom, qty_factor, qty_entered,
                            unit_price_entered_usd, unit_price_entered_lbp,
@@ -310,7 +310,7 @@ def import_sales_invoice_bundle(
                            discount_pct, discount_amount_usd, discount_amount_lbp,
                            applied_promotion_id, applied_promotion_item_id, applied_price_list_id)
                         VALUES
-                          (%s::uuid, %s::uuid, %s::uuid, %s,
+                          (%s::uuid, %s::uuid, %s::uuid, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s, %s,
                            %s, %s,
@@ -323,6 +323,7 @@ def import_sales_invoice_bundle(
                             l.get("id"),
                             inv_id,
                             l.get("item_id"),
+                            line_no,
                             qty,
                             l.get("unit_price_usd") or 0,
                             l.get("unit_price_lbp") or 0,

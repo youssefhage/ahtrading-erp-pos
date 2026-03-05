@@ -1237,7 +1237,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
     base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
 
-    for l in lines:
+    for line_no, l in enumerate(lines, 1):
         # Generate stable ids so downstream artifacts (stock moves, etc.) can link to document lines.
         line_id = str(uuid.uuid4())
         l["_invoice_line_id"] = line_id
@@ -1276,14 +1276,16 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                unit_price_entered_usd, unit_price_entered_lbp,
                pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                discount_pct, discount_amount_usd, discount_amount_lbp,
-               applied_promotion_id, applied_promotion_item_id, applied_price_list_id)
+               applied_promotion_id, applied_promotion_item_id, applied_price_list_id,
+               line_no)
             VALUES
               (%s, %s, %s, %s, %s, %s, %s, %s,
                %s, %s, %s,
                %s, %s,
                %s, %s,
                %s, %s, %s,
-               %s, %s, %s)
+               %s, %s, %s,
+               %s)
             """,
             (
                 line_id,
@@ -1308,6 +1310,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 l.get("applied_promotion_id"),
                 l.get("applied_promotion_item_id"),
                 l.get("applied_price_list_id"),
+                line_no,
             ),
         )
 
@@ -2400,7 +2403,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
     warehouse_id = payload.get("warehouse_id")
     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
     base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
-    for l in lines:
+    for line_no, l in enumerate(lines, 1):
         if not l.get("item_id") or not warehouse_id:
             continue
         batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
@@ -2438,13 +2441,15 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                uom, qty_factor, qty_entered,
                unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                line_total_usd, line_total_lbp,
-               location_id, landed_cost_total_usd, landed_cost_total_lbp)
+               location_id, landed_cost_total_usd, landed_cost_total_lbp,
+               line_no)
             VALUES
               (%s, %s, %s, %s, %s, %s,
                %s, %s, %s,
                %s, %s, %s, %s,
                %s, %s,
-               NULL, 0, 0)
+               NULL, 0, 0,
+               %s)
             """,
             (
                 gr_line_id,
@@ -2462,6 +2467,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                 unit_cost_entered_lbp,
                 line_total_usd,
                 line_total_lbp,
+                line_no,
             ),
         )
         cur.execute(
@@ -2678,7 +2684,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
 
     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
     base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
-    for l in lines:
+    for line_no, l in enumerate(lines, 1):
         batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
         touch_batch_received_metadata(
             cur,
@@ -2712,12 +2718,14 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
               (id, company_id, supplier_invoice_id, item_id, batch_id, qty,
                uom, qty_factor, qty_entered,
                unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
-               line_total_usd, line_total_lbp)
+               line_total_usd, line_total_lbp,
+               line_no)
             VALUES
               (gen_random_uuid(), %s, %s, %s, %s, %s,
                %s, %s, %s,
                %s, %s, %s, %s,
-               %s, %s)
+               %s, %s,
+               %s)
             """,
             (
                 company_id,
@@ -2734,6 +2742,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
                 unit_cost_entered_lbp,
                 line_total_usd,
                 line_total_lbp,
+                line_no,
             ),
         )
 

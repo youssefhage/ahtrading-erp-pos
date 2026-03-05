@@ -218,19 +218,19 @@ def create_purchase_order(
                 po_id = str(cur.fetchone()["id"])
 
                 # Insert lines
-                for l in lines:
+                for line_no, l in enumerate(lines, 1):
                     cur.execute(
                         """
                         INSERT INTO purchase_order_lines
-                          (id, company_id, purchase_order_id, item_id,
+                          (id, company_id, purchase_order_id, item_id, line_no,
                            qty, unit_cost_usd, unit_cost_lbp,
                            line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s, %s,
                            %s, %s, %s, %s, %s)
                         """,
                         (
-                            company_id, po_id, l["item_id"],
+                            company_id, po_id, l["item_id"], line_no,
                             l["qty"], l["unit_cost_usd"], l["unit_cost_lbp"],
                             l["line_total_usd"], l["line_total_lbp"],
                         ),
