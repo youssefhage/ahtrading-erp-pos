@@ -3679,6 +3679,46 @@
     return await _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
+  /**
+   * Iframe-based URL print fallback for when window.open() is blocked.
+   * Loads the URL in a hidden iframe and attempts to trigger print.
+   * Works for same-origin / blob URLs; cross-origin URLs may fail silently.
+   */
+  const _printUrlViaIframe = (url, { autoPrint = false } = {}) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;width:0;height:0;border:none;left:0;bottom:0;opacity:0;pointer-events:none;";
+    iframe.src = url;
+    document.body.appendChild(iframe);
+
+    const cleanup = () => {
+      setTimeout(() => {
+        try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (_) {}
+      }, 1000);
+    };
+
+    if (autoPrint) {
+      iframe.addEventListener("load", () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          } catch (e) {
+            // Cross-origin URLs will fail here — accepted limitation.
+            console.warn("[POS] iframe URL print failed (may be cross-origin):", e?.message || e);
+          }
+          try { iframe.contentWindow.addEventListener("afterprint", cleanup); } catch (_) {}
+          setTimeout(cleanup, 60000);
+        }, 600);
+      });
+    } else {
+      // Page may have its own auto-print script; give it time then clean up.
+      iframe.addEventListener("load", () => {
+        try { iframe.contentWindow.addEventListener("afterprint", cleanup); } catch (_) {}
+      });
+      setTimeout(cleanup, 60000);
+    }
+  };
+
   const _openPrintWindowWithUrl = (url, receiptWin = null, { autoPrint = false } = {}) => {
     const u = String(url || "").trim();
     if (!u) return false;
@@ -3690,11 +3730,16 @@
       }
     } catch (_) {}
     if (!win) {
-      try {
-        win = window.open(u, "_blank");
-      } catch (_) {}
+      win = _openManagedPrintWindow();
+      if (win) {
+        try { win.location = u; } catch (_) { win = null; }
+      }
     }
-    if (!win) return false;
+    if (!win) {
+      // Popup blocked — try iframe fallback (works for blob / same-origin URLs).
+      _printUrlViaIframe(u, { autoPrint });
+      return true;
+    }
     if (autoPrint) {
       // PDF viewer needs time to load; poll until ready then trigger print dialog.
       let attempts = 0;
@@ -5062,8 +5107,13 @@
     const agentUrl = _agentReceiptUrl(companyKey);
     if (agentUrl && agentUrl !== "/receipt/last") {
       try {
-        if (receiptWin) receiptWin.location = agentUrl;
-        else window.open(agentUrl, "_blank", "noopener,noreferrer");
+        if (receiptWin && !receiptWin.closed) {
+          receiptWin.location = agentUrl;
+        } else {
+          const agentWin = _openManagedPrintWindow();
+          if (agentWin) { agentWin.location = agentUrl; }
+          else { _printUrlViaIframe(agentUrl); }
+        }
         return;
       } catch (_) {}
     }
@@ -5122,7 +5172,12 @@
           try { if (receiptWin) receiptWin.close(); } catch (__) {}
         }
       } else {
-        try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); printed++; } catch (_) {}
+        try {
+          const agentWin = _openManagedPrintWindow();
+          if (agentWin) { agentWin.location = _agentReceiptUrl(companyKey); }
+          else { _printUrlViaIframe(_agentReceiptUrl(companyKey)); }
+          printed++;
+        } catch (_) {}
       }
     }
     if (printed === 0) reportError("No receipts found for this device.");
@@ -8334,7 +8389,9 @@
                     await _printLastReturnWeb(o.companyKey, null, { thermal: o.companyKey !== "official" });
                   }
                 } else {
-                  window.open(_agentReceiptUrl(o.companyKey), "_blank", "noopener,noreferrer");
+                  const rWin = _openManagedPrintWindow();
+                  if (rWin) { rWin.location = _agentReceiptUrl(o.companyKey); }
+                  else { _printUrlViaIframe(_agentReceiptUrl(o.companyKey)); }
                 }
               };
               printReturn().catch((err) => { console.warn(`[POS] return print failed (${o.companyKey}):`, err?.message || err); });
@@ -8366,7 +8423,9 @@
               await _printLastReturnWeb(returnCompany, null, { thermal: returnCompany !== "official" });
             }
           } else {
-            window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer");
+            const rWin = _openManagedPrintWindow();
+            if (rWin) { rWin.location = _agentReceiptUrl(returnCompany); }
+            else { _printUrlViaIframe(_agentReceiptUrl(returnCompany)); }
           }
         } catch (_) {}
         return;
