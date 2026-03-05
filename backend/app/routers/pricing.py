@@ -1585,6 +1585,64 @@ def delete_price_list_item(
                 return {"ok": True}
 
 
+class BatchPriceUpdateItem(BaseModel):
+    id: str
+    price_usd: Optional[Decimal] = None
+    price_lbp: Optional[Decimal] = None
+
+class BatchPriceUpdateIn(BaseModel):
+    updates: list[BatchPriceUpdateItem]
+
+@router.post("/lists/{list_id}/items/batch-update", dependencies=[Depends(require_permission("items:write"))])
+def batch_update_price_list_items(
+    list_id: str,
+    data: BatchPriceUpdateIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    if not data.updates:
+        return {"updated": 0}
+    if len(data.updates) > 500:
+        raise HTTPException(status_code=400, detail="max 500 items per batch")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                updated = 0
+                for item in data.updates:
+                    fields = []
+                    params = []
+                    if item.price_usd is not None:
+                        fields.append("price_usd = %s")
+                        params.append(item.price_usd)
+                    if item.price_lbp is not None:
+                        fields.append("price_lbp = %s")
+                        params.append(item.price_lbp)
+                    if not fields:
+                        continue
+                    cur.execute(
+                        f"""
+                        UPDATE price_list_items
+                        SET {', '.join(fields)}
+                        WHERE company_id = %s AND price_list_id = %s AND id = %s
+                        RETURNING id
+                        """,
+                        [*params, company_id, list_id, item.id],
+                    )
+                    if cur.fetchone():
+                        updated += 1
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_items_batch_update', 'price_list', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], list_id, json.dumps({"count": updated})),
+                )
+                _trigger_dependent_derivations(cur, company_id, list_id, date.today(), user["user_id"])
+                return {"updated": updated}
+
+
 class CompanySettingIn(BaseModel):
     key: str
     value_json: dict
