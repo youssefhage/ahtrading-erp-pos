@@ -114,11 +114,7 @@ export default function NewItemPage() {
   /* ---- Excise ---- */
   const [isExcise, setIsExcise] = useState(false);
 
-  /* ---- UOM & Packaging ---- */
-  const [purchaseUomCode, setPurchaseUomCode] = useState("");
-  const [salesUomCode, setSalesUomCode] = useState("");
-  const [casePackQty, setCasePackQty] = useState("");
-  const [innerPackQty, setInnerPackQty] = useState("");
+  /* ---- UOM & Packaging (configured on item edit page after creation) ---- */
 
   /* ---- Costing & Margins ---- */
   const [standardCostUsd, setStandardCostUsd] = useState("");
@@ -286,10 +282,6 @@ export default function NewItemPage() {
     setDescription("");
     setTaxCodeId("");
     setIsExcise(false);
-    setPurchaseUomCode("");
-    setSalesUomCode("");
-    setCasePackQty("");
-    setInnerPackQty("");
     setStandardCostUsd("");
     setStandardCostLbp("");
     setMinMarginPct("");
@@ -363,11 +355,7 @@ export default function NewItemPage() {
         description: description.trim() || null,
         // Excise
         is_excise: isExcise,
-        // UOM & Packaging
-        purchase_uom_code: purchaseUomCode || null,
-        sales_uom_code: salesUomCode || null,
-        case_pack_qty: casePackQty ? Number(casePackQty) : null,
-        inner_pack_qty: innerPackQty ? Number(innerPackQty) : null,
+        // UOM & Packaging (configured on item edit page after creation)
         // Costing & Margins
         standard_cost_usd: standardCostUsd ? Number(standardCostUsd) : null,
         standard_cost_lbp: standardCostLbp ? Number(standardCostLbp) : null,
@@ -758,7 +746,7 @@ export default function NewItemPage() {
 
                 {/* ---- Cost Defaults & Packaging ---- */}
                 <AccordionItem value="costing">
-                  <AccordionTrigger>Cost Defaults &amp; Packaging</AccordionTrigger>
+                  <AccordionTrigger>Cost Defaults</AccordionTrigger>
                   <AccordionContent className="space-y-4 px-1 pt-2">
                     <Alert>
                       <Info className="h-4 w-4" />
@@ -796,58 +784,6 @@ export default function NewItemPage() {
                           <SelectItem value="standard">Standard Cost</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-
-                    <Separator />
-
-                    <p className="text-sm font-medium">Packaging &amp; Unit Overrides</p>
-                    <p className="text-xs text-muted-foreground -mt-2">
-                      Only set these if you buy or sell in a different unit than the base unit of measure ({uom || "EA"}).
-                      For example, you might stock in EA but buy in BOX.
-                    </p>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Purchase Unit</Label>
-                        <SearchableSelect
-                          value={purchaseUomCode}
-                          onChange={setPurchaseUomCode}
-                          disabled={creating || loading}
-                          placeholder="Same as base unit"
-                          searchPlaceholder="Search units..."
-                          options={[
-                            { value: "", label: `(same as base unit: ${uom || "EA"})` },
-                            ...uoms.map((x) => ({ value: x, label: x })),
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">Unit used on purchase orders</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Sales Unit</Label>
-                        <SearchableSelect
-                          value={salesUomCode}
-                          onChange={setSalesUomCode}
-                          disabled={creating || loading}
-                          placeholder="Same as base unit"
-                          searchPlaceholder="Search units..."
-                          options={[
-                            { value: "", label: `(same as base unit: ${uom || "EA"})` },
-                            ...uoms.map((x) => ({ value: x, label: x })),
-                          ]}
-                        />
-                        <p className="text-xs text-muted-foreground">Unit used at point of sale</p>
-                      </div>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Case Pack Qty</Label>
-                        <Input type="number" min="0" step="any" value={casePackQty} onChange={(e) => setCasePackQty(e.target.value)} placeholder="e.g. 24" disabled={creating || loading} />
-                        <p className="text-xs text-muted-foreground">How many {uom || "EA"} per outer case</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Inner Pack Qty</Label>
-                        <Input type="number" min="0" step="any" value={innerPackQty} onChange={(e) => setInnerPackQty(e.target.value)} placeholder="e.g. 6" disabled={creating || loading} />
-                        <p className="text-xs text-muted-foreground">How many {uom || "EA"} per inner pack</p>
-                      </div>
                     </div>
                   </AccordionContent>
                 </AccordionItem>
