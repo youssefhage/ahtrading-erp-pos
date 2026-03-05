@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+
+type MenuPosition = {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+};
 
 export type SearchableSelectOption = {
   value: string;
@@ -46,7 +54,9 @@ export function SearchableSelect(props: {
   const [active, setActive] = useState(0);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
 
   const selected = useMemo(() => options.find((o) => o.value === value), [options, value]);
   const triggerLabel = selected ? selected.label : (value ? String(value) : placeholder);
@@ -66,10 +76,10 @@ export function SearchableSelect(props: {
   useEffect(() => setActive(0), [q, open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !menuPos) return;
     const t = window.setTimeout(() => searchRef.current?.focus(), 30);
     return () => window.clearTimeout(t);
-  }, [open]);
+  }, [open, menuPos]);
 
   useEffect(() => {
     onOpenChange?.(open);
@@ -85,10 +95,11 @@ export function SearchableSelect(props: {
     if (!open) return;
     function onDocPointerDown(e: PointerEvent) {
       const el = wrapRef.current;
+      const menu = menuRef.current;
       if (!el) return;
-      if (e.target instanceof Node && el.contains(e.target)) return;
+      if (e.target instanceof Node && (el.contains(e.target) || (menu && menu.contains(e.target)))) return;
       const path = typeof e.composedPath === "function" ? e.composedPath() : [];
-      if (path.includes(el)) return;
+      if (path.includes(el) || (menu && path.includes(menu))) return;
       setOpen(false);
     }
     function onDocKeyDown(e: KeyboardEvent) {
@@ -99,6 +110,40 @@ export function SearchableSelect(props: {
     return () => {
       document.removeEventListener("pointerdown", onDocPointerDown);
       document.removeEventListener("keydown", onDocKeyDown);
+    };
+  }, [open]);
+
+  // Reset menu position when closed
+  useEffect(() => {
+    if (open) return;
+    setMenuPos(null);
+  }, [open]);
+
+  // Compute fixed position for portal menu
+  useEffect(() => {
+    if (!open) return;
+    const updateMenuRect = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const gap = 8;
+      const rect = el.getBoundingClientRect();
+      const width = Math.min(rect.width, Math.max(120, window.innerWidth - gap * 2));
+      const left = Math.min(Math.max(gap, rect.left), Math.max(gap, window.innerWidth - gap - width));
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const preferUp = spaceBelow < 280 && spaceAbove > spaceBelow;
+      if (preferUp) {
+        setMenuPos({ left, width, bottom: Math.max(gap, window.innerHeight - rect.top + gap) });
+        return;
+      }
+      setMenuPos({ left, width, top: Math.max(gap, rect.bottom + gap) });
+    };
+    updateMenuRect();
+    window.addEventListener("resize", updateMenuRect);
+    window.addEventListener("scroll", updateMenuRect, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuRect);
+      window.removeEventListener("scroll", updateMenuRect, true);
     };
   }, [open]);
 
@@ -157,11 +202,19 @@ export function SearchableSelect(props: {
         {triggerLabel}
       </button>
 
-      {open ? (
+      {open && menuPos
+        ? createPortal(
             <div
+              ref={menuRef}
               data-dialog-keepopen="true"
               data-searchable-select-menu="true"
-              className="absolute left-0 right-0 z-[80] mt-1 overflow-hidden rounded-md border border-border bg-card shadow-lg"
+              className="z-[80] overflow-hidden rounded-md border border-border bg-card shadow-lg"
+              style={{
+                position: "fixed",
+                left: menuPos.left,
+                width: menuPos.width,
+                ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
+              }}
             >
               <div className="border-b border p-2">
                 <Input
@@ -211,8 +264,10 @@ export function SearchableSelect(props: {
                   <div className="px-3 py-3 text-sm text-muted-foreground">No matches.</div>
                 )}
               </div>
-            </div>
-        ) : null}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
