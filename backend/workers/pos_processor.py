@@ -177,10 +177,11 @@ def _resolve_line_uom(
     qty_factor: Decimal | None,
     base_uom_by_item: dict[str, str],
     factors_by_item: dict[str, dict[str, Decimal]],
-    epsilon: Decimal = UOM_Q6,
+    epsilon: Decimal = UOM_Q4_HALF_STEP,
 ) -> tuple[str, Decimal, Decimal]:
     """
     Validates that uom/qty_factor match item_uom_conversions, and that qty/qty_entered are consistent.
+    Epsilon defaults to Q4_HALF_STEP to tolerate POS clients that compute qty at 4dp precision.
     Returns (uom, qty_factor, qty_entered).
     """
     it = str(item_id or "").strip()
