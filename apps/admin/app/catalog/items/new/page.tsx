@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Printer, RefreshCw, Loader2, Plus, HelpCircle, Info, AlertTriangle } from "lucide-react";
+import { Printer, RefreshCw, Loader2, Plus, HelpCircle, Info, AlertTriangle, Trash2 } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { generateEan13Barcode, printBarcodeStickerLabel } from "@/lib/barcode-label";
+import { parseNumberInput } from "@/lib/numbers";
 import { PageHeader } from "@/components/business/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { useToast } from "@/components/toast-provider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -64,6 +66,23 @@ type RequiredField = "sku" | "name" | "uom";
 type RequiredErrors = Partial<Record<RequiredField, string>>;
 type CreateMode = "open" | "addAnother";
 
+/** Local-only conversion row (before item creation) */
+type LocalConversion = {
+  id: string;
+  uom_code: string;
+  to_base_factor: number;
+  is_active: boolean;
+};
+
+/** Local-only barcode row (before item creation) */
+type LocalBarcode = {
+  id: string;
+  barcode: string;
+  uom_code: string;
+  label: string;
+  is_primary: boolean;
+};
+
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -104,7 +123,6 @@ export default function NewItemPage() {
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [uom, setUom] = useState("PC");
-  const [barcode, setBarcode] = useState("");
   const [taxCodeId, setTaxCodeId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [active, setActive] = useState(true);
@@ -123,11 +141,22 @@ export default function NewItemPage() {
   /* ---- Excise ---- */
   const [isExcise, setIsExcise] = useState(false);
 
-  /* ---- UOM & Packaging ---- */
+  /* ---- Units & Barcodes (local arrays) ---- */
+  const [localConversions, setLocalConversions] = useState<LocalConversion[]>([]);
+  const [newConvUom, setNewConvUom] = useState("");
+  const [newConvFactor, setNewConvFactor] = useState("1");
+
+  const [localBarcodes, setLocalBarcodes] = useState<LocalBarcode[]>([]);
+  const [newBarcode, setNewBarcode] = useState("");
+  const [newBarcodeUom, setNewBarcodeUom] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newPrimary, setNewPrimary] = useState(false);
+
+  /* ---- Purchase/Sales UOM (item-level fields) ---- */
   const [purchaseUomCode, setPurchaseUomCode] = useState("");
-  const [purchaseUomFactor, setPurchaseUomFactor] = useState("");
   const [salesUomCode, setSalesUomCode] = useState("");
-  const [salesUomFactor, setSalesUomFactor] = useState("");
+
+  /* ---- Packaging ---- */
   const [casePackQty, setCasePackQty] = useState("");
   const [innerPackQty, setInnerPackQty] = useState("");
 
@@ -164,6 +193,39 @@ export default function NewItemPage() {
   const [checkingDupes, setCheckingDupes] = useState({ sku: false, barcode: false });
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const skuInputRef = useRef<HTMLInputElement | null>(null);
+
+  /* -------------------------------------------------------------------------- */
+  /*  Computed values                                                           */
+  /* -------------------------------------------------------------------------- */
+
+  const uomOptions = useMemo(() => {
+    const out: Array<{ value: string; label: string }> = [];
+    const seen = new Set<string>();
+    const cur = (uom || "").trim();
+    if (cur && !seen.has(cur) && !(uoms || []).includes(cur)) {
+      seen.add(cur);
+      out.push({ value: cur, label: `${cur} (current)` });
+    }
+    for (const x of uoms || []) {
+      const v = String(x || "").trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      out.push({ value: v, label: v });
+    }
+    return out;
+  }, [uoms, uom]);
+
+  /** The primary barcode to send in the item creation POST */
+  const primaryBarcode = useMemo(() => {
+    const primary = localBarcodes.find((b) => b.is_primary);
+    if (primary) return primary.barcode;
+    if (localBarcodes.length > 0) return localBarcodes[0].barcode;
+    return "";
+  }, [localBarcodes]);
+
+  /* -------------------------------------------------------------------------- */
+  /*  Data loading                                                              */
+  /* -------------------------------------------------------------------------- */
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -224,6 +286,10 @@ export default function NewItemPage() {
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [categoryId, brand, skuAutoGenerated]);
 
+  /* -------------------------------------------------------------------------- */
+  /*  Validation                                                                */
+  /* -------------------------------------------------------------------------- */
+
   const validateRequired = useCallback(
     (candidate?: { sku?: string; name?: string; uom?: string }): RequiredErrors => {
       const nextSku = (candidate?.sku ?? sku).trim();
@@ -266,7 +332,10 @@ export default function NewItemPage() {
     return { skuMatch, barcodeMatch };
   }, []);
 
-  // Debounced dupe checks
+  /* -------------------------------------------------------------------------- */
+  /*  Debounced duplicate checks                                                */
+  /* -------------------------------------------------------------------------- */
+
   useEffect(() => {
     if (skuAutoGenerated) { setSkuDuplicate(null); return; }
     const token = sku.trim();
@@ -286,7 +355,7 @@ export default function NewItemPage() {
   }, [sku, skuAutoGenerated, findExactDuplicates]);
 
   useEffect(() => {
-    const token = barcode.trim();
+    const token = newBarcode.trim();
     if (!token) { setBarcodeDuplicate(null); return; }
     let cancelled = false;
     const timer = window.setTimeout(async () => {
@@ -300,7 +369,11 @@ export default function NewItemPage() {
       }
     }, 280);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [barcode, findExactDuplicates]);
+  }, [newBarcode, findExactDuplicates]);
+
+  /* -------------------------------------------------------------------------- */
+  /*  Reset helpers                                                             */
+  /* -------------------------------------------------------------------------- */
 
   function resetOptionalFields() {
     setItemType("stocked");
@@ -313,16 +386,25 @@ export default function NewItemPage() {
     setSellingPriceUsd("");
     setSellingPriceLbp("");
     if (defaultPriceList) setSelectedPriceListId(defaultPriceList.id);
+    // Units & Barcodes
+    setLocalConversions([]);
+    setLocalBarcodes([]);
+    setNewConvUom("");
+    setNewConvFactor("1");
+    setNewBarcode("");
+    setNewBarcodeUom("");
+    setNewLabel("");
+    setNewPrimary(false);
     setPurchaseUomCode("");
-    setPurchaseUomFactor("");
     setSalesUomCode("");
-    setSalesUomFactor("");
     setCasePackQty("");
     setInnerPackQty("");
+    // Costing
     setStandardCostUsd("");
     setStandardCostLbp("");
     setMinMarginPct("");
     setCostingMethod("default");
+    // Inventory
     setTrackBatches(false);
     setTrackExpiry(false);
     setAllowNegativeStock("inherit");
@@ -336,14 +418,127 @@ export default function NewItemPage() {
     setPreferredSupplier(null);
   }
 
+  /* -------------------------------------------------------------------------- */
+  /*  Local conversion handlers                                                 */
+  /* -------------------------------------------------------------------------- */
+
+  function addLocalConversion(e: React.FormEvent) {
+    e.preventDefault();
+    const u = (newConvUom || "").trim().toUpperCase();
+    if (!u) return setStatus("Select a unit for the conversion.");
+    if (u === uom.trim().toUpperCase()) return setStatus("Cannot add a conversion for the base unit — it's already shown.");
+    if (localConversions.some((c) => c.uom_code === u)) return setStatus(`Conversion for ${u} already exists.`);
+    const f = parseNumberInput(newConvFactor);
+    if (!f.ok) return setStatus("Invalid conversion factor. You can type fractions like 1/48.");
+    if (f.value <= 0) return setStatus("Conversion factor must be greater than 0.");
+    setLocalConversions((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      uom_code: u,
+      to_base_factor: f.value,
+      is_active: true,
+    }]);
+    setNewConvUom("");
+    setNewConvFactor("1");
+    setStatus("");
+  }
+
+  function updateLocalConversion(id: string, patch: Partial<LocalConversion>) {
+    setLocalConversions((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
+  }
+
+  function deleteLocalConversion(id: string) {
+    const conv = localConversions.find((c) => c.id === id);
+    if (conv) {
+      if (purchaseUomCode === conv.uom_code) setPurchaseUomCode("");
+      if (salesUomCode === conv.uom_code) setSalesUomCode("");
+    }
+    setLocalConversions((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*  Local barcode handlers                                                    */
+  /* -------------------------------------------------------------------------- */
+
+  function addLocalBarcode(e: React.FormEvent) {
+    e.preventDefault();
+    const code = (newBarcode || "").trim();
+    if (!code) return setStatus("Barcode is required.");
+    if (localBarcodes.some((b) => b.barcode === code)) return setStatus("This barcode is already in the list.");
+    if (barcodeDuplicate) return setStatus("This barcode already exists in another item.");
+    const bcUom = (newBarcodeUom || uom || "").trim().toUpperCase();
+    const isPrimary = newPrimary || localBarcodes.length === 0;
+    setLocalBarcodes((prev) => {
+      let next = [...prev];
+      if (isPrimary) {
+        next = next.map((b) => ({ ...b, is_primary: false }));
+      }
+      next.push({
+        id: crypto.randomUUID(),
+        barcode: code,
+        uom_code: bcUom,
+        label: (newLabel || "").trim(),
+        is_primary: isPrimary,
+      });
+      return next;
+    });
+    setNewBarcode("");
+    setNewBarcodeUom("");
+    setNewLabel("");
+    setNewPrimary(false);
+    setBarcodeDuplicate(null);
+    setStatus("");
+  }
+
+  function updateLocalBarcode(id: string, patch: Partial<LocalBarcode>) {
+    setLocalBarcodes((prev) => {
+      let next = prev.map((b) => b.id === id ? { ...b, ...patch } : b);
+      if (patch.is_primary) {
+        next = next.map((b) => b.id === id ? b : { ...b, is_primary: false });
+      }
+      return next;
+    });
+  }
+
+  function deleteLocalBarcode(id: string) {
+    setLocalBarcodes((prev) => {
+      const next = prev.filter((b) => b.id !== id);
+      if (next.length > 0 && !next.some((b) => b.is_primary)) {
+        next[0] = { ...next[0], is_primary: true };
+      }
+      return next;
+    });
+  }
+
+  function generateDraftBarcode() {
+    setNewBarcode(generateEan13Barcode());
+  }
+
+  async function printLabelForBarcode(code: string, barcodeUom?: string | null) {
+    const bc = String(code || "").trim();
+    if (!bc) return setStatus("Enter or generate a barcode first.");
+    try {
+      await printBarcodeStickerLabel({
+        barcode: bc,
+        sku: sku.trim() || null,
+        name: name.trim() || null,
+        uom: String(barcodeUom || uom || "").trim() || null,
+      });
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /*  Submit                                                                    */
+  /* -------------------------------------------------------------------------- */
+
   async function submitCreate(mode: CreateMode) {
     const nextSku = sku.trim();
     const nextName = name.trim();
     const nextUom = uom.trim();
-    const nextBarcode = barcode.trim();
+    const nextBarcode = primaryBarcode.trim();
 
     setSubmitAttempted(true);
-    // SKU is only required if user is providing their own (not auto-generated)
     const errs = validateRequired({ sku: skuAutoGenerated ? "auto" : nextSku, name: nextName, uom: nextUom });
     setRequiredErrors(errs);
     if (Object.keys(errs).length > 0) {
@@ -354,20 +549,22 @@ export default function NewItemPage() {
     setCreating(true);
     setStatus("");
     try {
-      // Skip duplicate check for auto-generated SKUs (backend handles atomically)
+      // Duplicate check — SKU
       if (!skuAutoGenerated && nextSku) {
-        const { skuMatch, barcodeMatch } = await findExactDuplicates({ sku: nextSku, barcode: nextBarcode });
+        const { skuMatch } = await findExactDuplicates({ sku: nextSku });
         setSkuDuplicate(skuMatch);
-        setBarcodeDuplicate(barcodeMatch);
-        if (skuMatch || (nextBarcode && barcodeMatch)) {
-          setStatus("SKU or barcode already exists. Open the existing item from the field hints.");
+        if (skuMatch) {
+          setStatus("SKU already exists. Open the existing item from the field hints.");
           return;
         }
-      } else if (nextBarcode) {
-        const { barcodeMatch } = await findExactDuplicates({ barcode: nextBarcode });
-        setBarcodeDuplicate(barcodeMatch);
+      }
+      // Duplicate check — all barcodes
+      const allBarcodeValues = localBarcodes.map((b) => b.barcode.trim()).filter(Boolean);
+      for (const bc of allBarcodeValues) {
+        const { barcodeMatch } = await findExactDuplicates({ barcode: bc });
         if (barcodeMatch) {
-          setStatus("Barcode already exists. Open the existing item from the field hints.");
+          setBarcodeDuplicate(barcodeMatch);
+          setStatus(`Barcode "${bc}" already exists in another item.`);
           return;
         }
       }
@@ -417,29 +614,34 @@ export default function NewItemPage() {
         preferred_supplier_id: preferredSupplier?.id || null,
       });
 
-      // Create UOM conversions for purchase/sales units (requires item_id)
-      const conversionPromises: Promise<unknown>[] = [];
-      if (purchaseUomCode && purchaseUomFactor) {
-        conversionPromises.push(
-          apiPost(`/items/${encodeURIComponent(res.id)}/uom-conversions`, {
-            uom_code: purchaseUomCode,
-            to_base_factor: Number(purchaseUomFactor),
-            is_active: true,
-          }).catch(() => { /* best-effort — user can fix on edit page */ })
-        );
-      }
-      if (salesUomCode && salesUomFactor && salesUomCode !== purchaseUomCode) {
-        conversionPromises.push(
-          apiPost(`/items/${encodeURIComponent(res.id)}/uom-conversions`, {
-            uom_code: salesUomCode,
-            to_base_factor: Number(salesUomFactor),
-            is_active: true,
-          }).catch(() => { /* best-effort */ })
-        );
-      }
+      // Post-creation: create UOM conversions
+      const conversionPromises = localConversions.map((c) =>
+        apiPost(`/items/${encodeURIComponent(res.id)}/uom-conversions`, {
+          uom_code: c.uom_code,
+          to_base_factor: c.to_base_factor,
+          is_active: c.is_active,
+        }).catch(() => { /* best-effort — user can fix on edit page */ })
+      );
       if (conversionPromises.length) await Promise.all(conversionPromises);
 
-      // Add selling price to selected price list
+      // Post-creation: create additional barcodes (primary was already created by POST /items)
+      const additionalBarcodes = localBarcodes.filter((b) => b.barcode.trim() !== nextBarcode);
+      const barcodePromises = additionalBarcodes.map((b) => {
+        const conv = localConversions.find(
+          (c) => c.uom_code.toUpperCase() === (b.uom_code || "").toUpperCase()
+        );
+        const qtyFactor = conv ? conv.to_base_factor : 1;
+        return apiPost(`/items/${encodeURIComponent(res.id)}/barcodes`, {
+          barcode: b.barcode,
+          uom_code: b.uom_code || null,
+          qty_factor: qtyFactor,
+          label: b.label || null,
+          is_primary: b.is_primary,
+        }).catch(() => { /* best-effort */ });
+      });
+      if (barcodePromises.length) await Promise.all(barcodePromises);
+
+      // Post-creation: add selling price to price list
       const priceListTarget = selectedPriceListId || defaultPriceList?.id;
       if (priceListTarget && (sellingPriceUsd || sellingPriceLbp)) {
         const today = new Date().toISOString().slice(0, 10);
@@ -448,13 +650,12 @@ export default function NewItemPage() {
           price_usd: Number(sellingPriceUsd || 0),
           price_lbp: Number(sellingPriceLbp || 0),
           effective_from: today,
-        }).catch(() => { /* best-effort — user can add price from Price Lists page */ });
+        }).catch(() => { /* best-effort */ });
       }
 
       if (mode === "addAnother") {
         setSku("");
         setName("");
-        setBarcode("");
         setCategoryId("");
         setBrand("");
         setSubmitAttempted(false);
@@ -479,31 +680,22 @@ export default function NewItemPage() {
     }
   }
 
-  function generateBarcode() { setBarcode(generateEan13Barcode()); }
-
-  async function printBarcodeLabel() {
-    const code = barcode.trim();
-    if (!code) return setStatus("Enter or generate a barcode first.");
-    try {
-      await printBarcodeStickerLabel({
-        barcode: code,
-        sku: sku.trim() || null,
-        name: name.trim() || null,
-        uom: uom.trim() || null,
-      });
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    }
-  }
+  /* -------------------------------------------------------------------------- */
+  /*  Derived UI state                                                          */
+  /* -------------------------------------------------------------------------- */
 
   const skuError = !skuAutoGenerated ? (requiredErrors.sku || (skuDuplicate ? "SKU already exists." : "")) : "";
   const nameError = requiredErrors.name || "";
   const uomError = requiredErrors.uom || "";
   const barcodeError = barcodeDuplicate ? "Barcode already exists." : "";
   const requiredFilled = (skuAutoGenerated || !!sku.trim()) && !!name.trim() && !!uom.trim();
-  const hasErrors = !!skuError || !!nameError || !!uomError || !!barcodeError;
+  const hasErrors = !!skuError || !!nameError || !!uomError;
   const hasPendingChecks = checkingDupes.sku || checkingDupes.barcode;
   const submitDisabled = creating || loading || !requiredFilled || hasErrors || hasPendingChecks;
+
+  /* -------------------------------------------------------------------------- */
+  /*  Render                                                                    */
+  /* -------------------------------------------------------------------------- */
 
   return (
     <TooltipProvider>
@@ -566,38 +758,9 @@ export default function NewItemPage() {
                 {nameError ? <p className="text-xs text-destructive">{nameError}</p> : null}
               </div>
 
-              {/* ---- Barcode + Unit of Measure (side by side) ---- */}
-              <div className="grid gap-4 sm:grid-cols-6">
-                <div className="space-y-2 sm:col-span-4">
-                  <Label>Primary Barcode (optional)</Label>
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      value={barcode}
-                      onChange={(e) => setBarcode(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-                      placeholder="Scan or type barcode"
-                      disabled={creating || loading}
-                      className={`font-mono ${barcodeError ? "border-destructive focus-visible:ring-destructive" : ""}`}
-                      aria-invalid={barcodeError ? true : undefined}
-                    />
-                    <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Generate barcode" onClick={generateBarcode} disabled={creating || loading}>
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Print sticker" onClick={printBarcodeLabel} disabled={creating || loading || !barcode.trim()}>
-                      <Printer className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {checkingDupes.barcode && !barcodeError ? <p className="text-xs text-muted-foreground">Checking barcode...</p> : null}
-                  {barcodeError ? (
-                    <p className="text-xs text-destructive">
-                      {barcodeError}{" "}
-                      {barcodeDuplicate ? (
-                        <Link href={`/catalog/items/${encodeURIComponent(barcodeDuplicate.id)}`} className="underline underline-offset-2">Open existing</Link>
-                      ) : null}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-2 sm:col-span-2">
+              {/* ---- Unit of Measure ---- */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
                   <Label>Unit of Measure <span className="text-destructive">*</span></Label>
                   <SearchableSelect
                     value={uom}
@@ -733,7 +896,6 @@ export default function NewItemPage() {
                     onCheckedChange={(checked) => {
                       setSkuAutoGenerated(checked);
                       if (checked) {
-                        // Clear manual SKU errors
                         setSkuDuplicate(null);
                         setRequiredErrors((prev) => {
                           const next = { ...prev };
@@ -741,7 +903,6 @@ export default function NewItemPage() {
                           return next;
                         });
                       } else {
-                        // Focus SKU input when switching to manual
                         window.requestAnimationFrame(() => skuInputRef.current?.focus());
                       }
                     }}
@@ -831,6 +992,227 @@ export default function NewItemPage() {
           </Card>
 
           {/* ================================================================ */}
+          {/* UNITS & BARCODES CARD                                            */}
+          {/* ================================================================ */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Units & Barcodes</CardTitle>
+              <CardDescription>
+                Define how this item is measured, then assign barcodes. Base unit: <span className="font-semibold">{uom || "—"}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+
+              {/* ── Unit Conversions ── */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium">Unit Conversions</h4>
+                  {localConversions.length > 0 && <Badge variant="secondary" className="text-xs">{localConversions.length}</Badge>}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  How many <span className="font-semibold">{uom || "base"}</span> in 1 of each unit? You can type fractions like <span className="font-mono">1/48</span>.
+                </p>
+              </div>
+
+              {/* Add conversion — sentence-style */}
+              <form onSubmit={addLocalConversion} className="flex flex-wrap items-center gap-2">
+                <span className="flex h-9 items-center text-sm text-muted-foreground">1</span>
+                <div className="w-32">
+                  <SearchableSelect value={newConvUom} onChange={setNewConvUom} searchPlaceholder="Unit..." options={uomOptions} />
+                </div>
+                <span className="flex h-9 items-center text-sm text-muted-foreground">=</span>
+                <Input
+                  value={newConvFactor}
+                  onChange={(e) => setNewConvFactor(e.target.value)}
+                  placeholder="e.g. 48"
+                  inputMode="decimal"
+                  className="w-24 text-center font-mono"
+                />
+                <span className="flex h-9 items-center text-sm font-semibold">{uom || "base"}</span>
+                <Button type="submit" variant="outline" size="sm" disabled={creating || loading}>
+                  <Plus className="mr-1 h-3.5 w-3.5" />Add
+                </Button>
+              </form>
+
+              {/* Base UOM row (always shown) + local conversions */}
+              <div className="space-y-2">
+                {/* Base UOM row — always present, not editable */}
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+                  <span className="whitespace-nowrap font-mono text-sm">1 {uom || "BASE"} =</span>
+                  <Input value="1" disabled className="w-20 text-center font-mono text-sm" />
+                  <span className="text-sm font-semibold">{uom || "base"}</span>
+                  <div className="flex-1" />
+                  <Badge variant="secondary" className="text-xs">Base</Badge>
+                </div>
+
+                {/* Local conversions */}
+                {localConversions.map((c) => (
+                  <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+                    <span className="whitespace-nowrap font-mono text-sm">1 {c.uom_code} =</span>
+                    <Input
+                      defaultValue={String(c.to_base_factor)}
+                      inputMode="decimal"
+                      className="w-20 text-center font-mono text-sm"
+                      onBlur={(e) => {
+                        const r = parseNumberInput(e.currentTarget.value);
+                        if (!r.ok || r.value <= 0) return;
+                        if (Math.abs(c.to_base_factor - r.value) < 1e-12) return;
+                        updateLocalConversion(c.id, { to_base_factor: r.value });
+                      }}
+                    />
+                    <span className="text-sm font-semibold">{uom || "base"}</span>
+                    <div className="flex-1" />
+                    <div className="flex items-center gap-1.5">
+                      <Switch checked={c.is_active} onCheckedChange={(v) => updateLocalConversion(c.id, { is_active: v })} />
+                      <span className="text-xs text-muted-foreground">Active</span>
+                    </div>
+                    <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteLocalConversion(c.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+
+                {localConversions.length === 0 && (
+                  <p className="py-3 text-center text-sm text-muted-foreground">No unit conversions yet. Add one above.</p>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* ── Barcodes ── */}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium">Barcodes</h4>
+                  {localBarcodes.length > 0 && <Badge variant="secondary" className="text-xs">{localBarcodes.length}</Badge>}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Each barcode is linked to a unit. Conversion factors sync automatically from above.
+                </p>
+              </div>
+
+              {/* Add barcode form */}
+              <form onSubmit={addLocalBarcode} className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[200px] flex-1">
+                    <Input
+                      value={newBarcode}
+                      onChange={(e) => setNewBarcode(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                      placeholder="Scan or type barcode"
+                      className="pr-16 font-mono"
+                      disabled={creating || loading}
+                    />
+                    <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Generate EAN-13" onClick={generateDraftBarcode} disabled={creating || loading}>
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" title="Print label" onClick={() => printLabelForBarcode(newBarcode, newBarcodeUom || uom)} disabled={!newBarcode.trim() || creating || loading}>
+                        <Printer className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="w-28">
+                    <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="Unit..." options={uomOptions} />
+                  </div>
+                  <Button type="submit" variant="outline" size="sm" disabled={creating || loading}>
+                    <Plus className="mr-1 h-3.5 w-3.5" />Add
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 pl-0.5">
+                  <Input
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    placeholder="Optional label (e.g. inner pack)"
+                    className="h-8 w-56 text-xs"
+                    disabled={creating || loading}
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <Switch checked={newPrimary} onCheckedChange={setNewPrimary} disabled={creating || loading} />
+                    <span className="text-xs text-muted-foreground">Primary</span>
+                  </div>
+                </div>
+                {checkingDupes.barcode && !barcodeError ? <p className="text-xs text-muted-foreground">Checking barcode...</p> : null}
+                {barcodeError ? (
+                  <p className="text-xs text-destructive">
+                    {barcodeError}{" "}
+                    {barcodeDuplicate ? (
+                      <Link href={`/catalog/items/${encodeURIComponent(barcodeDuplicate.id)}`} className="underline underline-offset-2">Open existing</Link>
+                    ) : null}
+                  </p>
+                ) : null}
+              </form>
+
+              {/* Existing local barcodes table */}
+              {localBarcodes.length > 0 ? (
+                <div className="rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Barcode</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Unit</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Label</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {localBarcodes.map((b) => (
+                        <tr key={b.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs">{b.barcode}</span>
+                              {b.is_primary && <Badge variant="default" className="px-1.5 py-0 text-[10px]">Primary</Badge>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="w-24">
+                              <SearchableSelect
+                                value={b.uom_code}
+                                onChange={(v) => updateLocalBarcode(b.id, { uom_code: String(v || "").trim().toUpperCase() })}
+                                searchPlaceholder="Unit..."
+                                options={uomOptions}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              defaultValue={b.label || ""}
+                              placeholder="—"
+                              className="h-8 text-xs"
+                              onBlur={(e) => {
+                                const next = (e.currentTarget.value || "").trim();
+                                if (next === (b.label || "")) return;
+                                updateLocalBarcode(b.id, { label: next });
+                              }}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7" title="Print label" onClick={() => printLabelForBarcode(b.barcode, b.uom_code)}>
+                                <Printer className="h-3.5 w-3.5" />
+                              </Button>
+                              {!b.is_primary && (
+                                <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => updateLocalBarcode(b.id, { is_primary: true })}>
+                                  Set Primary
+                                </Button>
+                              )}
+                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteLocalBarcode(b.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-3 text-center text-sm text-muted-foreground">No barcodes yet. Scan or add one above.</p>
+              )}
+
+            </CardContent>
+          </Card>
+
+          {/* ================================================================ */}
           {/* OPTIONAL SECTIONS - Collapsible accordion (3 sections)           */}
           {/* ================================================================ */}
           <Card>
@@ -882,7 +1264,7 @@ export default function NewItemPage() {
                   </AccordionContent>
                 </AccordionItem>
 
-                {/* ---- Cost Defaults & Packaging ---- */}
+                {/* ---- Cost Defaults ---- */}
                 <AccordionItem value="costing">
                   <AccordionTrigger>Cost Defaults</AccordionTrigger>
                   <AccordionContent className="space-y-4 px-1 pt-2">
@@ -925,98 +1307,44 @@ export default function NewItemPage() {
                   </AccordionContent>
                 </AccordionItem>
 
-                {/* ---- Packaging & Unit Conversions ---- */}
-                <AccordionItem value="packaging">
-                  <AccordionTrigger>Packaging &amp; Unit Conversions</AccordionTrigger>
+                {/* ---- Inventory & Logistics ---- */}
+                <AccordionItem value="inventory">
+                  <AccordionTrigger>Inventory &amp; Logistics</AccordionTrigger>
                   <AccordionContent className="space-y-4 px-1 pt-2">
-                    <p className="text-xs text-muted-foreground">
-                      Only needed if you buy or sell in a different unit than <span className="font-medium text-foreground">{uom || "PC"}</span>.
-                      For example, you stock in PC but purchase in BOX (1 BOX = 24 PC).
-                    </p>
 
-                    {/* Purchase Unit with inline conversion */}
-                    <div className="space-y-2">
-                      <Label>Purchase Unit</Label>
-                      <div className="flex flex-wrap items-center gap-2">
+                    {/* ---- Packaging ---- */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Purchase Unit</Label>
                         <SearchableSelect
                           value={purchaseUomCode}
-                          onChange={(v) => {
-                            setPurchaseUomCode(v);
-                            if (!v || v === uom) setPurchaseUomFactor("");
-                          }}
+                          onChange={setPurchaseUomCode}
                           disabled={creating || loading}
                           placeholder={`Same as ${uom || "PC"}`}
                           searchPlaceholder="Search units..."
-                          controlClassName="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
                           options={[
                             { value: "", label: `(same as ${uom || "PC"})` },
-                            ...uoms.filter((x) => x !== uom).map((x) => ({ value: x, label: x })),
+                            ...localConversions.map((c) => ({ value: c.uom_code, label: c.uom_code })),
                           ]}
                         />
-                        {purchaseUomCode && purchaseUomCode !== uom ? (
-                          <div className="flex items-center gap-2 text-sm">
-                            <span className="text-muted-foreground">1 {purchaseUomCode} =</span>
-                            <Input
-                              type="number"
-                              min="0.000001"
-                              step="any"
-                              value={purchaseUomFactor}
-                              onChange={(e) => setPurchaseUomFactor(e.target.value)}
-                              placeholder="e.g. 12"
-                              disabled={creating || loading}
-                              className="h-9 w-[100px] font-mono"
-                            />
-                            <span className="font-medium">{uom || "PC"}</span>
-                          </div>
-                        ) : null}
+                        <p className="text-xs text-muted-foreground">Unit used on purchase orders</p>
                       </div>
-                      <p className="text-xs text-muted-foreground">Unit used on purchase orders</p>
-                    </div>
-
-                    {/* Sales Unit with inline conversion */}
-                    <div className="space-y-2">
-                      <Label>Sales Unit</Label>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="space-y-2">
+                        <Label>Sales Unit</Label>
                         <SearchableSelect
                           value={salesUomCode}
-                          onChange={(v) => {
-                            setSalesUomCode(v);
-                            if (!v || v === uom) setSalesUomFactor("");
-                          }}
+                          onChange={setSalesUomCode}
                           disabled={creating || loading}
                           placeholder={`Same as ${uom || "PC"}`}
                           searchPlaceholder="Search units..."
-                          controlClassName="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
                           options={[
                             { value: "", label: `(same as ${uom || "PC"})` },
-                            ...uoms.filter((x) => x !== uom).map((x) => ({ value: x, label: x })),
+                            ...localConversions.map((c) => ({ value: c.uom_code, label: c.uom_code })),
                           ]}
                         />
-                        {salesUomCode && salesUomCode !== uom ? (
-                          <div className="flex items-center gap-2 text-sm">
-                            <span className="text-muted-foreground">1 {salesUomCode} =</span>
-                            <Input
-                              type="number"
-                              min="0.000001"
-                              step="any"
-                              value={salesUomCode === purchaseUomCode ? purchaseUomFactor : salesUomFactor}
-                              onChange={(e) => setSalesUomFactor(e.target.value)}
-                              placeholder="e.g. 12"
-                              disabled={creating || loading || salesUomCode === purchaseUomCode}
-                              className="h-9 w-[100px] font-mono"
-                            />
-                            <span className="font-medium">{uom || "PC"}</span>
-                            {salesUomCode === purchaseUomCode ? (
-                              <span className="text-xs text-muted-foreground">(same as purchase)</span>
-                            ) : null}
-                          </div>
-                        ) : null}
+                        <p className="text-xs text-muted-foreground">Unit used at point of sale</p>
                       </div>
-                      <p className="text-xs text-muted-foreground">Unit used at point of sale</p>
                     </div>
-
-                    <Separator />
-
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label>Case Pack Qty</Label>
@@ -1029,13 +1357,9 @@ export default function NewItemPage() {
                         <p className="text-xs text-muted-foreground">How many {uom || "PC"} per inner pack</p>
                       </div>
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
 
-                {/* ---- Inventory & Logistics ---- */}
-                <AccordionItem value="inventory">
-                  <AccordionTrigger>Inventory &amp; Logistics</AccordionTrigger>
-                  <AccordionContent className="space-y-4 px-1 pt-2">
+                    <Separator />
+
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="flex items-center gap-3">
                         <Switch checked={trackBatches} onCheckedChange={setTrackBatches} disabled={creating || loading} />
