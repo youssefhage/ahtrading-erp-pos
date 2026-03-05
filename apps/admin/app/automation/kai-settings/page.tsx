@@ -8,7 +8,6 @@ import {
   Plus,
   RefreshCw,
   Save,
-  Settings,
   Smartphone,
   Trash2,
   MessageSquare,
@@ -246,7 +245,6 @@ export default function KaiSettingsPage() {
           <PageHeader
             title="Kai Settings"
             description="Configure Telegram and WhatsApp channels for Kai AI copilot."
-            icon={<Settings className="h-5 w-5" />}
           />
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BarChart3,
   Bot,
   Hash,
   MessageSquare,
@@ -185,7 +184,6 @@ export default function KaiAnalyticsPage() {
           <PageHeader
             title="Kai Analytics"
             description="Conversation usage, tool activity, and channel insights."
-            icon={<BarChart3 className="h-5 w-5" />}
           />
           <div className="flex items-center gap-3">
             <Select value={days} onValueChange={setDays}>
