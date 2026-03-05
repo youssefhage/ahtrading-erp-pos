@@ -178,7 +178,8 @@ export default function KaiAnalyticsPage() {
   }, [data, confirmationTotal]);
 
   return (
-    <AiSetupGate>
+    <>
+      {error && <AiSetupGate error={error} />}
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <PageHeader
@@ -455,6 +456,6 @@ export default function KaiAnalyticsPage() {
           </div>
         )}
       </div>
-    </AiSetupGate>
+    </>
   );
 }

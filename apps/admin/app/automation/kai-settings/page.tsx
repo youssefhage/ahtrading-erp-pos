@@ -239,7 +239,8 @@ export default function KaiSettingsPage() {
   const inactiveLinks = links.filter((l) => !l.is_active);
 
   return (
-    <AiSetupGate>
+    <>
+      {error && <AiSetupGate error={error} />}
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <PageHeader
@@ -602,6 +603,6 @@ export default function KaiSettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AiSetupGate>
+    </>
   );
 }
