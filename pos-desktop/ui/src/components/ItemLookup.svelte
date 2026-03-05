@@ -1,6 +1,6 @@
 <script>
   import { tick } from "svelte";
-  import { scoreFuzzyQuery, normalizeSearchText } from "../lib/fuzzy.js";
+  import { scoreFuzzyQuery } from "../lib/fuzzy.js";
 
   export let items = []; // tagged with { companyKey }
   export let query = "";
