@@ -989,11 +989,15 @@ def admin_reset_password(user_id: str, data: AdminPasswordReset, company_id: str
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="user not found in this company")
 
+                # Check if user is deactivated — password reset should not reactivate.
+                cur.execute("SELECT is_active FROM users WHERE id = %s", (user_id,))
+                target_user = cur.fetchone()
+                if target_user and not target_user["is_active"]:
+                    raise HTTPException(status_code=400, detail="cannot reset password for a deactivated user")
                 cur.execute(
                     """
                     UPDATE users
                     SET hashed_password = %s,
-                        is_active = true,
                         updated_at = now()
                     WHERE id = %s
                     """,
@@ -1190,6 +1194,32 @@ def assign_role(data: RoleAssignIn, company_id: str = Depends(get_company_id), u
             cur.execute("SELECT id FROM roles WHERE id = %s AND company_id = %s", (data.role_id, company_id))
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="role not found")
+            # Prevent privilege escalation: caller must hold all permissions of the target role.
+            cur.execute(
+                """
+                SELECT p.code
+                FROM role_permissions rp
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE rp.role_id = %s
+                """,
+                (data.role_id,),
+            )
+            target_perms = {r["code"] for r in cur.fetchall()}
+            if target_perms:
+                cur.execute(
+                    """
+                    SELECT DISTINCT p.code
+                    FROM user_roles ur
+                    JOIN role_permissions rp ON rp.role_id = ur.role_id
+                    JOIN permissions p ON p.id = rp.permission_id
+                    WHERE ur.user_id = %s AND ur.company_id = %s
+                    """,
+                    (user["user_id"], company_id),
+                )
+                caller_perms = {r["code"] for r in cur.fetchall()}
+                missing = target_perms - caller_perms
+                if missing:
+                    raise HTTPException(status_code=403, detail="cannot assign role with permissions you do not hold")
             cur.execute(
                 """
                 INSERT INTO user_roles (user_id, role_id, company_id)
@@ -1354,6 +1384,20 @@ def assign_role_permission(data: RolePermissionIn, company_id: str = Depends(get
             perm = cur.fetchone()
             if not perm:
                 raise HTTPException(status_code=404, detail="permission not found")
+            # Prevent privilege escalation: caller must hold the permission being granted.
+            cur.execute(
+                """
+                SELECT 1
+                FROM user_roles ur
+                JOIN role_permissions rp ON rp.role_id = ur.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE ur.user_id = %s AND ur.company_id = %s AND p.code = %s
+                LIMIT 1
+                """,
+                (user["user_id"], company_id, data.permission_code),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=403, detail="cannot grant a permission you do not hold")
             cur.execute(
                 """
                 INSERT INTO role_permissions (role_id, permission_id)

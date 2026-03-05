@@ -38,7 +38,7 @@ def decrypt_secret(token: str) -> str:
     try:
         raw = f.decrypt(token.encode("utf-8"))
     except InvalidToken:
-        raise HTTPException(status_code=500, detail="failed to decrypt MFA secret") from None
+        raise HTTPException(status_code=500, detail="MFA verification failed") from None
     return raw.decode("utf-8")
 
 

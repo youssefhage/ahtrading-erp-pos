@@ -8753,11 +8753,18 @@
         // replay harmlessly.
 
         // 1. Build submission descriptors (prepare, don't fire yet).
+        //    Proportion cash_tendered by each company's share of the grand total
+        //    so each invoice receives its fair portion (not the full amount).
+        const _splitGrandTotal = cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
         const submissions = companiesInOrder.map((companyKey) => {
           const lines = cart.filter((c) => c.companyKey === companyKey);
           if (!lines.length) return null;
           const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
           const cfg = cfgFor(companyKey);
+          const companySubtotal = lines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
+          const proportionedCash = (isPartialCash && _splitGrandTotal > 0)
+            ? roundUsd(cashTendered * (companySubtotal / _splitGrandTotal))
+            : undefined;
           const receipt_meta = {
             pilot: {
               mode: "split-by-company",
@@ -8776,7 +8783,7 @@
             cart: mapCartLines(lines),
             customer_id,
             payment_method,
-            cash_tendered: isPartialCash ? cashTendered : undefined,
+            cash_tendered: isPartialCash ? proportionedCash : undefined,
             receipt_meta,
             pricing_currency: cfg.pricing_currency,
             exchange_rate: cfg.exchange_rate,
@@ -8863,15 +8870,25 @@
                 const companyLines = splitCartSnap.filter((ln) => ln.companyKey === o.companyKey);
                 const ocfg = cfgFor(o.companyKey);
                 const cashName = normalizeCompanyKey(o.companyKey) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
+                const _splitSubUsd = companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
+                const _splitSubLbp = companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
+                const _splitTaxUsd = companyLines.reduce((s, ln) => {
+                  const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+                  return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                }, 0);
+                const _splitTaxLbp = companyLines.reduce((s, ln) => {
+                  const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+                  return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                }, 0);
                 _printOfflineReceipt(companyLines, {
                   companyKey: o.companyKey,
                   paymentMethod: payment_method,
                   customerName: splitSnapCustomerName,
                   cashier: String(cashName || "").trim(),
                   eventId: o.res?.event_id || "",
-                  totalUsd: companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0),
-                  totalLbp: companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0),
-                  subtotalUsd: companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0),
+                  totalUsd: _splitSubUsd + _splitTaxUsd,
+                  totalLbp: _splitSubLbp + _splitTaxLbp,
+                  subtotalUsd: _splitSubUsd,
                   exchangeRate: toNum(ocfg?.exchange_rate, 0),
                   footerText: String(ocfg?.receipt_footer_text || "").trim(),
                 });
@@ -8965,8 +8982,18 @@
       const snapCashierName = queuedLocal
         ? String((normalizeCompanyKey(invoiceCompany) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName) || "").trim()
         : "";
-      const snapTotalUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
-      const snapTotalLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const _snapSubUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const _snapSubLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const _snapTaxUsd = queuedLocal ? cart.reduce((s, ln) => {
+        const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+        return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+      }, 0) : 0;
+      const _snapTaxLbp = queuedLocal ? cart.reduce((s, ln) => {
+        const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+        return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+      }, 0) : 0;
+      const snapTotalUsd = _snapSubUsd + _snapTaxUsd;
+      const snapTotalLbp = _snapSubLbp + _snapTaxLbp;
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
@@ -8989,7 +9016,7 @@
           eventId: res?.event_id || "",
           totalUsd: snapTotalUsd,
           totalLbp: snapTotalLbp,
-          subtotalUsd: snapTotalUsd,
+          subtotalUsd: _snapSubUsd,
           exchangeRate: toNum(cfg?.exchange_rate, 0),
           footerText: String(cfg?.receipt_footer_text || "").trim(),
         });

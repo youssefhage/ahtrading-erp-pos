@@ -1453,6 +1453,7 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                         auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
                     except ValueError as e:
                         raise HTTPException(status_code=400, detail=str(e))
+                    assert_journal_balanced(cur, journal_id)
 
                 cur.execute(
                     """

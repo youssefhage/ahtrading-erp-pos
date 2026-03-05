@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -9,7 +9,7 @@ from ..period_locks import assert_period_open
 import json
 import uuid
 from backend.workers import pos_processor
-from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced, USD_Q
 from ..account_defaults import ensure_company_account_defaults
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
 from ..uom import load_item_uom_context, resolve_line_uom
@@ -313,6 +313,13 @@ class SaleLine(BaseModel):
     price_override: bool = False
     original_list_price_usd: Decimal = Decimal("0")
     original_list_price_lbp: Decimal = Decimal("0")
+
+    @field_validator("qty")
+    @classmethod
+    def qty_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("qty must be greater than 0")
+        return v
 
 
 class TaxBlock(BaseModel):
@@ -749,11 +756,6 @@ class SalesInvoiceDraftLineIn(BaseModel):
     unit_price_entered_usd: Optional[Decimal] = None
     unit_price_entered_lbp: Optional[Decimal] = None
     # Commercial metadata (optional; defaults handled server-side).
-    pre_discount_unit_price_usd: Optional[Decimal] = None
-    pre_discount_unit_price_lbp: Optional[Decimal] = None
-    discount_pct: Optional[Decimal] = None
-    discount_amount_usd: Optional[Decimal] = None
-    discount_amount_lbp: Optional[Decimal] = None
     applied_promotion_id: Optional[str] = None
     applied_promotion_item_id: Optional[str] = None
     applied_price_list_id: Optional[str] = None
@@ -2875,6 +2877,24 @@ def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: st
                         ),
                     )
 
+                # Restore customer credit balance (mirrors create_sales_payment deduction).
+                if pay.get("customer_id"):
+                    cur.execute(
+                        """
+                        UPDATE customers
+                        SET credit_balance_usd = credit_balance_usd + %s,
+                            credit_balance_lbp = credit_balance_lbp + %s,
+                            updated_at = now()
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (
+                            Decimal(str(pay.get("amount_usd") or 0)),
+                            Decimal(str(pay.get("amount_lbp") or 0)),
+                            company_id,
+                            pay["customer_id"],
+                        ),
+                    )
+
                 cur.execute(
                     """
                     UPDATE sales_payments
@@ -3015,40 +3035,28 @@ def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, comp
                     )
                     adj_journal_id = cur.fetchone()["id"]
 
-                    if delta_usd > 0 or delta_lbp > 0:
-                        # Increased payment: Dr payment account, Cr AR.
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment recompute delta')
-                            """,
-                            (adj_journal_id, pay_account, delta_usd, delta_lbp),
-                        )
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement recompute delta')
-                            """,
-                            (adj_journal_id, ar, delta_usd, delta_lbp),
-                        )
-                    else:
-                        # Decreased payment: Dr AR, Cr payment account.
-                        abs_usd = abs(delta_usd)
-                        abs_lbp = abs(delta_lbp)
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'AR settlement recompute reversal')
-                            """,
-                            (adj_journal_id, ar, abs_usd, abs_lbp),
-                        )
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Customer payment recompute reversal')
-                            """,
-                            (adj_journal_id, pay_account, abs_usd, abs_lbp),
-                        )
+                    # Handle each currency independently to avoid negative debits/credits
+                    # when USD and LBP deltas have opposite signs.
+                    dr_pay_usd = max(delta_usd, Decimal("0"))
+                    cr_pay_usd = max(-delta_usd, Decimal("0"))
+                    dr_pay_lbp = max(delta_lbp, Decimal("0"))
+                    cr_pay_lbp = max(-delta_lbp, Decimal("0"))
+                    # Payment account: debit increases, credit decreases.
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'Customer payment recompute delta')
+                        """,
+                        (adj_journal_id, pay_account, dr_pay_usd, cr_pay_usd, dr_pay_lbp, cr_pay_lbp),
+                    )
+                    # AR account: opposite direction.
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'AR settlement recompute delta')
+                        """,
+                        (adj_journal_id, ar, cr_pay_usd, dr_pay_usd, cr_pay_lbp, dr_pay_lbp),
+                    )
 
                 # Bank txn (if present)
                 cur.execute(

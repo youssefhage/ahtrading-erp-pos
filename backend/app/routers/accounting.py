@@ -24,7 +24,8 @@ def _sign(v: Decimal) -> int:
     return 0
 
 
-_stale_rate_warnings: list[str] = []  # populated per-request if rate is stale
+_stale_rate_warnings: list[str] = []  # populated per-request if rate is stale; capped to prevent unbounded growth
+_STALE_RATE_WARNINGS_MAX = 100
 
 
 def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateType) -> Decimal:
@@ -33,6 +34,8 @@ def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateT
     if rate is None:
         raise HTTPException(status_code=400, detail="missing exchange rate")
     if is_stale:
+        if len(_stale_rate_warnings) >= _STALE_RATE_WARNINGS_MAX:
+            _stale_rate_warnings.clear()
         _stale_rate_warnings.append(
             f"Exchange rate for {rate_date} ({rate_type}) is stale — using fallback from >7 days ago"
         )
@@ -1386,6 +1389,22 @@ def import_opening_ar(
                             skipped += 1
                             continue
                         invoice_id = existing["id"]
+                        # Reverse old credit balance before re-importing to prevent double-counting.
+                        cur.execute(
+                            "SELECT total_usd, total_lbp FROM sales_invoices WHERE company_id=%s AND id=%s",
+                            (company_id, invoice_id),
+                        )
+                        old_inv = cur.fetchone()
+                        if old_inv:
+                            cur.execute(
+                                """
+                                UPDATE customers
+                                SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                                    credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
+                                WHERE company_id=%s AND id=%s
+                                """,
+                                (Decimal(str(old_inv["total_usd"] or 0)), Decimal(str(old_inv["total_lbp"] or 0)), company_id, customer_id),
+                            )
                         cur.execute(
                             """
                             UPDATE sales_invoices

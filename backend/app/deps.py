@@ -46,7 +46,7 @@ def get_session(
             )
             row = cur.fetchone()
             now = datetime.now(timezone.utc)
-            if not row or not row["is_active"] or row["expires_at"] < now:
+            if not row or not row["is_active"] or not row["expires_at"] or row["expires_at"] < now:
                 raise HTTPException(status_code=401, detail="invalid token")
             return {
                 "session_id": row["session_id"],

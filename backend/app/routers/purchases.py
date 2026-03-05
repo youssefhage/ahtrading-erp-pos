@@ -2013,22 +2013,28 @@ def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_c
 def update_purchase_order_status(order_id: str, data: PurchaseOrderStatusUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if data.status not in {"draft", "posted", "canceled"}:
         raise HTTPException(status_code=400, detail="invalid status")
+    _VALID_PO_TRANSITIONS = {
+        "draft": {"posted", "canceled"},
+        "posted": {"canceled"},
+    }
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    UPDATE purchase_orders
-                    SET status = %s
-                    WHERE company_id = %s AND id = %s
-                    RETURNING id
-                    """,
-                    (data.status, company_id, order_id),
+                    "SELECT status FROM purchase_orders WHERE company_id = %s AND id = %s FOR UPDATE",
+                    (company_id, order_id),
                 )
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="order not found")
+                allowed = _VALID_PO_TRANSITIONS.get(row["status"], set())
+                if data.status not in allowed:
+                    raise HTTPException(status_code=400, detail=f"cannot transition from '{row['status']}' to '{data.status}'")
+                cur.execute(
+                    "UPDATE purchase_orders SET status = %s WHERE company_id = %s AND id = %s",
+                    (data.status, company_id, order_id),
+                )
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -2310,16 +2316,22 @@ def cancel_purchase_order(order_id: str, company_id: str = Depends(get_company_i
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
+                    "SELECT status FROM purchase_orders WHERE company_id = %s AND id = %s FOR UPDATE",
+                    (company_id, order_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="order not found")
+                if row["status"] not in ("draft", "posted"):
+                    raise HTTPException(status_code=400, detail=f"cannot cancel order in '{row['status']}' status")
+                cur.execute(
                     """
                     UPDATE purchase_orders
                     SET status='canceled'
                     WHERE company_id = %s AND id = %s
-                    RETURNING id
                     """,
                     (company_id, order_id),
                 )
-                if not cur.fetchone():
-                    raise HTTPException(status_code=404, detail="order not found")
 
                 cur.execute(
                     """
@@ -2361,8 +2373,8 @@ def create_goods_receipt_draft_from_order(
                 order = cur.fetchone()
                 if not order:
                     raise HTTPException(status_code=404, detail="order not found")
-                if order["status"] == "canceled":
-                    raise HTTPException(status_code=400, detail="cannot receive against a canceled order")
+                if order["status"] not in ("posted", "partial"):
+                    raise HTTPException(status_code=400, detail=f"cannot receive against a '{order['status']}' order (must be posted)")
                 if not order.get("supplier_id"):
                     raise HTTPException(status_code=400, detail="order has no supplier_id")
 
@@ -3232,7 +3244,7 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                 # Reverse stock moves (receipt increases stock -> cancel reduces stock).
                 cur.execute(
                     """
-                    SELECT item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp
+                    SELECT item_id, warehouse_id, location_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp
                     FROM stock_moves
                     WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s
                     ORDER BY created_at ASC, id ASC
@@ -3255,15 +3267,16 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                         cur.execute(
                             """
                             INSERT INTO stock_moves
-                              (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
+                              (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                                source_type, source_id, created_by_user_id, reason)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s, %s, %s)
                             """,
                             (
                                 company_id,
                                 m["item_id"],
                                 m["warehouse_id"],
+                                m.get("location_id"),
                                 m["batch_id"],
                                 q_in,
                                 m["unit_cost_usd"],
@@ -3505,7 +3518,7 @@ def create_supplier_invoice_draft_from_receipt(
                        total_usd, total_lbp, exchange_rate, source_event_id,
                        invoice_date, due_date, tax_code_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (

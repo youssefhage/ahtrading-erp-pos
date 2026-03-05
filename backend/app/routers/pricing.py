@@ -581,30 +581,33 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         applied += 1
 
     # Clean up orphaned derived prices — items that exist in the target list
-    # but were NOT upserted during this run (removed from base, exempted upstream,
-    # or base price went to zero).  This ensures cascade chains propagate
-    # exemptions and deletions all the way downstream.
+    # AND in the base list but were NOT upserted during this run (removed from
+    # base, exempted upstream, or base price went to zero).  Items manually
+    # added to the target list (not in base) are preserved.
     orphans_removed = 0
-    if upserted_item_ids:
+    base_item_ids = list(base_price_by_item.keys())
+    if upserted_item_ids and base_item_ids:
         cur.execute(
             """
             DELETE FROM price_list_items
             WHERE company_id = %s
               AND price_list_id = %s::uuid
               AND NOT (item_id = ANY(%s::uuid[]))
+              AND item_id = ANY(%s::uuid[])
             """,
-            (company_id, target_id, list(upserted_item_ids)),
+            (company_id, target_id, list(upserted_item_ids), base_item_ids),
         )
         orphans_removed = cur.rowcount or 0
-    else:
-        # No items were derived — clear the entire target list.
+    elif not upserted_item_ids and base_item_ids:
+        # No items were derived — only clear items that came from the base list.
         cur.execute(
             """
             DELETE FROM price_list_items
             WHERE company_id = %s
               AND price_list_id = %s::uuid
+              AND item_id = ANY(%s::uuid[])
             """,
-            (company_id, target_id),
+            (company_id, target_id, base_item_ids),
         )
         orphans_removed = cur.rowcount or 0
 
