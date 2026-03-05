@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -17,16 +17,23 @@ export interface VoidInvoiceDialogProps {
   invoiceId: string;
   onVoided: () => void;
   onError: (msg: string) => void;
+  onSuggestReturn?: () => void;
 }
 
-export function VoidInvoiceDialog({ open, onOpenChange, invoiceId, onVoided, onError }: VoidInvoiceDialogProps) {
+export function VoidInvoiceDialog({ open, onOpenChange, invoiceId, onVoided, onError, onSuggestReturn }: VoidInvoiceDialogProps) {
   const [cancelDate, setCancelDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [cancelReason, setCancelReason] = useState("");
   const [canceling, setCanceling] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => { if (open) setLocalError(null); }, [open]);
+
+  const hasPaymentError = localError?.toLowerCase().includes("cannot cancel") && localError?.toLowerCase().includes("payment");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setCanceling(true);
+    setLocalError(null);
     try {
       await apiPost(`/sales/invoices/${invoiceId}/cancel`, {
         cancel_date: cancelDate || undefined,
@@ -36,7 +43,11 @@ export function VoidInvoiceDialog({ open, onOpenChange, invoiceId, onVoided, onE
       onVoided();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      onError(message);
+      if (message.toLowerCase().includes("cannot cancel") && message.toLowerCase().includes("payment")) {
+        setLocalError(message);
+      } else {
+        onError(message);
+      }
     } finally {
       setCanceling(false);
     }
@@ -60,6 +71,30 @@ export function VoidInvoiceDialog({ open, onOpenChange, invoiceId, onVoided, onE
             <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
             <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="customer error / duplicate / correction" />
           </div>
+          {hasPaymentError && (
+            <div className="md:col-span-6 rounded-md border border-orange-300/50 bg-orange-50 dark:border-orange-500/25 dark:bg-orange-950/20 p-3 text-sm">
+              <p className="font-medium text-foreground">This invoice has payments</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Posted invoices with payments cannot be voided directly.
+                Create a return or credit note instead to reverse stock and GL.
+              </p>
+              {onSuggestReturn && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => {
+                    onOpenChange(false);
+                    setLocalError(null);
+                    onSuggestReturn();
+                  }}
+                >
+                  Create Return Instead
+                </Button>
+              )}
+            </div>
+          )}
           <div className="md:col-span-6 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Close

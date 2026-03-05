@@ -47,6 +47,7 @@ type SupplierPaymentRow = {
   amount_lbp: string | number;
   payment_date?: string | null;
   bank_account_id?: string | null;
+  voided_at?: string | null;
   created_at: string;
 };
 
@@ -214,6 +215,22 @@ function SupplierPaymentsInner() {
 
   const selectedInvoice = payInvoiceId ? payableInvoiceById.get(payInvoiceId) || invoiceById.get(payInvoiceId) : null;
 
+  const [voidingId, setVoidingId] = useState("");
+
+  async function voidPayment(paymentId: string) {
+    if (!confirm("Void this supplier payment? This will reverse GL entries.")) return;
+    setVoidingId(paymentId);
+    try {
+      await apiPost(`/purchases/payments/${paymentId}/void`, {});
+      toast.success("Payment voided", "GL entries reversed.");
+      await loadPayments();
+    } catch (err) {
+      toast.error("Void failed", err instanceof Error ? err.message : String(err));
+    } finally {
+      setVoidingId("");
+    }
+  }
+
   const columns = useMemo<ColumnDef<SupplierPaymentRow>[]>(() => [
     {
       id: "payment_date",
@@ -255,7 +272,22 @@ function SupplierPaymentsInner() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />,
       cell: ({ row }) => <CurrencyDisplay amount={n(row.original.amount_lbp)} currency="LBP" />,
     },
-  ], []);
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const p = row.original;
+        if (p.voided_at) return <span className="text-xs text-destructive">Voided</span>;
+        return (
+          <Button variant="ghost" size="sm" className="text-xs text-destructive"
+            disabled={voidingId === p.id}
+            onClick={(e) => { e.stopPropagation(); voidPayment(p.id); }}>
+            {voidingId === p.id ? "..." : "Void"}
+          </Button>
+        );
+      },
+    },
+  ], [voidingId]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

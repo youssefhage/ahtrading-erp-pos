@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { RefreshCw } from "lucide-react";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { fmtUsdLbp } from "@/lib/money";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
@@ -13,6 +13,7 @@ import { DataTableColumnHeader } from "@/components/business/data-table/data-tab
 import { StatusBadge } from "@/components/business/status-badge";
 import { CurrencyDisplay } from "@/components/business/currency-display";
 import { EmptyState } from "@/components/business/empty-state";
+import { useToast } from "@/components/toast-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,12 +49,14 @@ function toNum(v: unknown) { const x = Number(v || 0); return Number.isFinite(x)
 
 export default function SalesReturnsPage() {
   const router = useRouter();
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [returns, setReturns] = useState<ReturnRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [detail, setDetail] = useState<ReturnDetail | null>(null);
+  const [voiding, setVoiding] = useState(false);
 
   const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
@@ -88,6 +91,22 @@ export default function SalesReturnsPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadDetail(selectedId); }, [selectedId, loadDetail]);
+
+  async function voidReturn() {
+    if (!detail || detail.return.status !== "posted") return;
+    if (!confirm("Void this return? This will reverse stock moves, GL, and tax entries.")) return;
+    setVoiding(true);
+    try {
+      await apiPost(`/sales/returns/${detail.return.id}/void`, {});
+      toast.success("Return voided", "Stock, GL, and tax entries reversed.");
+      await load();
+      await loadDetail(detail.return.id);
+    } catch (err) {
+      toast.error("Void failed", err instanceof Error ? err.message : String(err));
+    } finally {
+      setVoiding(false);
+    }
+  }
 
   const columns = useMemo<ColumnDef<ReturnRow>[]>(() => [
     {
@@ -201,6 +220,11 @@ export default function SalesReturnsPage() {
                   </div>
                 )}
                 <div className="text-xs text-muted-foreground">{detail.lines.length} line(s), {detail.tax_lines.length} tax line(s)</div>
+                {detail.return.status === "posted" && (
+                  <Button variant="destructive" size="sm" className="w-full" onClick={voidReturn} disabled={voiding}>
+                    {voiding ? "Voiding..." : "Void Return"}
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" className="w-full" onClick={() => router.push(`/sales/invoices/${detail.return.invoice_id}`)}>View Invoice</Button>
               </>
             ) : (

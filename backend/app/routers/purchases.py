@@ -5193,3 +5193,215 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 )
 
             return {"id": payment_id}
+
+
+class SupplierPaymentVoidIn(BaseModel):
+    reason: Optional[str] = None
+
+@router.post("/payments/{payment_id}/void", dependencies=[Depends(require_permission("purchases:write"))])
+def void_supplier_payment(payment_id: str, data: SupplierPaymentVoidIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Soft-void a supplier payment:
+    - Marks the payment as voided.
+    - Creates a reversing GL journal for the payment.
+    - Creates an optional reversing bank transaction (if the original was system-created).
+    """
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT p.id, p.supplier_invoice_id, p.method,
+                           p.amount_usd, p.amount_lbp,
+                           p.voided_at,
+                           si.supplier_id, si.exchange_rate
+                    FROM supplier_payments p
+                    JOIN supplier_invoices si ON si.id = p.supplier_invoice_id AND si.company_id = %s
+                    WHERE p.id = %s::uuid
+                    FOR UPDATE
+                    """,
+                    (company_id, payment_id),
+                )
+                pay = cur.fetchone()
+                if not pay:
+                    raise HTTPException(status_code=404, detail="payment not found")
+                if pay.get("voided_at"):
+                    return {"ok": True}
+
+                void_date = date.today()
+                assert_period_open(cur, company_id, void_date)
+
+                # Reverse the payment journal.
+                memo = f"Void supplier payment {str(payment_id)[:8]}" + (f" ({reason})" if reason else "")
+                void_journal_id = _reverse_gl_journal(
+                    cur,
+                    company_id,
+                    "supplier_payment",
+                    str(payment_id),
+                    "supplier_payment_void",
+                    void_date,
+                    user["user_id"],
+                    memo,
+                )
+
+                # Reverse bank transaction if we had auto-created one for this payment.
+                cur.execute(
+                    """
+                    SELECT id, bank_account_id, txn_date, amount_usd, amount_lbp, description, reference, counterparty
+                    FROM bank_transactions
+                    WHERE company_id=%s AND source_type='supplier_payment' AND source_id=%s
+                    ORDER BY imported_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, str(payment_id)),
+                )
+                bt = cur.fetchone()
+                if bt and bt.get("bank_account_id"):
+                    cur.execute(
+                        """
+                        INSERT INTO bank_transactions
+                          (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
+                           description, reference, counterparty, matched_journal_id, matched_at,
+                           source_type, source_id, imported_by_user_id, imported_at)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s,
+                           %s, %s, %s, %s, now(),
+                           'supplier_payment_void', %s, %s, now())
+                        """,
+                        (
+                            company_id,
+                            bt["bank_account_id"],
+                            bt.get("txn_date") or void_date,
+                            Decimal(str(bt.get("amount_usd") or 0)),
+                            Decimal(str(bt.get("amount_lbp") or 0)),
+                            f"Void supplier payment {str(payment_id)[:8]}",
+                            bt.get("reference"),
+                            bt.get("counterparty"),
+                            void_journal_id,
+                            str(payment_id),
+                            user["user_id"],
+                        ),
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE supplier_payments
+                    SET voided_at=now(),
+                        voided_by_user_id=%s,
+                        void_reason=%s
+                    WHERE id=%s::uuid
+                    """,
+                    (user["user_id"], reason, payment_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_payment_void', 'supplier_payment', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], payment_id, json.dumps({"invoice_id": str(pay["supplier_invoice_id"]), "reason": reason, "void_journal_id": str(void_journal_id)})),
+                )
+
+                return {"ok": True, "void_journal_id": str(void_journal_id)}
+
+
+class CreateDebitNoteFromInvoiceIn(BaseModel):
+    reason: Optional[str] = None
+
+@router.post("/invoices/{invoice_id}/create-debit-note", dependencies=[Depends(require_permission("purchases:write"))])
+def create_debit_note_from_invoice(invoice_id: str, data: CreateDebitNoteFromInvoiceIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Create a draft supplier credit note (debit note) from a posted supplier invoice,
+    pre-filled with all invoice lines. User can review/edit and then post it.
+    """
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, supplier_id, invoice_no, status, exchange_rate, total_usd, total_lbp
+                    FROM supplier_invoices
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="supplier invoice not found")
+                if inv["status"] != "posted":
+                    raise HTTPException(status_code=400, detail="only posted invoices can have debit notes")
+
+                cur.execute(
+                    """
+                    SELECT item_id, description, qty, unit_cost_usd, unit_cost_lbp,
+                           line_total_usd, line_total_lbp
+                    FROM supplier_invoice_lines
+                    WHERE supplier_invoice_id=%s
+                    ORDER BY id
+                    """,
+                    (invoice_id,),
+                )
+                lines = cur.fetchall()
+                if not lines:
+                    raise HTTPException(status_code=400, detail="invoice has no lines")
+
+                exchange_rate = Decimal(str(inv.get("exchange_rate") or 0))
+
+                # Create supplier credit note draft
+                credit_no = _next_doc_no(cur, company_id, "SC")
+                credit_date = date.today()
+                memo = f"Debit note for invoice {inv['invoice_no'] or str(invoice_id)[:8]}"
+                if reason:
+                    memo += f" — {reason}"
+
+                cur.execute(
+                    """
+                    INSERT INTO supplier_credit_notes
+                      (id, company_id, credit_no, supplier_id, kind, credit_date,
+                       rate_type, exchange_rate, memo, status, total_usd, total_lbp,
+                       created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, 'expense', %s,
+                       'market', %s, %s, 'draft', 0, 0, %s)
+                    RETURNING id
+                    """,
+                    (company_id, credit_no, inv["supplier_id"], credit_date,
+                     exchange_rate, memo, user["user_id"]),
+                )
+                credit_id = cur.fetchone()["id"]
+
+                total_usd = Decimal("0")
+                total_lbp = Decimal("0")
+                for ln in lines:
+                    amt_usd = Decimal(str(ln.get("line_total_usd") or 0))
+                    amt_lbp = Decimal(str(ln.get("line_total_lbp") or 0))
+                    desc = ln.get("description") or ""
+                    cur.execute(
+                        """
+                        INSERT INTO supplier_credit_note_lines
+                          (id, company_id, supplier_credit_note_id, description, amount_usd, amount_lbp)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                        """,
+                        (company_id, credit_id, desc, amt_usd, amt_lbp),
+                    )
+                    total_usd += amt_usd
+                    total_lbp += amt_lbp
+
+                cur.execute(
+                    "UPDATE supplier_credit_notes SET total_usd=%s, total_lbp=%s WHERE id=%s",
+                    (total_usd, total_lbp, credit_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'debit_note_from_invoice', 'supplier_credit_note', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], str(credit_id), json.dumps({"source_invoice_id": invoice_id, "reason": reason})),
+                )
+
+                return {"id": str(credit_id), "credit_no": credit_no}
