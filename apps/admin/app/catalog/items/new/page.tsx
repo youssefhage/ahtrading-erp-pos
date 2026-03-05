@@ -114,7 +114,13 @@ export default function NewItemPage() {
   /* ---- Excise ---- */
   const [isExcise, setIsExcise] = useState(false);
 
-  /* ---- UOM & Packaging (configured on item edit page after creation) ---- */
+  /* ---- UOM & Packaging ---- */
+  const [purchaseUomCode, setPurchaseUomCode] = useState("");
+  const [purchaseUomFactor, setPurchaseUomFactor] = useState("");
+  const [salesUomCode, setSalesUomCode] = useState("");
+  const [salesUomFactor, setSalesUomFactor] = useState("");
+  const [casePackQty, setCasePackQty] = useState("");
+  const [innerPackQty, setInnerPackQty] = useState("");
 
   /* ---- Costing & Margins ---- */
   const [standardCostUsd, setStandardCostUsd] = useState("");
@@ -282,6 +288,12 @@ export default function NewItemPage() {
     setDescription("");
     setTaxCodeId("");
     setIsExcise(false);
+    setPurchaseUomCode("");
+    setPurchaseUomFactor("");
+    setSalesUomCode("");
+    setSalesUomFactor("");
+    setCasePackQty("");
+    setInnerPackQty("");
     setStandardCostUsd("");
     setStandardCostLbp("");
     setMinMarginPct("");
@@ -355,7 +367,11 @@ export default function NewItemPage() {
         description: description.trim() || null,
         // Excise
         is_excise: isExcise,
-        // UOM & Packaging (configured on item edit page after creation)
+        // UOM & Packaging
+        purchase_uom_code: purchaseUomCode || null,
+        sales_uom_code: salesUomCode || null,
+        case_pack_qty: casePackQty ? Number(casePackQty) : null,
+        inner_pack_qty: innerPackQty ? Number(innerPackQty) : null,
         // Costing & Margins
         standard_cost_usd: standardCostUsd ? Number(standardCostUsd) : null,
         standard_cost_lbp: standardCostLbp ? Number(standardCostLbp) : null,
@@ -375,6 +391,28 @@ export default function NewItemPage() {
         volume: volume ? Number(volume) : null,
         preferred_supplier_id: preferredSupplier?.id || null,
       });
+
+      // Create UOM conversions for purchase/sales units (requires item_id)
+      const conversionPromises: Promise<unknown>[] = [];
+      if (purchaseUomCode && purchaseUomFactor) {
+        conversionPromises.push(
+          apiPost(`/items/${encodeURIComponent(res.id)}/uom-conversions`, {
+            uom_code: purchaseUomCode,
+            to_base_factor: Number(purchaseUomFactor),
+            is_active: true,
+          }).catch(() => { /* best-effort — user can fix on edit page */ })
+        );
+      }
+      if (salesUomCode && salesUomFactor && salesUomCode !== purchaseUomCode) {
+        conversionPromises.push(
+          apiPost(`/items/${encodeURIComponent(res.id)}/uom-conversions`, {
+            uom_code: salesUomCode,
+            to_base_factor: Number(salesUomFactor),
+            is_active: true,
+          }).catch(() => { /* best-effort */ })
+        );
+      }
+      if (conversionPromises.length) await Promise.all(conversionPromises);
 
       if (mode === "addAnother") {
         setSku("");
@@ -784,6 +822,113 @@ export default function NewItemPage() {
                           <SelectItem value="standard">Standard Cost</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                {/* ---- Packaging & Unit Conversions ---- */}
+                <AccordionItem value="packaging">
+                  <AccordionTrigger>Packaging &amp; Unit Conversions</AccordionTrigger>
+                  <AccordionContent className="space-y-4 px-1 pt-2">
+                    <p className="text-xs text-muted-foreground">
+                      Only needed if you buy or sell in a different unit than <span className="font-medium text-foreground">{uom || "EA"}</span>.
+                      For example, you stock in EA but purchase in BOX (1 BOX = 24 EA).
+                    </p>
+
+                    {/* Purchase Unit with inline conversion */}
+                    <div className="space-y-2">
+                      <Label>Purchase Unit</Label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SearchableSelect
+                          value={purchaseUomCode}
+                          onChange={(v) => {
+                            setPurchaseUomCode(v);
+                            if (!v || v === uom) setPurchaseUomFactor("");
+                          }}
+                          disabled={creating || loading}
+                          placeholder={`Same as ${uom || "EA"}`}
+                          searchPlaceholder="Search units..."
+                          controlClassName="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
+                          options={[
+                            { value: "", label: `(same as ${uom || "EA"})` },
+                            ...uoms.filter((x) => x !== uom).map((x) => ({ value: x, label: x })),
+                          ]}
+                        />
+                        {purchaseUomCode && purchaseUomCode !== uom ? (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">1 {purchaseUomCode} =</span>
+                            <Input
+                              type="number"
+                              min="0.000001"
+                              step="any"
+                              value={purchaseUomFactor}
+                              onChange={(e) => setPurchaseUomFactor(e.target.value)}
+                              placeholder="e.g. 12"
+                              disabled={creating || loading}
+                              className="h-9 w-[100px] font-mono"
+                            />
+                            <span className="font-medium">{uom || "EA"}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Unit used on purchase orders</p>
+                    </div>
+
+                    {/* Sales Unit with inline conversion */}
+                    <div className="space-y-2">
+                      <Label>Sales Unit</Label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SearchableSelect
+                          value={salesUomCode}
+                          onChange={(v) => {
+                            setSalesUomCode(v);
+                            if (!v || v === uom) setSalesUomFactor("");
+                          }}
+                          disabled={creating || loading}
+                          placeholder={`Same as ${uom || "EA"}`}
+                          searchPlaceholder="Search units..."
+                          controlClassName="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
+                          options={[
+                            { value: "", label: `(same as ${uom || "EA"})` },
+                            ...uoms.filter((x) => x !== uom).map((x) => ({ value: x, label: x })),
+                          ]}
+                        />
+                        {salesUomCode && salesUomCode !== uom ? (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">1 {salesUomCode} =</span>
+                            <Input
+                              type="number"
+                              min="0.000001"
+                              step="any"
+                              value={salesUomCode === purchaseUomCode ? purchaseUomFactor : salesUomFactor}
+                              onChange={(e) => setSalesUomFactor(e.target.value)}
+                              placeholder="e.g. 12"
+                              disabled={creating || loading || salesUomCode === purchaseUomCode}
+                              className="h-9 w-[100px] font-mono"
+                            />
+                            <span className="font-medium">{uom || "EA"}</span>
+                            {salesUomCode === purchaseUomCode ? (
+                              <span className="text-xs text-muted-foreground">(same as purchase)</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Unit used at point of sale</p>
+                    </div>
+
+                    <Separator />
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Case Pack Qty</Label>
+                        <Input type="number" min="0" step="any" value={casePackQty} onChange={(e) => setCasePackQty(e.target.value)} placeholder="e.g. 24" disabled={creating || loading} />
+                        <p className="text-xs text-muted-foreground">How many {uom || "EA"} per outer case</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Inner Pack Qty</Label>
+                        <Input type="number" min="0" step="any" value={innerPackQty} onChange={(e) => setInnerPackQty(e.target.value)} placeholder="e.g. 6" disabled={creating || loading} />
+                        <p className="text-xs text-muted-foreground">How many {uom || "EA"} per inner pack</p>
+                      </div>
                     </div>
                   </AccordionContent>
                 </AccordionItem>
