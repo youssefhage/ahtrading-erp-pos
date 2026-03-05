@@ -10023,18 +10023,6 @@
             </button>
             <button
               class={moreBtnBase}
-              on:click={() => {
-                showTopMoreActions = false;
-                const other = tabCompanyFocus === "unofficial" ? "official" : "unofficial";
-                window.open(`${window.location.origin}${window.location.pathname}?company=${other}`, '_blank');
-              }}
-              title={tabCompanyFocus === "unofficial" ? "Open Official company in a new tab" : "Open Unofficial company in a new tab"}
-              type="button"
-            >
-              Open {tabCompanyFocus === "unofficial" ? "Official" : "Unofficial"} Tab
-            </button>
-            <button
-              class={moreBtnBase}
               on:click={() => { showTopMoreActions = false; setLinkedOpsMode(!linkedOpsMode); }}
               title="Toggle linked operations for cashier and shift actions"
               type="button"
