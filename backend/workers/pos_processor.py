@@ -177,12 +177,12 @@ def _resolve_line_uom(
     qty_factor: Decimal | None,
     base_uom_by_item: dict[str, str],
     factors_by_item: dict[str, dict[str, Decimal]],
-    epsilon: Decimal = UOM_Q4_HALF_STEP,
-) -> tuple[str, Decimal, Decimal]:
+) -> tuple[Decimal, str, Decimal, Decimal]:
     """
-    Validates that uom/qty_factor match item_uom_conversions, and that qty/qty_entered are consistent.
-    Epsilon defaults to Q4_HALF_STEP to tolerate POS clients that compute qty at 4dp precision.
-    Returns (uom, qty_factor, qty_entered).
+    Resolves UOM context for a sale line.
+    When qty_entered is present, qty_base is recomputed from qty_entered × canonical factor
+    (the processor is the source of truth for arithmetic, not the POS client).
+    Returns (qty_base, uom, qty_factor, qty_entered).
     """
     it = str(item_id or "").strip()
     if not it:
@@ -200,37 +200,25 @@ def _resolve_line_uom(
         raise ValueError(f"{line_label}: missing UOM conversion for item_id={it} uom={u}")
     expected = _q6(expected)
 
-    # Keep canonical factor from conversions for storage; allow 4-decimal input
-    # factor only for consistency checks (legacy barcode precision).
-    factor_for_consistency = expected
+    # Validate the POS-supplied factor against the canonical conversion.
     if qty_factor is not None:
         f_in = _q6(Decimal(str(qty_factor or 0)))
         if f_in <= 0:
             raise ValueError(f"{line_label}: qty_factor must be > 0")
-        if f_in != expected:
-            if not _legacy_factor_compatible(f_in, expected):
-                raise ValueError(f"{line_label}: qty_factor mismatch for uom {u} (expected {expected}, got {f_in})")
-            factor_for_consistency = f_in
-        else:
-            factor_for_consistency = f_in
+        if f_in != expected and not _legacy_factor_compatible(f_in, expected):
+            raise ValueError(f"{line_label}: qty_factor mismatch for uom {u} (expected {expected}, got {f_in})")
 
-    qe_in = None
     if qty_entered is not None:
-        qe_in = _q6(Decimal(str(qty_entered or 0)))
-        if qe_in <= 0:
+        qe = _q6(Decimal(str(qty_entered or 0)))
+        if qe <= 0:
             raise ValueError(f"{line_label}: qty_entered must be > 0")
-        expect_base = _q6(qe_in * factor_for_consistency)
-        if (qty_base - expect_base).copy_abs() > epsilon:
-            raise ValueError(
-                f"{line_label}: qty and qty_entered mismatch (qty={qty_base}, qty_entered={qe_in}, factor={factor_for_consistency})"
-            )
-
-    if qe_in is not None:
-        qe = qe_in
+        # Recompute base qty from entered qty × canonical factor — authoritative arithmetic.
+        qty_base = _q6(qe * expected)
     else:
-        denom = factor_for_consistency if factor_for_consistency > 0 else expected
-        qe = _q6(qty_base / denom) if denom else _q6(qty_base)
-    return u, expected, qe
+        # Legacy event without qty_entered: derive it from the base qty.
+        qe = _q6(qty_base / expected) if expected else _q6(qty_base)
+
+    return qty_base, u, expected, qe
 
 
 def fetch_loyalty_policy(cur, company_id: str) -> tuple[Decimal, Decimal]:
@@ -1248,7 +1236,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         # Recompute line totals from quantized unit prices for consistency.
         line_total_usd = q_usd(unit_price_usd * qty)
         line_total_lbp = q_lbp(unit_price_lbp * qty)
-        uom, qty_factor, qty_entered = _resolve_line_uom(
+        qty, uom, qty_factor, qty_entered = _resolve_line_uom(
             line_label="sale line",
             item_id=str(l.get("item_id") or ""),
             qty_base=qty,
@@ -1258,6 +1246,9 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             base_uom_by_item=base_uom_by_item,
             factors_by_item=factors_by_item,
         )
+        # Recompute line totals with the resolved qty (may differ from POS-sent qty by rounding).
+        line_total_usd = q_usd(unit_price_usd * qty)
+        line_total_lbp = q_lbp(unit_price_lbp * qty)
 
         if l.get("unit_price_entered_usd") is not None:
             unit_price_entered_usd = q_usd(Decimal(str(l.get("unit_price_entered_usd") or 0)))
@@ -1945,7 +1936,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         if isinstance(line_condition, str):
             line_condition = line_condition.strip() or None
 
-        uom, qty_factor, qty_entered = _resolve_line_uom(
+        qty, uom, qty_factor, qty_entered = _resolve_line_uom(
             line_label="return line",
             item_id=str(l.get("item_id") or ""),
             qty_base=qty,
@@ -2423,7 +2414,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
         line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
         line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
-        uom, qty_factor, qty_entered = _resolve_line_uom(
+        qty, uom, qty_factor, qty_entered = _resolve_line_uom(
             line_label="goods receipt line",
             item_id=str(l.get("item_id") or ""),
             qty_base=qty,
@@ -2701,7 +2692,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
         line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
         line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
-        uom, qty_factor, qty_entered = _resolve_line_uom(
+        qty, uom, qty_factor, qty_entered = _resolve_line_uom(
             line_label="supplier invoice line",
             item_id=str(l.get("item_id") or ""),
             qty_base=qty,
