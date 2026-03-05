@@ -298,6 +298,23 @@ def apply_extracted_purchase_invoice_to_draft(
         )
 
     supplier_ref = (inv.get("supplier_ref") or inv.get("invoice_no") or "").strip() or None
+    if supplier_id and supplier_ref:
+        cur.execute(
+            """
+            SELECT 1
+            FROM supplier_invoices
+            WHERE company_id=%s AND supplier_id=%s
+              AND supplier_ref=%s
+              AND status <> 'canceled'
+              AND id <> %s
+            LIMIT 1
+            """,
+            (company_id, supplier_id, supplier_ref, invoice_id),
+        )
+        if cur.fetchone():
+            warnings.append("supplier_ref already exists for this supplier; left blank to avoid conflicts.")
+            supplier_ref = None
+
     inv_date = None
     due_date = None
     try:

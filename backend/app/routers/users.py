@@ -176,10 +176,10 @@ def list_users(company_id: str = Depends(get_company_id)):
 
 
 @router.get("/directory", dependencies=[Depends(require_permission("users:read"))])
-def list_user_directory():
+def list_user_directory(company_id: str = Depends(get_company_id)):
     """
-    Global user directory. This is intentionally not company-scoped so admins can
-    create a user and then grant access to a company.
+    User directory scoped to the caller's company.
+    Only users who have at least one role in the company are listed.
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -191,7 +191,7 @@ def list_user_directory():
             mfa_enabled_select = "u.mfa_enabled" if has_mfa_enabled else "false AS mfa_enabled"
             cur.execute(
                 """
-                SELECT u.id,
+                SELECT DISTINCT u.id,
                        u.email,
                        """
                 + full_name_select
@@ -204,8 +204,11 @@ def list_user_directory():
                 + mfa_enabled_select
                 + """
                 FROM users u
+                JOIN user_roles ur ON ur.user_id = u.id
+                WHERE ur.company_id = %s
                 ORDER BY u.email
                 """,
+                (company_id,),
             )
             return {"users": cur.fetchall()}
 
@@ -641,6 +644,8 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
         raise HTTPException(status_code=422, detail="email is required")
     if not password:
         raise HTTPException(status_code=422, detail="password is required")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     if profile_type_code and template_code:
         raise HTTPException(status_code=422, detail="provide either profile_type_code or template_code, not both")
     selected_template_code = profile_type_code or template_code
@@ -690,6 +695,33 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                 role_id = data.role_id
 
             if role_id:
+                # Prevent privilege escalation: caller must hold all permissions of the target role.
+                cur.execute(
+                    """
+                    SELECT p.code
+                    FROM role_permissions rp
+                    JOIN permissions p ON p.id = rp.permission_id
+                    WHERE rp.role_id = %s
+                    """,
+                    (role_id,),
+                )
+                target_perms = {r["code"] for r in cur.fetchall()}
+                if target_perms:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT p.code
+                        FROM user_roles ur
+                        JOIN role_permissions rp ON rp.role_id = ur.role_id
+                        JOIN permissions p ON p.id = rp.permission_id
+                        WHERE ur.user_id = %s AND ur.company_id = %s
+                        """,
+                        (user["user_id"], company_id),
+                    )
+                    caller_perms = {r["code"] for r in cur.fetchall()}
+                    missing = target_perms - caller_perms
+                    if missing:
+                        raise HTTPException(status_code=403, detail="cannot assign role with permissions you do not hold")
+
                 cur.execute(
                     """
                     INSERT INTO user_roles (user_id, role_id, company_id)
@@ -1273,6 +1305,33 @@ def assign_user_profile_type(
 
                 role_id = _ensure_role_from_template(cur, company_id, template)
                 role_id_json = str(role_id)
+
+                # Prevent privilege escalation: caller must hold all permissions of the target role.
+                cur.execute(
+                    """
+                    SELECT p.code
+                    FROM role_permissions rp
+                    JOIN permissions p ON p.id = rp.permission_id
+                    WHERE rp.role_id = %s
+                    """,
+                    (role_id,),
+                )
+                target_perms = {r["code"] for r in cur.fetchall()}
+                if target_perms:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT p.code
+                        FROM user_roles ur
+                        JOIN role_permissions rp ON rp.role_id = ur.role_id
+                        JOIN permissions p ON p.id = rp.permission_id
+                        WHERE ur.user_id = %s AND ur.company_id = %s
+                        """,
+                        (user["user_id"], company_id),
+                    )
+                    caller_perms = {r["code"] for r in cur.fetchall()}
+                    missing = target_perms - caller_perms
+                    if missing:
+                        raise HTTPException(status_code=403, detail="cannot assign role with permissions you do not hold")
 
                 if data.replace_existing_roles:
                     cur.execute(

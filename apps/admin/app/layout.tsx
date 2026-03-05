@@ -38,7 +38,7 @@ export const dynamic = "force-dynamic";
 const COMPANY_INIT_SCRIPT = `(function(){try{
 var K="ahtrading.companyId",O="00000000-0000-0000-0000-000000000001";
 var c="";
-try{var p=new URLSearchParams(location.search);var qc=p.get("company");if(qc)c=qc}catch(e){}
+try{var p=new URLSearchParams(location.search);var qc=p.get("company");if(qc&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(qc))c=qc}catch(e){}
 if(!c){try{c=sessionStorage.getItem(K)||""}catch(e){}}
 if(!c){c=localStorage.getItem(K)||""}
 if(c){try{sessionStorage.setItem(K,c)}catch(e){}}

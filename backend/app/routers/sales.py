@@ -12,6 +12,7 @@ from backend.workers import pos_processor
 from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced, USD_Q
 from ..account_defaults import ensure_company_account_defaults
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
+from ..search_utils import escape_like
 from ..uom import load_item_uom_context, resolve_line_uom
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -587,7 +588,7 @@ def list_sales_invoices(
                 base_sql += " AND i.created_at::date <= %s"
                 params.append(date_to)
             if q:
-                needle = f"%{q.strip()}%"
+                needle = f"%{escape_like(q.strip())}%"
                 base_sql += """
                   AND (
                     COALESCE(i.invoice_no, '') ILIKE %s
@@ -2357,23 +2358,37 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                     (user["user_id"], reason, company_id, invoice_id),
                 )
 
-                # Reverse customer credit balance (credit invoices have no payments; cash/bank invoices can't be canceled).
+                # Reverse customer credit balance only for the credit portion
+                # (total minus payments recorded at posting time, including since-voided ones).
                 if inv.get("customer_id"):
                     cur.execute(
                         """
-                        UPDATE customers
-                        SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
-                            credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0),
-                            updated_at = now()
-                        WHERE company_id=%s AND id=%s
+                        SELECT COALESCE(SUM(amount_usd), 0) AS paid_usd,
+                               COALESCE(SUM(amount_lbp), 0) AS paid_lbp
+                        FROM sales_payments
+                        WHERE invoice_id = %s
                         """,
-                        (
-                            Decimal(str(inv.get("total_usd") or 0)),
-                            Decimal(str(inv.get("total_lbp") or 0)),
-                            company_id,
-                            inv["customer_id"],
-                        ),
+                        (invoice_id,),
                     )
+                    pay_sums = cur.fetchone() or {}
+                    credit_portion_usd = Decimal(str(inv.get("total_usd") or 0)) - Decimal(str(pay_sums.get("paid_usd") or 0))
+                    credit_portion_lbp = Decimal(str(inv.get("total_lbp") or 0)) - Decimal(str(pay_sums.get("paid_lbp") or 0))
+                    if credit_portion_usd > 0 or credit_portion_lbp > 0:
+                        cur.execute(
+                            """
+                            UPDATE customers
+                            SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                                credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0),
+                                updated_at = now()
+                            WHERE company_id=%s AND id=%s
+                            """,
+                            (
+                                max(credit_portion_usd, Decimal("0")),
+                                max(credit_portion_lbp, Decimal("0")),
+                                company_id,
+                                inv["customer_id"],
+                            ),
+                        )
 
                     # Reverse loyalty points using the original points for the invoice (policy may have changed).
                     cur.execute(
@@ -3104,6 +3119,10 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
 
                 try:
                     auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 

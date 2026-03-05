@@ -125,6 +125,7 @@ export function clearSession() {
   window.localStorage.removeItem(storageKeys.companyId);
   window.localStorage.removeItem(storageKeys.companies);
   window.localStorage.removeItem("ahtrading.companyName");
+  window.localStorage.removeItem("kai_conversation");
   try { window.sessionStorage.removeItem(storageKeys.companyId); } catch { /* ignore */ }
 }
 

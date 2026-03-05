@@ -7,8 +7,23 @@ import csv
 import io
 from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..search_utils import escape_like
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+_CSV_DANGEROUS_CHARS = frozenset("=+-@\t\r")
+
+
+def _sanitize_csv_value(val):
+    """Prefix string values starting with dangerous characters to prevent CSV formula injection."""
+    if isinstance(val, str) and val and val[0] in _CSV_DANGEROUS_CHARS:
+        return "'" + val
+    return val
+
+
+def _sanitize_csv_row(row):
+    """Sanitize all values in a CSV row."""
+    return [_sanitize_csv_value(v) for v in row]
 
 def _parse_company_ids(company_ids: Optional[str], fallback: str) -> list[str]:
     if company_ids:
@@ -794,7 +809,7 @@ def vat_report(
                     ]
                 )
                 for r in rows:
-                    writer.writerow(
+                    writer.writerow(_sanitize_csv_row(
                         [
                             r["tax_code_id"],
                             r["tax_name"],
@@ -808,7 +823,7 @@ def vat_report(
                             r["line_count"],
                             ",".join(r["source_types"]),
                         ]
-                    )
+                    ))
                 return Response(content=output.getvalue(), media_type="text/csv")
             return {
                 "period": str(period_month) if period_month else None,
@@ -867,7 +882,7 @@ def list_audit_logs(
                 params.append(user_id)
             if action_prefix:
                 sql += " AND l.action LIKE %s"
-                params.append(action_prefix + "%")
+                params.append(escape_like(action_prefix) + "%")
 
             sql += " ORDER BY l.created_at DESC, l.id DESC LIMIT %s OFFSET %s"
             params.extend([limit, offset])
@@ -935,7 +950,7 @@ def general_ledger(
                 writer = csv.writer(output)
                 writer.writerow(["date", "journal_no", "account_code", "account_name", "debit_usd", "credit_usd", "debit_lbp", "credit_lbp", "memo"])
                 for r in rows:
-                    writer.writerow([r["journal_date"], r["journal_no"], r["account_code"], r["name_en"], r["debit_usd"], r["credit_usd"], r["debit_lbp"], r["credit_lbp"], r["memo"]])
+                    writer.writerow(_sanitize_csv_row([r["journal_date"], r["journal_no"], r["account_code"], r["name_en"], r["debit_usd"], r["credit_usd"], r["debit_lbp"], r["credit_lbp"], r["memo"]]))
                 return Response(content=output.getvalue(), media_type="text/csv")
 
             if all:
@@ -981,7 +996,7 @@ def inventory_valuation(format: Optional[str] = None, company_id: str = Depends(
                 writer = csv.writer(output)
                 writer.writerow(["item_id", "sku", "name", "qty_on_hand", "value_usd", "value_lbp"])
                 for r in rows:
-                    writer.writerow([r["id"], r["sku"], r["name"], r["qty_on_hand"], r["value_usd"], r["value_lbp"]])
+                    writer.writerow(_sanitize_csv_row([r["id"], r["sku"], r["name"], r["qty_on_hand"], r["value_usd"], r["value_lbp"]]))
                 return Response(content=output.getvalue(), media_type="text/csv")
             return {"inventory": rows}
 
@@ -996,16 +1011,16 @@ def metrics(company_id: str = Depends(get_company_id)):
                 SELECT
                   (SELECT COALESCE(SUM(total_usd), 0)
                    FROM sales_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS sales_today_usd,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS sales_today_usd,
                   (SELECT COALESCE(SUM(total_lbp), 0)
                    FROM sales_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS sales_today_lbp,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS sales_today_lbp,
                   (SELECT COALESCE(SUM(total_usd), 0)
                    FROM supplier_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS purchases_today_usd,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS purchases_today_usd,
                   (SELECT COALESCE(SUM(total_lbp), 0)
                    FROM supplier_invoices
-                   WHERE company_id = %s AND status = 'posted' AND created_at::date = current_date) AS purchases_today_lbp,
+                   WHERE company_id = %s AND status = 'posted' AND invoice_date = current_date) AS purchases_today_lbp,
                   ((SELECT COALESCE(SUM(total_usd), 0)
                     FROM sales_invoices
                     WHERE company_id = %s AND status = 'posted')
@@ -1043,7 +1058,7 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_usd), 0)
                     FROM supplier_payments sp
                     JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')
+                    WHERE si.company_id = %s AND si.status = 'posted' AND sp.voided_at IS NULL)
                    -
                    (SELECT COALESCE(SUM(sca.amount_usd), 0)
                     FROM supplier_credit_note_applications sca
@@ -1059,7 +1074,7 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_lbp), 0)
                     FROM supplier_payments sp
                     JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')
+                    WHERE si.company_id = %s AND si.status = 'posted' AND sp.voided_at IS NULL)
                    -
                    (SELECT COALESCE(SUM(sca.amount_lbp), 0)
                     FROM supplier_credit_note_applications sca
@@ -1141,14 +1156,14 @@ def daily_summary(days: int = 7, company_id: str = Depends(get_company_id)):
                         FROM sales_invoices si
                         WHERE si.company_id = %s
                           AND si.status = 'posted'
-                          AND si.created_at::date = ds.d
+                          AND si.invoice_date = ds.d
                     ), 0) AS sales,
                     COALESCE((
                         SELECT SUM(pi.total_usd)::float
                         FROM supplier_invoices pi
                         WHERE pi.company_id = %s
                           AND pi.status = 'posted'
-                          AND pi.created_at::date = ds.d
+                          AND pi.invoice_date = ds.d
                     ), 0) AS purchases
                 FROM date_series ds
                 ORDER BY ds.d
@@ -1304,6 +1319,7 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                          SUM(amount_lbp) AS paid_lbp
                   FROM supplier_payments
                   WHERE COALESCE(payment_date, created_at::date) <= %s
+                    AND voided_at IS NULL
                   GROUP BY supplier_invoice_id
                 ) sp ON sp.supplier_invoice_id = si.id
                 LEFT JOIN (
@@ -1542,7 +1558,7 @@ def customer_soa(
         for r in out_rows:
             du = Decimal(str(r.get("delta_usd") or 0))
             dl = Decimal(str(r.get("delta_lbp") or 0))
-            writer.writerow(
+            writer.writerow(_sanitize_csv_row(
                 [
                     r["tx_date"],
                     r["kind"],
@@ -1555,7 +1571,7 @@ def customer_soa(
                     r["balance_usd"],
                     r["balance_lbp"],
                 ]
-            )
+            ))
         return Response(content=output.getvalue(), media_type="text/csv")
 
     closing_usd = opening_usd + sum((Decimal(str(r.get("delta_usd") or 0)) for r in rows), Decimal("0"))
@@ -1640,6 +1656,7 @@ def supplier_soa(
                   WHERE si.company_id=%s
                     AND si.status='posted'
                     AND si.supplier_id=%s
+                    AND sp.voided_at IS NULL
 
                   UNION ALL
 
@@ -1747,7 +1764,7 @@ def supplier_soa(
         for r in out_rows:
             du = Decimal(str(r.get("delta_usd") or 0))
             dl = Decimal(str(r.get("delta_lbp") or 0))
-            writer.writerow(
+            writer.writerow(_sanitize_csv_row(
                 [
                     r["tx_date"],
                     r["kind"],
@@ -1760,7 +1777,7 @@ def supplier_soa(
                     r["balance_usd"],
                     r["balance_lbp"],
                 ]
-            )
+            ))
         return Response(content=output.getvalue(), media_type="text/csv")
 
     closing_usd = opening_usd + sum((Decimal(str(r.get("delta_usd") or 0)) for r in rows), Decimal("0"))
@@ -2340,4 +2357,29 @@ def balance_sheet(as_of: Optional[date] = None, company_id: str = Depends(get_co
                 """,
                 (company_id, as_of),
             )
-            return {"as_of": str(as_of), "rows": cur.fetchall()}
+            rows = cur.fetchall()
+
+            # Compute retained earnings = Revenue (4xx credit balances) - Expenses (5xx debit balances).
+            revenue_usd = Decimal("0")
+            revenue_lbp = Decimal("0")
+            expense_usd = Decimal("0")
+            expense_lbp = Decimal("0")
+            for r in rows:
+                code = str(r.get("account_code") or "")
+                bal_usd = Decimal(str(r.get("balance_usd") or 0))
+                bal_lbp = Decimal(str(r.get("balance_lbp") or 0))
+                if code.startswith("4"):
+                    revenue_usd += bal_usd
+                    revenue_lbp += bal_lbp
+                elif code.startswith("5"):
+                    expense_usd += bal_usd
+                    expense_lbp += bal_lbp
+            retained_earnings_usd = revenue_usd - expense_usd
+            retained_earnings_lbp = revenue_lbp - expense_lbp
+
+            return {
+                "as_of": str(as_of),
+                "rows": rows,
+                "retained_earnings_usd": float(retained_earnings_usd),
+                "retained_earnings_lbp": float(retained_earnings_lbp),
+            }

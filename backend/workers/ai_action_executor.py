@@ -75,16 +75,16 @@ def executed_today(cur, company_id: str, agent_code: str) -> int:
     return int(cur.fetchone()["count"])
 
 
-def block_action(cur, action_id: str, reason: str):
+def block_action(cur, action_id: str, reason: str, company_id: str = None):
     cur.execute(
         """
         UPDATE ai_actions
         SET status = 'blocked',
             error_message = %s,
             updated_at = now()
-        WHERE id = %s
+        WHERE id = %s AND company_id = %s
         """,
-        (reason, action_id),
+        (reason, action_id, company_id),
     )
 
 
@@ -181,15 +181,18 @@ def execute_pricing_action(cur, company_id: str, action_id: str, payload: dict):
     if not item_id or suggested_price_usd is None:
         raise ValueError("Invalid pricing action payload")
 
+    # Ensure RLS context is set before any queries.
+    set_company_context(cur, company_id)
+
     # Idempotency: same action should not create duplicate price rows.
     cur.execute(
         """
         SELECT id
         FROM item_prices
-        WHERE source_type='ai_action' AND source_id=%s
+        WHERE company_id=%s AND source_type='ai_action' AND source_id=%s
         LIMIT 1
         """,
-        (action_id,),
+        (company_id, action_id),
     )
     existing = cur.fetchone()
     if existing:
@@ -205,11 +208,11 @@ def execute_pricing_action(cur, company_id: str, action_id: str, payload: dict):
 
     cur.execute(
         """
-        INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
-        VALUES (gen_random_uuid(), %s, %s, %s, CURRENT_DATE, NULL, 'ai_action', %s)
+        INSERT INTO item_prices (id, company_id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+        VALUES (gen_random_uuid(), %s, %s, %s, %s, CURRENT_DATE, NULL, 'ai_action', %s)
         RETURNING id
         """,
-        (item_id, price_usd, price_lbp, action_id),
+        (company_id, item_id, price_usd, price_lbp, action_id),
     )
     price_id = cur.fetchone()["id"]
 
@@ -226,6 +229,7 @@ def execute_pricing_action(cur, company_id: str, action_id: str, payload: dict):
 def run_executor(db_url: str, company_id: str, limit: int, max_attempts: int = MAX_ATTEMPTS_DEFAULT):
     with get_conn(db_url) as conn:
         for _ in range(limit):
+            # Claim a queued action with row-level locking.
             with conn.transaction():
                 with conn.cursor() as cur:
                     set_company_context(cur, company_id)
@@ -244,102 +248,113 @@ def run_executor(db_url: str, company_id: str, limit: int, max_attempts: int = M
                     if not action:
                         break
 
-                try:
-                    payload = action["action_json"]
-                    if isinstance(payload, str):
-                        payload = json.loads(payload)
+            # Execute the action inside its own transaction so all steps
+            # (gating checks, entity creation, status update) are atomic.
+            try:
+                with conn.transaction():
+                    with conn.cursor() as cur:
+                        set_company_context(cur, company_id)
 
-                    agent_code = str(action["agent_code"] or "")
-                    action_id = action["id"]
+                        payload = action["action_json"]
+                        if isinstance(payload, str):
+                            payload = json.loads(payload)
 
-                    if not is_executable_agent(agent_code):
-                        block_action(
-                            cur,
-                            action_id,
-                            f"{agent_code} is review-only in this product version and cannot be auto-executed.",
-                        )
-                        continue
+                        agent_code = str(action["agent_code"] or "")
+                        action_id = action["id"]
 
-                    settings = get_agent_settings(cur, company_id, agent_code)
-                    auto_execute = bool(settings.get("auto_execute"))
-                    max_amount = Decimal(str(settings.get("max_amount_usd") or 0))
-                    max_actions = int(settings.get("max_actions_per_day") or 0)
+                        if not is_executable_agent(agent_code):
+                            block_action(
+                                cur,
+                                action_id,
+                                f"{agent_code} is review-only in this product version and cannot be auto-executed.",
+                                company_id=company_id,
+                            )
+                            continue
 
-                    # Gating: if auto_execute is disabled, require explicit manual queueing.
-                    if not auto_execute and not action.get("queued_by_user_id"):
-                        block_action(cur, action_id, "Awaiting manual queue (auto_execute disabled).")
-                        continue
+                        settings = get_agent_settings(cur, company_id, agent_code)
+                        auto_execute = bool(settings.get("auto_execute"))
+                        max_amount = Decimal(str(settings.get("max_amount_usd") or 0))
+                        max_actions = int(settings.get("max_actions_per_day") or 0)
 
-                    if max_actions > 0 and executed_today(cur, company_id, agent_code) >= max_actions:
-                        block_action(cur, action_id, f"Daily action cap reached ({max_actions}/day).")
-                        continue
+                        # Gating: if auto_execute is disabled, require explicit manual queueing.
+                        if not auto_execute and not action.get("queued_by_user_id"):
+                            block_action(cur, action_id, "Awaiting manual queue (auto_execute disabled).", company_id=company_id)
+                            continue
 
-                    amount = amount_usd_for_action(agent_code, payload)
-                    if max_amount > 0 and amount > max_amount:
-                        block_action(cur, action_id, f"Amount exceeds cap (${str(max_amount)}).")
-                        continue
+                        if max_actions > 0 and executed_today(cur, company_id, agent_code) >= max_actions:
+                            block_action(cur, action_id, f"Daily action cap reached ({max_actions}/day).", company_id=company_id)
+                            continue
 
-                    if agent_code == "AI_PURCHASE":
-                        created_id = execute_purchase_action(cur, company_id, action_id, payload)
-                        created_type = "purchase_order"
-                    elif agent_code == "AI_DEMAND":
-                        created_id = execute_purchase_action(cur, company_id, action_id, payload)
-                        created_type = "purchase_order"
-                    elif agent_code == "AI_PRICING":
-                        created_id = execute_pricing_action(cur, company_id, action_id, payload)
-                        created_type = "item_price"
-                    else:
-                        raise ValueError(f"Unsupported agent_code {agent_code}")
+                        amount = amount_usd_for_action(agent_code, payload)
+                        if max_amount > 0 and amount > max_amount:
+                            block_action(cur, action_id, f"Amount exceeds cap (${str(max_amount)}).", company_id=company_id)
+                            continue
 
-                    cur.execute(
-                        """
-                        UPDATE ai_actions
-                        SET status = 'executed',
-                            executed_at = now(),
-                            executed_by_user_id = queued_by_user_id,
-                            error_message = NULL,
-                            result_entity_type = %s,
-                            result_entity_id = %s,
-                            result_json = %s::jsonb,
-                            updated_at = now()
-                        WHERE id = %s
-                        """,
-                        (
-                            created_type,
-                            created_id,
-                            json.dumps(
-                                {"created_entity_type": created_type, "created_entity_id": str(created_id)},
-                                default=str,
-                            ),
-                            action_id,
-                        ),
-                    )
+                        if agent_code == "AI_PURCHASE":
+                            created_id = execute_purchase_action(cur, company_id, action_id, payload)
+                            created_type = "purchase_order"
+                        elif agent_code == "AI_DEMAND":
+                            created_id = execute_purchase_action(cur, company_id, action_id, payload)
+                            created_type = "purchase_order"
+                        elif agent_code == "AI_PRICING":
+                            created_id = execute_pricing_action(cur, company_id, action_id, payload)
+                            created_type = "item_price"
+                        else:
+                            raise ValueError(f"Unsupported agent_code {agent_code}")
 
-                    if action.get("recommendation_id"):
                         cur.execute(
                             """
-                            UPDATE ai_recommendations
+                            UPDATE ai_actions
                             SET status = 'executed',
-                                decided_at = COALESCE(decided_at, now())
-                            WHERE company_id = %s AND id = %s
+                                executed_at = now(),
+                                executed_by_user_id = queued_by_user_id,
+                                error_message = NULL,
+                                result_entity_type = %s,
+                                result_entity_id = %s,
+                                result_json = %s::jsonb,
+                                updated_at = now()
+                            WHERE id = %s AND company_id = %s
                             """,
-                            (company_id, action["recommendation_id"]),
+                            (
+                                created_type,
+                                created_id,
+                                json.dumps(
+                                    {"created_entity_type": created_type, "created_entity_id": str(created_id)},
+                                    default=str,
+                                ),
+                                action_id,
+                                company_id,
+                            ),
                         )
-                except Exception as ex:
-                    next_attempt = int(action.get("attempt_count") or 0) + 1
-                    # Retry transient errors up to max_attempts; then leave as failed for manual intervention.
-                    next_status = "queued" if next_attempt < max_attempts else "failed"
-                    cur.execute(
-                        """
-                        UPDATE ai_actions
-                        SET status = %s,
-                            attempt_count = %s,
-                            error_message = %s,
-                            updated_at = now()
-                        WHERE id = %s
-                        """,
-                        (next_status, next_attempt, str(ex), action["id"]),
-                    )
+
+                        if action.get("recommendation_id"):
+                            cur.execute(
+                                """
+                                UPDATE ai_recommendations
+                                SET status = 'executed',
+                                    decided_at = COALESCE(decided_at, now())
+                                WHERE company_id = %s AND id = %s
+                                """,
+                                (company_id, action["recommendation_id"]),
+                            )
+            except Exception as ex:
+                next_attempt = int(action.get("attempt_count") or 0) + 1
+                # Retry transient errors up to max_attempts; then leave as failed for manual intervention.
+                next_status = "queued" if next_attempt < max_attempts else "failed"
+                with conn.transaction():
+                    with conn.cursor() as cur:
+                        set_company_context(cur, company_id)
+                        cur.execute(
+                            """
+                            UPDATE ai_actions
+                            SET status = %s,
+                                attempt_count = %s,
+                                error_message = %s,
+                                updated_at = now()
+                            WHERE id = %s AND company_id = %s
+                            """,
+                            (next_status, next_attempt, str(ex), action["id"], company_id),
+                        )
 
 
 def main():

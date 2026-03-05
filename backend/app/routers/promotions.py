@@ -61,6 +61,8 @@ def create_promotion(data: PromotionIn, company_id: str = Depends(get_company_id
     name = (data.name or "").strip()
     if not code or not name:
         raise HTTPException(status_code=400, detail="code and name are required")
+    if data.starts_on and data.ends_on and data.starts_on > data.ends_on:
+        raise HTTPException(status_code=400, detail="starts_on must be <= ends_on")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -86,9 +88,15 @@ def create_promotion(data: PromotionIn, company_id: str = Depends(get_company_id
 
 @router.patch("/{promotion_id}", dependencies=[Depends(require_permission("items:write"))])
 def update_promotion(promotion_id: str, data: PromotionUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    ALLOWED = {"code", "name", "starts_on", "ends_on", "is_active", "priority"}
+    patch = {k: v for k, v in data.model_dump(exclude_unset=True).items() if k in ALLOWED}
     if not patch:
         return {"ok": True}
+    # Validate date range: use patched value if set, otherwise fetch current.
+    starts = patch.get("starts_on")
+    ends = patch.get("ends_on")
+    if starts is not None and ends is not None and starts > ends:
+        raise HTTPException(status_code=400, detail="starts_on must be <= ends_on")
     fields = []
     params = []
     if "code" in patch:

@@ -131,7 +131,8 @@ def update_address(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
-    patch = data.model_dump(exclude_none=True)
+    # Bug 4 fix: use exclude_unset so clients can clear optional fields
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
 

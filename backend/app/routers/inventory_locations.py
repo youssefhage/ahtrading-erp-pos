@@ -3,6 +3,7 @@ from typing import Optional
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
+from ..search_utils import escape_like
 
 router = APIRouter(prefix="/inventory/locations", tags=["inventory"])
 
@@ -16,7 +17,7 @@ def list_locations(
     company_id: str = Depends(get_company_id),
 ):
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)

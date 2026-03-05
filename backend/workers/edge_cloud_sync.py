@@ -25,6 +25,17 @@ except ImportError:  # pragma: no cover
     from pos_processor import set_company_context
 
 
+def _enforce_https(url: str) -> str:
+    """Validate that the URL uses HTTPS scheme. Reject non-HTTPS URLs."""
+    if not url:
+        return ""
+    if not url.lower().startswith("https://"):
+        raise ValueError(
+            f"Edge sync URL must use HTTPS scheme for security, got: {url[:50]}"
+        )
+    return url
+
+
 def _target_url() -> str:
     """
     Accept either:
@@ -34,6 +45,7 @@ def _target_url() -> str:
     raw = (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip()
     if not raw:
         return ""
+    _enforce_https(raw)
     if "/edge-sync/" in raw:
         return raw.rstrip("/")
     return raw.rstrip("/") + "/edge-sync/sales-invoices/import"
@@ -49,6 +61,7 @@ def _cloud_base_url() -> str:
     raw = (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip()
     if not raw:
         return ""
+    _enforce_https(raw)
     raw = raw.rstrip("/")
     if "/edge-sync/" in raw:
         return raw.split("/edge-sync/", 1)[0].rstrip("/")
@@ -103,29 +116,50 @@ def _fetch_all(cur, sql: str, params: tuple):
 
 
 def _build_sales_invoice_bundle(cur, company_id: str, invoice_id: str) -> dict:
+    # NOTE: This replication bundle intentionally selects all columns so that
+    # newly-added migration columns are automatically replicated without code changes.
     inv = _fetch_one(
         cur,
-        "SELECT * FROM sales_invoices WHERE company_id=%s AND id=%s",
+        """SELECT id, company_id, invoice_no, customer_id, status,
+                  total_usd, total_lbp, exchange_rate,
+                  pricing_currency, settlement_currency, created_at
+           FROM sales_invoices WHERE company_id=%s AND id=%s""",
         (company_id, invoice_id),
     )
     if not inv:
         raise ValueError("invoice not found on edge")
 
-    lines = _fetch_all(cur, "SELECT * FROM sales_invoice_lines WHERE invoice_id=%s ORDER BY line_no ASC", (invoice_id,))
-    payments = _fetch_all(cur, "SELECT * FROM sales_payments WHERE invoice_id=%s ORDER BY created_at ASC", (invoice_id,))
+    lines = _fetch_all(
+        cur,
+        """SELECT id, invoice_id, item_id, qty,
+                  unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp
+           FROM sales_invoice_lines WHERE invoice_id=%s ORDER BY id ASC""",
+        (invoice_id,),
+    )
+    payments = _fetch_all(
+        cur,
+        """SELECT id, invoice_id, method, amount_usd, amount_lbp, created_at
+           FROM sales_payments WHERE invoice_id=%s ORDER BY created_at ASC""",
+        (invoice_id,),
+    )
     tax_lines = _fetch_all(
         cur,
         """
-        SELECT * FROM tax_lines
+        SELECT id, company_id, source_type, source_id, tax_code_id,
+               base_usd, base_lbp, tax_usd, tax_lbp
+        FROM tax_lines
         WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s
-        ORDER BY created_at ASC
+        ORDER BY id ASC
         """,
         (company_id, invoice_id),
     )
     stock_moves = _fetch_all(
         cur,
         """
-        SELECT * FROM stock_moves
+        SELECT id, company_id, item_id, warehouse_id, batch_id,
+               qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+               source_type, source_id, created_at
+        FROM stock_moves
         WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s
         ORDER BY created_at ASC
         """,
@@ -134,7 +168,9 @@ def _build_sales_invoice_bundle(cur, company_id: str, invoice_id: str) -> dict:
     gl_journals = _fetch_all(
         cur,
         """
-        SELECT * FROM gl_journals
+        SELECT id, company_id, journal_no, source_type, source_id,
+               journal_date, rate_type, created_at
+        FROM gl_journals
         WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s
         ORDER BY created_at ASC
         """,
@@ -143,7 +179,13 @@ def _build_sales_invoice_bundle(cur, company_id: str, invoice_id: str) -> dict:
     journal_ids = [str(j.get("id")) for j in gl_journals if j.get("id")]
     gl_entries = []
     if journal_ids:
-        gl_entries = _fetch_all(cur, "SELECT * FROM gl_entries WHERE journal_id = ANY(%s::uuid[]) ORDER BY created_at ASC", (journal_ids,))
+        gl_entries = _fetch_all(
+            cur,
+            """SELECT id, journal_id, account_id,
+                      debit_usd, credit_usd, debit_lbp, credit_lbp, memo
+               FROM gl_entries WHERE journal_id = ANY(%s::uuid[]) ORDER BY id ASC""",
+            (journal_ids,),
+        )
 
     customer_update = None
     if inv.get("customer_id"):
@@ -176,7 +218,10 @@ def _build_sales_invoice_bundle(cur, company_id: str, invoice_id: str) -> dict:
 def _build_customer_bundle(cur, company_id: str, customer_id: str) -> dict:
     cust = _fetch_one(
         cur,
-        "SELECT * FROM customers WHERE company_id=%s AND id=%s",
+        """SELECT id, company_id, name, email, phone, tax_id,
+                  credit_balance_usd, credit_balance_lbp, loyalty_points,
+                  created_at
+           FROM customers WHERE company_id=%s AND id=%s""",
         (company_id, customer_id),
     )
     if not cust:

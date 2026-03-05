@@ -1073,55 +1073,59 @@ def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
             with conn.cursor() as cur:
                 for e in data.events:
                     try:
-                        idempotency_key = str(e.idempotency_key or "").strip() or None
-                        cur.execute(
-                            """
-                            INSERT INTO pos_events_outbox
-                              (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
-                            VALUES
-                              (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
-                            ON CONFLICT DO NOTHING
-                            RETURNING id
-                            """,
-                            (
-                                e.event_id,
-                                data.device_id,
-                                e.event_type,
-                                json.dumps(e.payload),
-                                e.created_at,
-                                idempotency_key,
-                                e.created_at,
-                            ),
-                        )
-                        inserted = cur.fetchone()
-                        status = "inserted" if inserted else "duplicate"
-                        existing_event_id = None
-                        if not inserted:
-                            if idempotency_key:
-                                cur.execute(
-                                    """
-                                    SELECT id
-                                    FROM pos_events_outbox
-                                    WHERE device_id = %s
-                                      AND event_type = %s
-                                      AND idempotency_key = %s
-                                    ORDER BY created_at ASC
-                                    LIMIT 1
-                                    """,
-                                    (data.device_id, e.event_type, idempotency_key),
-                                )
-                            else:
-                                cur.execute(
-                                    """
-                                    SELECT id
-                                    FROM pos_events_outbox
-                                    WHERE id = %s
-                                    """,
-                                    (e.event_id,),
-                                )
-                            existing = cur.fetchone()
-                            if existing:
-                                existing_event_id = str(existing["id"])
+                        # Use a savepoint per event so a DB error on one event
+                        # doesn't poison the transaction and silently roll back
+                        # previously accepted events.
+                        with conn.transaction():
+                            idempotency_key = str(e.idempotency_key or "").strip() or None
+                            cur.execute(
+                                """
+                                INSERT INTO pos_events_outbox
+                                  (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
+                                VALUES
+                                  (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
+                                ON CONFLICT DO NOTHING
+                                RETURNING id
+                                """,
+                                (
+                                    e.event_id,
+                                    data.device_id,
+                                    e.event_type,
+                                    json.dumps(e.payload),
+                                    e.created_at,
+                                    idempotency_key,
+                                    e.created_at,
+                                ),
+                            )
+                            inserted = cur.fetchone()
+                            status = "inserted" if inserted else "duplicate"
+                            existing_event_id = None
+                            if not inserted:
+                                if idempotency_key:
+                                    cur.execute(
+                                        """
+                                        SELECT id
+                                        FROM pos_events_outbox
+                                        WHERE device_id = %s
+                                          AND event_type = %s
+                                          AND idempotency_key = %s
+                                        ORDER BY created_at ASC
+                                        LIMIT 1
+                                        """,
+                                        (data.device_id, e.event_type, idempotency_key),
+                                    )
+                                else:
+                                    cur.execute(
+                                        """
+                                        SELECT id
+                                        FROM pos_events_outbox
+                                        WHERE id = %s
+                                        """,
+                                        (e.event_id,),
+                                    )
+                                existing = cur.fetchone()
+                                if existing:
+                                    existing_event_id = str(existing["id"])
                         accepted.append(str(e.event_id))
                         meta = {"event_id": str(e.event_id), "status": status}
                         if existing_event_id and existing_event_id != str(e.event_id):
@@ -1452,8 +1456,6 @@ def catalog(
                        i.updated_at,
                        COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
-                       COALESCE(icost.avg_cost_usd, 0) AS cost_usd,
-                       COALESCE(icost.avg_cost_lbp, 0) AS cost_lbp,
                        COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
                        COALESCE(uc.uom_conversions, '[]'::jsonb) AS uom_conversions
                 FROM items i
@@ -1519,18 +1521,6 @@ def catalog(
                       WHERE COALESCE(i.unit_of_measure, '') <> ''
                     ) conv
                 ) uc ON true
-                LEFT JOIN LATERAL (
-                    SELECT COALESCE(
-                        SUM(iwc.on_hand_qty * iwc.avg_cost_usd) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
-                    ) AS avg_cost_usd,
-                    COALESCE(
-                        SUM(iwc.on_hand_qty * iwc.avg_cost_lbp) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
-                    ) AS avg_cost_lbp
-                    FROM item_warehouse_costs iwc
-                    WHERE iwc.company_id = i.company_id
-                      AND iwc.item_id = i.id
-                      AND iwc.on_hand_qty > 0
-                ) icost ON true
                 LEFT JOIN tax_codes tc ON tc.id = i.tax_code_id
                 WHERE i.is_active = true
                 ORDER BY i.sku
@@ -1585,8 +1575,6 @@ def catalog_delta(
                          i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                          COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                          COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
-                         COALESCE(icost.avg_cost_usd, 0) AS cost_usd,
-                         COALESCE(icost.avg_cost_lbp, 0) AS cost_lbp,
                          COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
                          COALESCE(uc.uom_conversions, '[]'::jsonb) AS uom_conversions,
                          GREATEST(
@@ -1682,18 +1670,6 @@ def catalog_delta(
                         WHERE COALESCE(i.unit_of_measure, '') <> ''
                       ) conv
                   ) uc ON true
-                  LEFT JOIN LATERAL (
-                      SELECT COALESCE(
-                          SUM(iwc.on_hand_qty * iwc.avg_cost_usd) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
-                      ) AS avg_cost_usd,
-                      COALESCE(
-                          SUM(iwc.on_hand_qty * iwc.avg_cost_lbp) / NULLIF(SUM(iwc.on_hand_qty), 0), 0
-                      ) AS avg_cost_lbp
-                      FROM item_warehouse_costs iwc
-                      WHERE iwc.company_id = i.company_id
-                        AND iwc.item_id = i.id
-                        AND iwc.on_hand_qty > 0
-                  ) icost ON true
                   WHERE i.is_active = true
                     AND (
                       i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
@@ -2497,39 +2473,42 @@ def open_shift(data: ShiftOpenIn, device=Depends(require_device)):
     _assert_non_negative_shift_cash(data.opening_cash_usd, data.opening_cash_lbp, "opening")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
-        with conn.cursor() as cur:
-            cash_methods, cash_methods_norm = _load_cash_methods(cur, str(device["company_id"]))
-            cur.execute(
-                """
-                SELECT id FROM pos_shifts
-                WHERE company_id = %s AND device_id = %s AND status = 'open'
-                """,
-                (device["company_id"], device["device_id"]),
-            )
-            if cur.fetchone():
-                raise HTTPException(status_code=400, detail="shift already open")
-            cur.execute(
-                """
-                INSERT INTO pos_shifts
-                  (id, company_id, device_id, status, opened_at, opening_cash_usd, opening_cash_lbp, notes, opened_cashier_id)
-                VALUES
-                  (gen_random_uuid(), %s, %s, 'open', now(), %s, %s, %s, %s)
-                RETURNING id, status, opened_at, opening_cash_usd, opening_cash_lbp
-                """,
-                (
-                    device["company_id"],
-                    device["device_id"],
-                    data.opening_cash_usd,
-                    data.opening_cash_lbp,
-                    data.notes,
-                    data.cashier_id,
-                ),
-            )
-            return {
-                "shift": cur.fetchone(),
-                "cash_methods": cash_methods,
-                "has_cash_method_mapping": bool(cash_methods),
-            }
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cash_methods, cash_methods_norm = _load_cash_methods(cur, str(device["company_id"]))
+                # Bug 2 fix: SELECT ... FOR UPDATE to prevent race condition on concurrent shift opens
+                cur.execute(
+                    """
+                    SELECT id FROM pos_shifts
+                    WHERE company_id = %s AND device_id = %s AND status = 'open'
+                    FOR UPDATE
+                    """,
+                    (device["company_id"], device["device_id"]),
+                )
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="shift already open")
+                cur.execute(
+                    """
+                    INSERT INTO pos_shifts
+                      (id, company_id, device_id, status, opened_at, opening_cash_usd, opening_cash_lbp, notes, opened_cashier_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'open', now(), %s, %s, %s, %s)
+                    RETURNING id, status, opened_at, opening_cash_usd, opening_cash_lbp
+                    """,
+                    (
+                        device["company_id"],
+                        device["device_id"],
+                        data.opening_cash_usd,
+                        data.opening_cash_lbp,
+                        data.notes,
+                        data.cashier_id,
+                    ),
+                )
+                return {
+                    "shift": cur.fetchone(),
+                    "cash_methods": cash_methods,
+                    "has_cash_method_mapping": bool(cash_methods),
+                }
 
 
 def _expected_cash(
@@ -2652,6 +2631,13 @@ def pos_shift_invoices(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            # Bug 4 fix: verify shift belongs to the device's company before returning invoices
+            cur.execute(
+                "SELECT 1 FROM pos_shifts WHERE id = %s AND company_id = %s",
+                (shift_id, company_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="shift not found")
             cur.execute(
                 """
                 SELECT
@@ -2775,15 +2761,17 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
     _assert_non_negative_shift_cash(data.closing_cash_usd, data.closing_cash_lbp, "closing")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
-        with conn.cursor() as cur:
-            return _close_shift_impl(
-                cur=cur,
-                company_id=str(device["company_id"]),
-                shift_id=shift_id,
-                data=data,
-                device_id=str(device["device_id"]),
-                closed_by_user_id=None,
-            )
+        # Bug 3 fix: wrap close_shift in a transaction so GL journal + status update are atomic
+        with conn.transaction():
+            with conn.cursor() as cur:
+                return _close_shift_impl(
+                    cur=cur,
+                    company_id=str(device["company_id"]),
+                    shift_id=shift_id,
+                    data=data,
+                    device_id=str(device["device_id"]),
+                    closed_by_user_id=None,
+                )
 
 
 def _close_shift_impl(
@@ -2879,15 +2867,17 @@ def close_shift_admin(
     _assert_non_negative_shift_cash(data.closing_cash_usd, data.closing_cash_lbp, "closing")
     with get_conn() as conn:
         set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            return _close_shift_impl(
-                cur=cur,
-                company_id=company_id,
-                shift_id=shift_id,
-                data=data,
-                device_id=None,
-                closed_by_user_id=(user.get("user_id") if isinstance(user, dict) else None),
-            )
+        # Bug 3 fix: wrap close_shift_admin in a transaction
+        with conn.transaction():
+            with conn.cursor() as cur:
+                return _close_shift_impl(
+                    cur=cur,
+                    company_id=company_id,
+                    shift_id=shift_id,
+                    data=data,
+                    device_id=None,
+                    closed_by_user_id=(user.get("user_id") if isinstance(user, dict) else None),
+                )
 
 
 @router.get("/shifts/{shift_id}/cash-reconciliation", dependencies=[Depends(require_permission("pos:manage"))])

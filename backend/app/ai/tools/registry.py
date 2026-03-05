@@ -131,8 +131,8 @@ def get_all_tools() -> list[ToolDef]:
 def get_tools_for_user(user_permissions: set[str] | None = None) -> list[ToolDef]:
     """Return tools the given user is allowed to invoke."""
     if user_permissions is None:
-        # No permission info → return only read tools (safe default).
-        return [t for t in _REGISTRY.values() if t.category == "read"]
+        # No permission info → return read + compound tools (both are safe/read-only).
+        return [t for t in _REGISTRY.values() if t.category in ("read", "compound")]
     out = []
     for t in _REGISTRY.values():
         if t.permission is None or t.permission in user_permissions:
@@ -179,6 +179,7 @@ def execute_tool(
     arguments: dict[str, Any],
     company_id: str,
     user: dict[str, Any],
+    user_permissions: set[str] | None = None,
 ) -> ToolResult:
     """
     Execute a registered tool with the given arguments.
@@ -190,6 +191,11 @@ def execute_tool(
     if tool is None:
         return ToolResult(error=f"Unknown tool: {name}")
 
+    # Re-check permission at execution time (defense in depth)
+    if tool.permission and user_permissions is not None:
+        if tool.permission not in user_permissions:
+            return ToolResult(error="Permission denied")
+
     try:
         result = tool.fn(company_id, user, **arguments)
         if not isinstance(result, ToolResult):
@@ -200,7 +206,7 @@ def execute_tool(
         return result
     except Exception as exc:
         logger.exception("Tool %s execution failed: %s", name, exc)
-        return ToolResult(error=f"Tool execution failed: {str(exc)[:300]}")
+        return ToolResult(error="Tool execution failed. Please try again or contact support.")
 
 
 # ---------------------------------------------------------------------------

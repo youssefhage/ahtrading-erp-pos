@@ -65,8 +65,8 @@ export function KaiMessage({
           )}
         </div>
 
-        {/* Action card */}
-        {msg.action && msg.action.type === "navigate" && (
+        {/* Action card — only render safe hrefs (relative paths or https://) */}
+        {msg.action && msg.action.type === "navigate" && /^(\/[^/]|https:\/\/)/.test(msg.action.href) && (
           <Link
             href={msg.action.href}
             className="mt-1.5 flex items-center gap-2 rounded-lg border bg-background/50 px-3 py-2 text-[12px] font-medium text-primary transition-colors hover:bg-accent"

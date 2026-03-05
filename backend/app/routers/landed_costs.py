@@ -264,8 +264,8 @@ def post_landed_cost(landed_cost_id: str, company_id: str = Depends(get_company_
                     c = cur.fetchone() or {}
                     on_hand = Decimal(str(c.get("on_hand_qty") or 0))
                     if on_hand >= qty and on_hand > 0:
-                        bump_usd = alloc_usd / qty if qty else Decimal("0")
-                        bump_lbp = alloc_lbp / qty if qty else Decimal("0")
+                        bump_usd = alloc_usd / on_hand
+                        bump_lbp = alloc_lbp / on_hand
                         cur.execute(
                             """
                             UPDATE item_warehouse_costs

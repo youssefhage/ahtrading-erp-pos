@@ -15,6 +15,7 @@ import json
 import os
 from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
+from ..search_utils import escape_like
 from ..uom import load_item_uom_context, resolve_line_uom
 from ..importers.supplier_invoice_import import (
     apply_extracted_purchase_invoice_to_draft,
@@ -1465,7 +1466,7 @@ def list_goods_receipts(
                 where += " AND r.supplier_id = %s"
                 params.append(supplier_id)
             if qq:
-                like = f"%{qq}%"
+                like = f"%{escape_like(qq)}%"
                 where += " AND (r.receipt_no ILIKE %s OR COALESCE(r.supplier_ref,'') ILIKE %s)"
                 params.extend([like, like])
             cur.execute(
@@ -1599,7 +1600,7 @@ def list_supplier_invoices(
                 base_sql += " AND i.created_at::date <= %s"
                 params.append(date_to)
             if q:
-                needle = f"%{q.strip()}%"
+                needle = f"%{escape_like(q.strip())}%"
                 base_sql += """
                   AND (
                     COALESCE(i.invoice_no, '') ILIKE %s
@@ -1676,7 +1677,7 @@ def list_supplier_invoice_exceptions(
     - Returns a summary of variance flags (unit cost / qty / tax).
     """
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -2743,7 +2744,14 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     """,
                     (journal_id, grni, total_usd, total_lbp, data.warehouse_id),
                 )
-                auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                try:
+                    auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -4475,6 +4483,10 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                         auto_balance_journal(cur, company_id, pay_journal)
                     except ValueError as e:
                         raise HTTPException(status_code=400, detail=str(e))
+                    try:
+                        assert_journal_balanced(cur, pay_journal)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -4539,7 +4551,7 @@ def cancel_supplier_invoice(invoice_id: str, data: SupplierInvoiceCancelIn, comp
                 if inv["status"] != "posted":
                     raise HTTPException(status_code=400, detail="only posted invoices can be canceled")
 
-                cur.execute("SELECT 1 FROM supplier_payments WHERE supplier_invoice_id=%s LIMIT 1", (invoice_id,))
+                cur.execute("SELECT 1 FROM supplier_payments WHERE supplier_invoice_id=%s AND voided_at IS NULL LIMIT 1", (invoice_id,))
                 if cur.fetchone():
                     raise HTTPException(status_code=400, detail="cannot cancel an invoice with payments; use a debit note/refund flow")
 
@@ -5015,6 +5027,10 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                         auto_balance_journal(cur, company_id, pay_journal)
                     except ValueError as e:
                         raise HTTPException(status_code=400, detail=str(e))
+                    try:
+                        assert_journal_balanced(cur, pay_journal)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -5108,7 +5124,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                     SELECT COALESCE(SUM(amount_usd), 0) AS paid_usd,
                            COALESCE(SUM(amount_lbp), 0) AS paid_lbp
                     FROM supplier_payments
-                    WHERE supplier_invoice_id = %s
+                    WHERE supplier_invoice_id = %s AND voided_at IS NULL
                     """,
                     (data.supplier_invoice_id,),
                 )

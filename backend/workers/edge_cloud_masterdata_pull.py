@@ -25,6 +25,7 @@ import urllib.request
 from typing import Any
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
 
 try:
@@ -55,11 +56,26 @@ ENTITIES: list[str] = [
     "customers",
 ]
 
+# Only allow syncing tables that are in the ENTITIES list above.
+TABLE_ALLOWLIST: frozenset[str] = frozenset(ENTITIES)
+
+
+def _enforce_https(url: str) -> str:
+    """Validate that the URL uses HTTPS scheme. Reject non-HTTPS URLs."""
+    if not url:
+        return ""
+    if not url.lower().startswith("https://"):
+        raise ValueError(
+            f"Edge sync URL must use HTTPS scheme for security, got: {url[:50]}"
+        )
+    return url
+
 
 def _cloud_base_url() -> str:
     raw = (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip()
     if not raw:
         return ""
+    _enforce_https(raw)
     raw = raw.rstrip("/")
     # Allow EDGE_SYNC_TARGET_URL to be either full edge-sync path or base API host.
     if "/edge-sync/" in raw:
@@ -130,6 +146,11 @@ def _prep_value(col: dict[str, Any], v: Any) -> Any:
 def _upsert_rows(cur, table: str, rows: list[dict[str, Any]], *, pk: str = "id", columns_cache: dict[str, Any]):
     if not rows:
         return 0
+
+    # Validate table name against allowlist to prevent SQL injection.
+    if table not in TABLE_ALLOWLIST:
+        raise ValueError(f"Table {table!r} is not in the sync allowlist")
+
     cols = columns_cache.get(table)
     if cols is None:
         cols = _load_columns(cur, table)
@@ -142,17 +163,34 @@ def _upsert_rows(cur, table: str, rows: list[dict[str, Any]], *, pk: str = "id",
     except Exception:
         payload_keys = set()
 
+    # Validate column names against the schema-loaded columns to prevent injection.
+    valid_col_names = {str(c["column_name"]) for c in cols}
     col_names = [str(c["column_name"]) for c in cols if str(c["column_name"]) in payload_keys]
     if pk not in col_names:
+        if pk not in valid_col_names:
+            raise ValueError(f"Primary key {pk!r} not found in table schema")
         # Must always include pk even if not present in payload_keys for some reason.
         col_names = [pk] + [c for c in col_names if c != pk]
 
     update_cols = [c for c in col_names if c != pk]
-    insert_cols_sql = ", ".join(col_names)
-    values_sql = ", ".join(["%s"] * len(col_names))
-    update_sql = ", ".join([f"{c}=EXCLUDED.{c}" for c in update_cols])
 
-    sql = f"INSERT INTO {table} ({insert_cols_sql}) VALUES ({values_sql}) ON CONFLICT ({pk}) DO UPDATE SET {update_sql}"
+    # Build query using psycopg.sql to safely quote table and column identifiers.
+    insert_cols_sql = sql.SQL(", ").join(sql.Identifier(c) for c in col_names)
+    values_sql = sql.SQL(", ").join(sql.Placeholder() for _ in col_names)
+    update_sql = sql.SQL(", ").join(
+        sql.SQL("{col}=EXCLUDED.{col}").format(col=sql.Identifier(c))
+        for c in update_cols
+    )
+
+    query = sql.SQL(
+        "INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({pk}) DO UPDATE SET {updates}"
+    ).format(
+        table=sql.Identifier(table),
+        cols=insert_cols_sql,
+        vals=values_sql,
+        pk=sql.Identifier(pk),
+        updates=update_sql,
+    )
 
     values = []
     col_by_name = {str(c["column_name"]): c for c in cols}
@@ -162,7 +200,7 @@ def _upsert_rows(cur, table: str, rows: list[dict[str, Any]], *, pk: str = "id",
             tup.append(_prep_value(col_by_name[name], r.get(name)))
         values.append(tuple(tup))
 
-    cur.executemany(sql, values)
+    cur.executemany(query, values)
     return len(values)
 
 

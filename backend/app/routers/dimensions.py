@@ -74,7 +74,8 @@ def update_cost_center(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
-    patch = data.model_dump(exclude_none=True)
+    # Bug 5 fix: use exclude_unset so clients can clear optional fields
+    patch = data.model_dump(exclude_unset=True)
     if "code" in patch:
         patch["code"] = (patch["code"] or "").strip()
         if not patch["code"]:
@@ -86,9 +87,13 @@ def update_cost_center(
     if not patch:
         return {"ok": True}
 
+    # Bug 6 fix: allowlist column names to prevent SQL injection via f-string
+    _ALLOWED_COLUMNS = {"code", "name", "is_active"}
     fields = []
     params = []
     for k, v in patch.items():
+        if k not in _ALLOWED_COLUMNS:
+            raise HTTPException(status_code=400, detail=f"invalid field: {k}")
         fields.append(f"{k}=%s")
         params.append(v)
     params.extend([company_id, cost_center_id])
@@ -172,7 +177,8 @@ def update_project(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
-    patch = data.model_dump(exclude_none=True)
+    # Bug 5 fix: use exclude_unset so clients can clear optional fields
+    patch = data.model_dump(exclude_unset=True)
     if "code" in patch:
         patch["code"] = (patch["code"] or "").strip()
         if not patch["code"]:
@@ -184,9 +190,13 @@ def update_project(
     if not patch:
         return {"ok": True}
 
+    # Bug 7 fix: allowlist column names to prevent SQL injection via f-string
+    _ALLOWED_COLUMNS = {"code", "name", "is_active"}
     fields = []
     params = []
     for k, v in patch.items():
+        if k not in _ALLOWED_COLUMNS:
+            raise HTTPException(status_code=400, detail=f"invalid field: {k}")
         fields.append(f"{k}=%s")
         params.append(v)
     params.extend([company_id, project_id])

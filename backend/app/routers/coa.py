@@ -61,15 +61,15 @@ def create_template(data: CoaTemplateIn):
                 """
                 INSERT INTO coa_templates (id, code, name, description, default_language)
                 VALUES (gen_random_uuid(), %s, %s, %s, %s)
-                ON CONFLICT (code) DO UPDATE
-                SET name = EXCLUDED.name,
-                    description = EXCLUDED.description,
-                    default_language = EXCLUDED.default_language
+                ON CONFLICT (code) DO NOTHING
                 RETURNING id
                 """,
                 (code, name, (data.description or "").strip() or None, (data.default_language or "en").strip() or "en"),
             )
-            return {"id": cur.fetchone()["id"]}
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=409, detail="template code already exists")
+            return {"id": row["id"]}
 
 
 @router.get("/templates/{template_id}/accounts", dependencies=[Depends(require_permission("coa:read"))])
@@ -125,12 +125,7 @@ def bulk_upsert_template_accounts(template_id: str, data: TemplateAccountsBulkIn
                           (id, template_id, account_code, name_en, name_fr, name_ar, normal_balance_raw, is_postable_default)
                         VALUES
                           (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (template_id, account_code) DO UPDATE
-                        SET name_en = EXCLUDED.name_en,
-                            name_fr = EXCLUDED.name_fr,
-                            name_ar = EXCLUDED.name_ar,
-                            normal_balance_raw = EXCLUDED.normal_balance_raw,
-                            is_postable_default = EXCLUDED.is_postable_default
+                        ON CONFLICT (template_id, account_code) DO NOTHING
                         """,
                         (
                             template_id,
@@ -177,9 +172,12 @@ def list_accounts(company_id: str = Depends(get_company_id)):
 
 @router.patch("/accounts/{account_id}", dependencies=[Depends(require_permission("coa:write"))])
 def update_account(account_id: str, data: CoaAccountUpdate, company_id: str = Depends(get_company_id)):
+    ALLOWED = {"name_en", "name_fr", "name_ar", "is_postable", "parent_account_id"}
     fields = []
     params = []
-    for k, v in data.model_dump(exclude_none=True).items():
+    for k, v in data.model_dump(exclude_unset=True).items():
+        if k not in ALLOWED:
+            continue
         fields.append(f"{k} = %s")
         params.append(v)
     if not fields:

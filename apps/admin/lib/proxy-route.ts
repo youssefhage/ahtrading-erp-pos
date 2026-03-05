@@ -59,16 +59,26 @@ function timeoutMs() {
   return Number.isFinite(raw) && raw > 250 ? Math.floor(raw) : DEFAULT_PROXY_TIMEOUT_MS;
 }
 
+const ALLOWED_PREFIXES = ["/api/"];
+
 export async function proxyRoute(req: Request, ctx: ProxyRouteContext): Promise<Response> {
   const { path = [] } = await ctx.params;
+  const pathStr = "/" + (path as string[]).join("/");
+  if (!ALLOWED_PREFIXES.some((p) => pathStr.startsWith(p))) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   const base = upstreamBase();
   const url = new URL(req.url);
   const upstreamUrl = `${base}/${joinPath(path)}${url.search}`;
 
   const requestId = getRequestId(req);
-  const headers = new Headers(req.headers);
-  headers.delete("host");
-  headers.delete("content-length");
+  const ALLOWED_HEADERS = ["content-type", "accept", "x-company-id", "x-request-id", "cookie", "authorization"];
+  const headers = new Headers();
+  for (const key of ALLOWED_HEADERS) {
+    const val = req.headers.get(key);
+    if (val) headers.set(key, val);
+  }
   headers.set("x-request-id", requestId);
 
   const controller = new AbortController();

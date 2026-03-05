@@ -13,7 +13,7 @@ from psycopg import errors as pg_errors
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
 from ..ai.providers import get_ai_provider_config
 from ..ai.policy import is_external_ai_allowed
-from ..search_utils import normalize_search_query
+from ..search_utils import normalize_search_query, escape_like
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -313,7 +313,14 @@ class BulkCategoryAssignRequest(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_permission("items:read"))])
-def list_items(company_id: str = Depends(get_company_id)):
+def list_items(
+    limit: int = 200,
+    offset: int = 0,
+    company_id: str = Depends(get_company_id),
+):
+    # Bug 2 fix: add default LIMIT and validate user-provided limit
+    limit = max(1, min(1000, limit))
+    offset = max(0, offset)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -341,7 +348,9 @@ def list_items(company_id: str = Depends(get_company_id)):
                   WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
                 ORDER BY i.sku
-                """
+                LIMIT %s OFFSET %s
+                """,
+                (limit, offset),
             )
             return {"items": cur.fetchall()}
 
@@ -403,7 +412,7 @@ def product_catalog(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -527,7 +536,7 @@ def list_items_list(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -666,7 +675,7 @@ def typeahead_items(
     qq = normalize_search_query((q or "").strip())
     if limit <= 0 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -731,7 +740,7 @@ def list_item_uoms(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            like = f"%{qq}%" if qq else None
+            like = f"%{escape_like(qq)}%" if qq else None
             cur.execute(
                 """
                 WITH usage AS (
@@ -986,13 +995,20 @@ def delete_uom(code: str, company_id: str = Depends(get_company_id), user=Depend
 
 
 @router.get("/barcodes", dependencies=[Depends(require_permission("items:read"))])
-def list_all_barcodes(company_id: str = Depends(get_company_id)):
+def list_all_barcodes(
+    limit: int = 5000,
+    offset: int = 0,
+    company_id: str = Depends(get_company_id),
+):
     """
     Convenience endpoint for UIs that need barcode/factor mappings for many items.
 
     Important: this must be defined before `/{item_id}` to avoid Starlette routing
     treating "barcodes" as an item_id.
     """
+    # Bug 3 fix: add LIMIT to prevent unbounded barcode table dump
+    limit = max(1, min(10000, limit))
+    offset = max(0, offset)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -1009,8 +1025,9 @@ def list_all_barcodes(company_id: str = Depends(get_company_id)):
                  AND UPPER(c.uom_code) = UPPER(b.uom_code)
                 WHERE b.company_id = %s
                 ORDER BY item_id, is_primary DESC, created_at ASC
+                LIMIT %s OFFSET %s
                 """,
-                (company_id,),
+                (company_id, limit, offset),
             )
             return {"barcodes": cur.fetchall()}
 
@@ -1774,7 +1791,8 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     )
 
                 # Mirror legacy primary barcode into item_barcodes for POS scanning.
-                patch = data.model_dump(exclude_none=True)
+                # Bug 4 fix: use exclude_unset so clients can clear optional fields
+                patch = data.model_dump(exclude_unset=True)
                 if "barcode" in patch:
                     new_barcode = (data.barcode.strip() if isinstance(data.barcode, str) else None) or None
                     if new_barcode:
@@ -2389,7 +2407,8 @@ def add_item_barcode(item_id: str, data: ItemBarcodeIn, company_id: str = Depend
 
 @router.patch("/barcodes/{barcode_id}", dependencies=[Depends(require_permission("items:write"))])
 def update_item_barcode(barcode_id: str, data: ItemBarcodeUpdate, company_id: str = Depends(get_company_id)):
-    patch = data.model_dump(exclude_none=True)
+    # Bug 5 fix: use exclude_unset so clients can clear optional fields
+    patch = data.model_dump(exclude_unset=True)
     if "qty_factor" in patch and patch["qty_factor"] is not None and patch["qty_factor"] <= 0:
         raise HTTPException(status_code=400, detail="qty_factor must be > 0")
     if "uom_code" in patch and patch["uom_code"] is not None:

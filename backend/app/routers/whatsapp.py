@@ -258,7 +258,9 @@ def whatsapp_file_upload(
 
     wa_cfg = _get_wa_config(company_id)
     expected_secret = wa_cfg.get("verify_token", "")
-    if expected_secret and not hmac.compare_digest((x_whatsapp_webhook_secret or "").strip(), expected_secret):
+    if not expected_secret:
+        raise HTTPException(status_code=500, detail="whatsapp webhook secret not configured")
+    if not hmac.compare_digest((x_whatsapp_webhook_secret or "").strip(), expected_secret):
         raise HTTPException(status_code=401, detail="invalid whatsapp secret")
 
     try:
@@ -329,8 +331,10 @@ async def whatsapp_webhook(request: Request):
     except (json.JSONDecodeError, ValueError):
         raise HTTPException(status_code=400, detail="invalid JSON")
 
-    # Optionally verify signature (Meta sends X-Hub-Signature-256)
+    # Verify signature (Meta sends X-Hub-Signature-256)
     app_secret = wa_cfg.get("app_secret", "")
+    if not app_secret:
+        raise HTTPException(status_code=500, detail="whatsapp app_secret not configured")
     if app_secret:
         signature = request.headers.get("X-Hub-Signature-256", "")
         expected_sig = "sha256=" + hmac.new(
@@ -448,6 +452,7 @@ def _handle_text_message(
 
     # Resolve user
     linked_user = resolve_channel_user(company_id, "whatsapp", phone)
+    is_linked = bool(linked_user)
     if linked_user:
         user = linked_user
     else:
@@ -481,6 +486,9 @@ def _handle_text_message(
         user_permissions = load_user_permissions(company_id, user["user_id"])
     except Exception:
         pass
+    # Restrict unlinked users to read-only operations.
+    if not is_linked:
+        user_permissions = {"ai:read", "inventory:read", "sales:read", "purchases:read"}
 
     # Call agent
     try:

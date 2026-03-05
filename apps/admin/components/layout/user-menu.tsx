@@ -71,7 +71,7 @@ export function UserMenu() {
 
   const handleOpenOtherTab = () => {
     if (!otherCompany) return;
-    window.open(`/dashboard?company=${otherCompany.id}`, "_blank");
+    window.open(`/dashboard?company=${encodeURIComponent(otherCompany.id)}`, "_blank");
   };
 
   return (

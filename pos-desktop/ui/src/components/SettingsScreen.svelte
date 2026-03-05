@@ -83,6 +83,7 @@
 
   const normalizeUrl = (v) => {
     const t = String(v || "").trim();
+    if (t && !t.startsWith("http://") && !t.startsWith("https://")) return "";
     return t;
   };
 
@@ -1225,7 +1226,7 @@
             </div>
             <div>
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_rate">Exchange Rate</label>
-              <input id="off_rate" type="number" step="100" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.exchange_rate} />
+              <input id="off_rate" type="number" step="100" min="1" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.exchange_rate} />
             </div>
           </div>
           <div class="text-[11px] text-muted/80 bg-surface-highlight/30 border border-white/5 rounded-lg px-3 py-2">
@@ -1294,7 +1295,7 @@
             </div>
             <div>
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_rate">Exchange Rate</label>
-              <input id="un_rate" type="number" step="100" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.exchange_rate} />
+              <input id="un_rate" type="number" step="100" min="1" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.exchange_rate} />
             </div>
             <div>
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_warn">Warn Stale Minutes</label>

@@ -6,7 +6,7 @@ from typing import Optional, Literal, List
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
-from ..search_utils import normalize_search_query
+from ..search_utils import normalize_search_query, escape_like
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
@@ -98,7 +98,7 @@ def typeahead_suppliers(
     qq = normalize_search_query((q or "").strip())
     if limit <= 0 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -247,7 +247,7 @@ class SupplierUpdate(BaseModel):
 def update_supplier(supplier_id: str, data: SupplierUpdate, company_id: str = Depends(get_company_id)):
     fields = []
     params = []
-    payload = data.model_dump(exclude_none=True)
+    payload = data.model_dump(exclude_unset=True)
     if "code" in payload:
         payload["code"] = (payload.get("code") or "").strip() or None
     if "legal_name" in payload:
@@ -471,6 +471,9 @@ def merge_supplier(data: SupplierMergeExecuteIn, company_id: str = Depends(get_c
                 cur.execute("UPDATE supplier_invoices SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE supplier_credit_notes SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE batches SET received_supplier_id=%s WHERE company_id=%s AND received_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                # Re-point preferred supplier references on items and warehouse policies.
+                cur.execute("UPDATE items SET preferred_supplier_id=%s WHERE company_id=%s AND preferred_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE item_warehouse_policies SET preferred_supplier_id=%s WHERE company_id=%s AND preferred_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE party_contacts SET party_id=%s WHERE company_id=%s AND party_kind='supplier' AND party_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE party_addresses SET party_id=%s WHERE company_id=%s AND party_kind='supplier' AND party_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
                 cur.execute("UPDATE document_attachments SET entity_id=%s WHERE company_id=%s AND entity_type='supplier' AND entity_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))

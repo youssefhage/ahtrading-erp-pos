@@ -217,7 +217,7 @@ export default function PriceListsPage() {
     setEditSaving(true);
     setErr(null);
     try {
-      await apiPatch(`/pricing/lists/${editId}`, { name: editName.trim(), currency: editCurrency, is_default: editDefault });
+      await apiPatch(`/pricing/lists/${encodeURIComponent(editId)}`, { name: editName.trim(), currency: editCurrency, is_default: editDefault });
       if (editDefault) {
         await apiPost("/pricing/company-settings", { key: "default_price_list_id", value_json: { id: editId } });
       }
@@ -233,7 +233,7 @@ export default function PriceListsPage() {
   const setDefaultList = useCallback(async (listId: string) => {
     setErr(null);
     try {
-      await apiPatch(`/pricing/lists/${listId}`, { is_default: true });
+      await apiPatch(`/pricing/lists/${encodeURIComponent(listId)}`, { is_default: true });
       await apiPost("/pricing/company-settings", { key: "default_price_list_id", value_json: { id: listId } });
       await load();
     } catch (e) {
@@ -253,7 +253,7 @@ export default function PriceListsPage() {
     setAddLbp("");
     setItemsOpen(true);
     try {
-      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${listId}/items?page_size=5000`);
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${encodeURIComponent(listId)}/items?page_size=5000`);
       setListItems(res.items || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -275,14 +275,14 @@ export default function PriceListsPage() {
     setAdding(true);
     setErr(null);
     try {
-      await apiPost(`/pricing/lists/${itemsListId}/items`, {
+      await apiPost(`/pricing/lists/${encodeURIComponent(itemsListId)}/items`, {
         item_id: addItemId,
         price_usd: Number(addUsd || 0),
         price_lbp: Number(addLbp || 0),
         effective_from: addEffectiveFrom,
         effective_to: addEffectiveTo ? addEffectiveTo : null,
       });
-      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${encodeURIComponent(itemsListId)}/items?page_size=5000`);
       setListItems(res.items || []);
       setAddSku("");
       setAddItemId("");
@@ -310,7 +310,7 @@ export default function PriceListsPage() {
         effective_from: editEffectiveFrom,
         effective_to: editEffectiveTo ? editEffectiveTo : null,
       });
-      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${encodeURIComponent(itemsListId)}/items?page_size=5000`);
       setListItems(res.items || []);
       setEditItemOpen(false);
     } catch (e) {
@@ -542,7 +542,7 @@ export default function PriceListsPage() {
               onConfirm={async () => {
                 if (!itemsListId) return;
                 await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
-                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
+                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${encodeURIComponent(itemsListId)}/items?page_size=5000`);
                 setListItems(res.items || []);
               }}
               trigger={

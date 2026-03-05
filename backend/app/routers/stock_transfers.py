@@ -8,6 +8,7 @@ import json
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 from ..period_locks import assert_period_open
+from ..search_utils import escape_like
 
 try:
     from ..workers import pos_processor
@@ -82,7 +83,7 @@ def list_transfers(
                 params.append(st)
             if qq:
                 sql += " AND (t.transfer_no ILIKE %s OR COALESCE(t.memo,'') ILIKE %s)"
-                like = f"%{qq}%"
+                like = f"%{escape_like(qq)}%"
                 params.extend([like, like])
             sql += " ORDER BY t.created_at DESC LIMIT %s"
             params.append(limit)
@@ -180,6 +181,21 @@ def create_transfer_draft(data: TransferDraftIn, company_id: str = Depends(get_c
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                # Validate warehouse ownership
+                for wh_id, label in [
+                    (data.from_warehouse_id, "from_warehouse_id"),
+                    (data.to_warehouse_id, "to_warehouse_id"),
+                ]:
+                    cur.execute(
+                        "SELECT 1 FROM warehouses WHERE id=%s AND company_id=%s",
+                        (wh_id, company_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"{label}: warehouse not found or doesn't belong to your company",
+                        )
+
                 _validate_location(cur, company_id, data.from_location_id, data.from_warehouse_id, "from_location_id")
                 _validate_location(cur, company_id, data.to_location_id, data.to_warehouse_id, "to_location_id")
 
@@ -261,6 +277,22 @@ def update_transfer_draft(transfer_id: str, data: TransferDraftUpdateIn, company
                     raise HTTPException(status_code=404, detail="transfer not found")
                 if doc["status"] != "draft":
                     raise HTTPException(status_code=400, detail="only draft transfers can be edited")
+
+                # Validate warehouse ownership for any changed warehouses
+                for wh_key, label in [
+                    ("from_warehouse_id", "from_warehouse_id"),
+                    ("to_warehouse_id", "to_warehouse_id"),
+                ]:
+                    if wh_key in patch:
+                        cur.execute(
+                            "SELECT 1 FROM warehouses WHERE id=%s AND company_id=%s",
+                            (patch[wh_key], company_id),
+                        )
+                        if not cur.fetchone():
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"{label}: warehouse not found or doesn't belong to your company",
+                            )
 
                 from_wh = patch.get("from_warehouse_id") or doc["from_warehouse_id"]
                 to_wh = patch.get("to_warehouse_id") or doc["to_warehouse_id"]

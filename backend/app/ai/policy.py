@@ -32,6 +32,6 @@ def is_external_ai_allowed(cur, company_id: str) -> bool:
             return True
         return bool(flag)
     except Exception:
-        # Never block core flows due to settings read failures.
-        return True
+        # Fail closed — deny external AI access if settings cannot be read.
+        return False
 

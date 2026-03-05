@@ -7,7 +7,7 @@ from datetime import date
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
-from ..search_utils import normalize_search_query
+from ..search_utils import normalize_search_query, escape_like
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..journal_utils import q_usd, q_lbp
@@ -54,7 +54,7 @@ def list_customers(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
     qq = (q or "").strip()
-    like = f"%{qq}%"
+    like = f"%{escape_like(qq)}%"
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -119,7 +119,7 @@ def customers_typeahead(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            like = f"%{q}%"
+            like = f"%{escape_like(q)}%"
             cur.execute(
                 """
                 SELECT id, code, name, phone, email, membership_no, payment_terms_days, price_list_id, is_active, updated_at
@@ -264,7 +264,7 @@ class CustomerUpdate(BaseModel):
 def update_customer(customer_id: str, data: CustomerUpdate, company_id: str = Depends(get_company_id)):
     fields = []
     params = []
-    payload = data.model_dump(exclude_none=True)
+    payload = data.model_dump(exclude_unset=True)
     if "membership_no" in payload:
         payload["membership_no"] = (payload.get("membership_no") or "").strip() or None
     if "code" in payload:
@@ -364,8 +364,8 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                         "is_member": bool(c.is_member) if c.is_member is not None else False,
                         "membership_expires_at": c.membership_expires_at,
                         "payment_terms_days": int(c.payment_terms_days or 0),
-                        "credit_limit_usd": float(c.credit_limit_usd or 0),
-                        "credit_limit_lbp": float(c.credit_limit_lbp or 0),
+                        "credit_limit_usd": float(c.credit_limit_usd) if c.credit_limit_usd is not None else None,
+                        "credit_limit_lbp": float(c.credit_limit_lbp) if c.credit_limit_lbp is not None else None,
                         "price_list_id": c.price_list_id,
                         "is_active": bool(c.is_active) if c.is_active is not None else True,
                     }
@@ -397,8 +397,8 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                     is_member = EXCLUDED.is_member,
                                     membership_expires_at = EXCLUDED.membership_expires_at,
                                     payment_terms_days = EXCLUDED.payment_terms_days,
-                                    credit_limit_usd = EXCLUDED.credit_limit_usd,
-                                    credit_limit_lbp = EXCLUDED.credit_limit_lbp,
+                                    credit_limit_usd = COALESCE(EXCLUDED.credit_limit_usd, customers.credit_limit_usd),
+                                    credit_limit_lbp = COALESCE(EXCLUDED.credit_limit_lbp, customers.credit_limit_lbp),
                                     price_list_id = EXCLUDED.price_list_id,
                                     is_active = EXCLUDED.is_active
                                 RETURNING id
@@ -815,42 +815,26 @@ def adjust_customer_credit(customer_id: str, data: CreditAdjustIn, company_id: s
                 )
                 journal_id = cur.fetchone()["id"]
 
-                if amount_usd > 0 or amount_lbp > 0:
-                    # Increase AR: Dr AR, Cr Adjustment
-                    dr_usd = max(amount_usd, Decimal("0"))
-                    dr_lbp = max(amount_lbp, Decimal("0"))
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
-                        """,
-                        (journal_id, ar, dr_usd, dr_lbp, "AR adjustment"),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, %s)
-                        """,
-                        (journal_id, adjustment_account, dr_usd, dr_lbp, "Adjustment offset"),
-                    )
-                else:
-                    # Decrease AR (write-off): Dr Adjustment, Cr AR
-                    cr_usd = abs(amount_usd)
-                    cr_lbp = abs(amount_lbp)
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
-                        """,
-                        (journal_id, adjustment_account, cr_usd, cr_lbp, "Write-off / correction"),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, %s)
-                        """,
-                        (journal_id, ar, cr_usd, cr_lbp, "AR adjustment"),
-                    )
+                # Build GL entries that correctly handle each currency's sign independently.
+                # Positive amounts: Dr AR, Cr Adjustment. Negative: Dr Adjustment, Cr AR.
+                ar_debit_usd = max(amount_usd, Decimal("0"))
+                ar_credit_usd = abs(min(amount_usd, Decimal("0")))
+                ar_debit_lbp = max(amount_lbp, Decimal("0"))
+                ar_credit_lbp = abs(min(amount_lbp, Decimal("0")))
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (journal_id, ar, ar_debit_usd, ar_credit_usd, ar_debit_lbp, ar_credit_lbp, "AR adjustment"),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (journal_id, adjustment_account, ar_credit_usd, ar_debit_usd, ar_credit_lbp, ar_debit_lbp, "Adjustment offset"),
+                )
 
                 # Update customer balance
                 cur.execute(

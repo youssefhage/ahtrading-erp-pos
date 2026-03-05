@@ -33,8 +33,6 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
-  const roundUsd = (v) => Math.round((Number(v) || 0) * 10000) / 10000;
-
   const companyLabel = (k) => (k === "unofficial" ? "UN" : "OF");
   const cartCompaniesSet = (lines) => new Set((lines || []).map((ln) => ln?.companyKey).filter(Boolean));
 
@@ -61,30 +59,12 @@
     return (m === "ex" || m === "inc" || m === "both") ? m : "both";
   })();
   $: modeLabel = mode === "ex" ? "Ex" : (mode === "inc" ? "Inc" : "Both");
-  $: lineTotals = (() => {
-    let subtotalUsd = 0;
-    let taxUsd = 0;
-    for (const ln of cart || []) {
-      const qty = Math.max(0, toNum(ln?.qty, 0));
-      const baseUsd = roundUsd(toNum(ln?.price_usd, 0) * qty);
-      const baseLbp = toNum(ln?.price_lbp, 0) * qty;
-      const vatRate = Math.max(0, toNum(vatRateForLine ? vatRateForLine(ln) : 0, 0));
-      subtotalUsd += baseUsd;
-      // LBP-first tax: compute tax on LBP amount then back-convert to USD
-      // (matches App.svelte checkout flow and backend computation).
-      if (baseLbp > 0 && baseUsd > 0) {
-        const taxLbp = Math.round(baseLbp * vatRate);
-        const impliedRate = baseLbp / baseUsd;
-        taxUsd += roundUsd(taxLbp / impliedRate);
-      } else {
-        taxUsd += roundUsd(baseUsd * vatRate);
-      }
-    }
-    return { subtotalUsd, taxUsd, totalUsd: subtotalUsd + taxUsd };
-  })();
-  $: subtotalUsd = lineTotals?.subtotalUsd || toNum(totals?.subtotalUsd, 0);
-  $: taxUsd = lineTotals?.taxUsd || toNum(totals?.taxUsd, 0);
-  $: totalIncUsd = lineTotals?.totalUsd || toNum(totals?.totalUsd, 0);
+  // Use the totals prop computed by App.svelte via cartLineAmounts (which uses
+  // proper LBP-first tax with exchange-rate fallback from config).  This ensures
+  // the summary display matches the actual checkout amounts exactly.
+  $: subtotalUsd = toNum(totals?.subtotalUsd, 0);
+  $: taxUsd = toNum(totals?.taxUsd, 0);
+  $: totalIncUsd = toNum(totals?.totalUsd, 0);
   $: primaryTotalUsd = mode === "ex" ? subtotalUsd : totalIncUsd;
   $: officialSubtotalUsd = toNum(totalsByCompany?.official?.subtotalUsd, 0);
   $: officialTotalUsd = toNum(totalsByCompany?.official?.totalUsd, 0);

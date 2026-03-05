@@ -14,13 +14,32 @@ from ..security import hash_password, verify_password, needs_rehash, hash_sessio
 router = APIRouter(prefix="/auth", tags=["auth"])
 SESSION_DAYS = 3
 
-_login_attempts: dict = {}  # key -> {"count": int, "locked_until": float}
+_login_attempts: dict = {}  # key -> {"count": int, "locked_until": float, "last_activity": float}
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes
+_LOGIN_PRUNE_INTERVAL = 600  # prune every 10 minutes
+_LOGIN_ENTRY_TTL = 900  # expire entries after 15 minutes of inactivity
+_login_last_prune: float = 0.0
+
+
+def _prune_login_attempts():
+    """Remove expired entries to prevent unbounded dict growth."""
+    global _login_last_prune
+    now = _time.time()
+    if now - _login_last_prune < _LOGIN_PRUNE_INTERVAL:
+        return
+    _login_last_prune = now
+    expired = [
+        k for k, v in _login_attempts.items()
+        if v.get("locked_until", 0) < now and (now - v.get("last_activity", 0)) > _LOGIN_ENTRY_TTL
+    ]
+    for k in expired:
+        _login_attempts.pop(k, None)
 
 
 def _check_login_rate_limit(key: str) -> bool:
     """Returns True if request should be blocked."""
+    _prune_login_attempts()
     now = _time.time()
     entry = _login_attempts.get(key)
     if entry and entry.get("locked_until", 0) > now:
@@ -32,6 +51,7 @@ def _record_login_failure(key: str):
     now = _time.time()
     entry = _login_attempts.get(key, {"count": 0, "locked_until": 0})
     entry["count"] = entry.get("count", 0) + 1
+    entry["last_activity"] = now
     if entry["count"] >= _LOGIN_MAX_ATTEMPTS:
         entry["locked_until"] = now + _LOGIN_LOCKOUT_SECONDS
         entry["count"] = 0
@@ -523,7 +543,8 @@ class ProfileUpdateIn(BaseModel):
 
 @router.patch("/profile")
 def update_profile(data: ProfileUpdateIn, session=Depends(get_session)):
-    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    ALLOWED = {"full_name", "phone"}
+    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set()) if k in ALLOWED}
     if "full_name" in patch:
         patch["full_name"] = (patch.get("full_name") or "").strip() or None
     if "phone" in patch:

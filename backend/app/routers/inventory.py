@@ -680,6 +680,8 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
         raise HTTPException(status_code=400, detail="warehouse_id is required")
     if not data.lines:
         raise HTTPException(status_code=400, detail="lines is required")
+    if len(data.lines) > 5000:
+        raise HTTPException(status_code=400, detail="too many lines (max 5000)")
 
     try:
         import_id = str(uuid.UUID((data.import_id or "").strip() or str(uuid.uuid4())))
@@ -694,6 +696,14 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
         with conn.transaction():
             with conn.cursor() as cur:
                 assert_period_open(cur, company_id, posting_date)
+
+                # Validate warehouse belongs to company.
+                cur.execute(
+                    "SELECT 1 FROM warehouses WHERE company_id=%s AND id=%s",
+                    (company_id, data.warehouse_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail="warehouse not found in company")
 
                 # Idempotency check.
                 cur.execute(
@@ -834,6 +844,10 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                     auto_balance_journal(cur, company_id, journal_id)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -929,7 +943,8 @@ def create_stock_move_reason(data: StockMoveReasonIn, company_id: str = Depends(
 
 @router.patch("/stock-move-reasons/{reason_id}", dependencies=[Depends(require_permission("inventory:write"))])
 def update_stock_move_reason(reason_id: str, data: StockMoveReasonUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    # Bug 6 fix: use exclude_unset so clients can clear optional fields
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     if "code" in patch:
@@ -1068,7 +1083,8 @@ def list_batch_cost_layers(
 
 @router.patch("/batches/{batch_id}", dependencies=[Depends(require_permission("inventory:write"))])
 def update_batch(batch_id: str, data: BatchUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    # Bug 7 fix: use exclude_unset so clients can clear optional fields
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     if "status" in patch:
@@ -1437,16 +1453,21 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                     if not (inventory and inv_adj):
                         raise HTTPException(status_code=400, detail="Missing INVENTORY/INV_ADJ account defaults for cycle count posting")
 
-                    journal_no = f"CC-{uuid.uuid4().hex[:8]}"
+                    # Bug 8 fix: fetch actual exchange_rate instead of hardcoding 0
+                    fx_rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
+                    if not fx_rate or fx_rate <= 0:
+                        raise HTTPException(status_code=400, detail="exchange_rate must be > 0 for cycle count GL posting")
+                    # Bug 9 fix: use _safe_journal_no for collision-safe journal_no generation
+                    journal_no = _safe_journal_no(cur, company_id, f"CC-{uuid.uuid4().hex[:8]}")
                     cur.execute(
                         """
                         INSERT INTO gl_journals
                           (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, 'cycle_count', %s, CURRENT_DATE, 'market', 0, %s, %s)
+                          (gen_random_uuid(), %s, %s, 'cycle_count', %s, CURRENT_DATE, 'market', %s, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, journal_no, data.warehouse_id, (data.reason or "Cycle count"), user["user_id"]),
+                        (company_id, journal_no, data.warehouse_id, fx_rate, (data.reason or "Cycle count"), user["user_id"]),
                     )
                     journal_id = cur.fetchone()["id"]
 

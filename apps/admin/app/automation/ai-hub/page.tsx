@@ -858,8 +858,7 @@ export default function AiHubPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
   /* ---------- Decision flow ---------- */
 
@@ -974,8 +973,8 @@ export default function AiHubPage() {
   }
 
   async function saveSchedule(e: React.FormEvent) {
-    if (!ensureWriteAccess("save schedule")) return;
     e.preventDefault();
+    if (!ensureWriteAccess("save schedule")) return;
     if (!scheduleJobCode.trim()) {
       setErr("job_code is required");
       return;

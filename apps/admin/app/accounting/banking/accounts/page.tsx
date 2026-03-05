@@ -195,7 +195,7 @@ export default function BankAccountsPage() {
     setEditing(true);
     setStatus("Saving...");
     try {
-      await apiPatch(`/banking/accounts/${editId}`, {
+      await apiPatch(`/banking/accounts/${encodeURIComponent(editId)}`, {
         name: editName.trim(),
         currency: editCurrency,
         gl_account_id: acc.id,

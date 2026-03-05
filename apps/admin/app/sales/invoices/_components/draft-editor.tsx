@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
-import { FALLBACK_FX_RATE_USD_LBP } from "@/lib/constants";
 import { parseNumberInput } from "@/lib/numbers";
 import { getDefaultWarehouseId } from "@/lib/op-context";
 import { Button } from "@/components/ui/button";
@@ -81,16 +80,14 @@ function clampPct(pct: number) {
   return Math.max(0, Math.min(100, pct));
 }
 
-const USD_SCALE = 10000; // 4 decimal places — matches DB numeric(18,4)
-const LBP_SCALE = 100;   // 2 decimal places — matches DB numeric(18,2)
-const ROUND_EPS = 1e-9;  // bias toward rounding up (ROUND_HALF_UP equivalent)
-
+/** Round USD to 2 decimal places for GL-consistent totals. */
 function roundUsd(v: number) {
-  return Math.max(0, Math.round((v + ROUND_EPS) * USD_SCALE) / USD_SCALE);
+  return Math.max(0, Math.round((v || 0) * 100) / 100);
 }
 
+/** Round LBP to whole numbers (no decimals). */
 function roundLbp(v: number) {
-  return Math.max(0, Math.round((v + ROUND_EPS) * LBP_SCALE) / LBP_SCALE);
+  return Math.max(0, Math.round(v || 0));
 }
 
 function resolveLine(l: InvoiceLineDraft, exchangeRate: number) {
@@ -209,6 +206,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   const addQtyRef = useRef<HTMLInputElement | null>(null);
   const saveHotkeyRef = useRef<() => void>(() => {});
+  const selectedPriceListIdRef = useRef(selectedPriceListId);
+  selectedPriceListIdRef.current = selectedPriceListId;
 
   const taxById = useMemo(() => new Map((taxCodes || []).map((t) => [t.id, t])), [taxCodes]);
 
@@ -258,8 +257,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     for (const l of lines || []) {
       const r = resolveLine(l, ex);
       const vat = vatMetaFor(l.tax_code_id);
+      const lineVatUsd = roundUsd(r.totalUsd * vat.rate);
       const lineVatLbp = roundLbp(r.totalLbp * vat.rate);
-      const lineVatUsd = ex > 0 ? roundUsd(lineVatLbp / ex) : roundUsd(r.totalUsd * vat.rate);
       subtotalUsd += r.totalUsd;
       subtotalLbp += r.totalLbp;
       discountUsd += r.discountUsd;
@@ -314,8 +313,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     const netUsd = preUsd * (1 - discFrac);
     const netLbp = preLbp * (1 - discFrac);
     const vat = vatMetaFor((addItem as any).tax_code_id ?? null);
+    const vatUnitUsd = netUsd * vat.rate;
     const vatUnitLbp = netLbp * vat.rate;
-    const vatUnitUsd = ex > 0 ? vatUnitLbp / ex : netUsd * vat.rate;
     return {
       vatLabel: vat.label,
       unitInclUsd: netUsd + vatUnitUsd,
@@ -347,14 +346,18 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       // Initialize selected price list from settings or default.
       const defaultPlSetting = (settingsRes.settings || []).find((s) => s.key === "default_price_list_id");
       const defaultPlId = defaultPlSetting?.value_json?.id || "";
-      if (!selectedPriceListId && defaultPlId) setSelectedPriceListId(defaultPlId);
-      else if (!selectedPriceListId && plList.length > 0) {
+      if (!selectedPriceListIdRef.current && defaultPlId) setSelectedPriceListId(defaultPlId);
+      else if (!selectedPriceListIdRef.current && plList.length > 0) {
         const def = plList.find((p) => p.is_default);
         if (def) setSelectedPriceListId(def.id);
       }
       setTaxCodes(tc.tax_codes || []);
       setDefaultVatTaxCodeId(resolveDefaultVatTaxCodeId(tc.tax_codes || [], settingsRes.settings || []));
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : FALLBACK_FX_RATE_USD_LBP;
+      const fxVal = Number(fx?.usd_to_lbp || 0);
+      if (fxVal <= 0) {
+        throw new Error("Unable to fetch exchange rate. Please set the USD\u2192LBP rate in System \u2192 Config before creating invoices.");
+      }
+      const defaultEx = fxVal;
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
       const preferredWhId = (() => {
@@ -662,6 +665,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   async function save(e?: React.FormEvent) {
     e?.preventDefault();
     if (!warehouseId) return setStatus("warehouse is required");
+    if (!lines || lines.length === 0 || !lines.some((l) => toNum(l.qty) > 0))
+      return setStatus("At least one line item with qty > 0 is required.");
 
     const exRes = parseNumberInput(exchangeRate);
     if (!exRes.ok && exRes.reason === "invalid") return setStatus("Invalid exchange rate.");

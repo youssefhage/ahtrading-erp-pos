@@ -1438,6 +1438,18 @@
   $: shiftVarianceUsd = toNum(closingCashUsd, 0) - toNum(shiftExpectedCloseUsd, 0);
   $: shiftVarianceLbp = toNum(closingCashLbp, 0) - toNum(shiftExpectedCloseLbp, 0);
   $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
+  // Pick the exchange rate for the company that will actually process the checkout.
+  // For mixed carts (split sale), use the official rate as the display default;
+  // for single-company carts, use that company's rate.
+  $: checkoutExchangeRate = (() => {
+    const companies = cartCompaniesSetFromLines(cart);
+    if (companies.size === 1) {
+      const key = Array.from(companies.values())[0];
+      const cfg = key === otherCompanyKey ? unofficialConfig : config;
+      return toNum(cfg?.exchange_rate, 0);
+    }
+    return toNum(config?.exchange_rate, 0);
+  })();
   const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
   const companyIdForCompany = (companyKey) => {
     const cfg = cfgForCompanyKey(companyKey) || {};
@@ -7402,6 +7414,29 @@
       priceUsd = value;
       priceLbp = ex > 0 ? value * ex : 0;
     }
+    // Validate against cost price (minimum price floor).
+    const costUsd = toNum(ln?.cost_usd, 0);
+    const costLbp = toNum(ln?.cost_lbp, 0);
+    if (currency === "LBP" && costLbp > 0 && priceLbp < costLbp) {
+      return { newPriceUsd: null, newPriceLbp: null, error: `Price cannot be below cost (${Math.round(costLbp).toLocaleString()} LBP).` };
+    }
+    if (currency !== "LBP" && costUsd > 0 && priceUsd < costUsd) {
+      return { newPriceUsd: null, newPriceLbp: null, error: `Price cannot be below cost (${costUsd.toFixed(2)} USD).` };
+    }
+    // Validate against original list price — cap at 100% discount.
+    const origUsd = toNum(ln?.original_list_price_usd, toNum(ln?.list_price_usd, 0));
+    const origLbp = toNum(ln?.original_list_price_lbp, toNum(ln?.list_price_lbp, 0));
+    if (currency === "LBP" && origLbp > 0) {
+      const discountPct = ((origLbp - priceLbp) / origLbp) * 100;
+      if (discountPct > 100) {
+        return { newPriceUsd: null, newPriceLbp: null, error: "Override exceeds 100% discount from list price." };
+      }
+    } else if (currency !== "LBP" && origUsd > 0) {
+      const discountPct = ((origUsd - priceUsd) / origUsd) * 100;
+      if (discountPct > 100) {
+        return { newPriceUsd: null, newPriceLbp: null, error: "Override exceeds 100% discount from list price." };
+      }
+    }
     return { newPriceUsd: priceUsd, newPriceLbp: priceLbp, error: null };
   };
 
@@ -7838,9 +7873,17 @@
   const _draftTotalUsd = (draft) => {
     let total = 0;
     for (const line of draft?.cart || []) {
+      const companyKey = line?.companyKey === "unofficial" ? "unofficial" : "official";
       const qty = Math.max(0, toNum(line?.qty, 0));
-      const baseUsd = toNum(line?.price_usd, 0) * qty;
-      const taxUsd = baseUsd * Math.max(0, toNum(vatRateForLine(line), 0));
+      const baseUsd = roundUsd(toNum(line?.price_usd, 0) * qty);
+      const rawBaseLbp = roundLbp(toNum(line?.price_lbp, 0) * qty);
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const fallbackEx = toNum(cfg?.exchange_rate, toNum(config?.exchange_rate, 0));
+      const baseLbp = rawBaseLbp === 0 && fallbackEx > 0 ? roundLbp(baseUsd * fallbackEx) : rawBaseLbp;
+      const vatRate = Math.max(0, toNum(vatRateForLine(line), 0));
+      // LBP-first tax (matches cartLineAmounts and finalized sale computation).
+      const taxLbp = roundLbp(baseLbp * vatRate);
+      const taxUsd = fallbackEx > 0 ? roundUsd(taxLbp / fallbackEx) : roundUsd(baseUsd * vatRate);
       total += (baseUsd + taxUsd);
     }
     return total;
@@ -7921,7 +7964,31 @@
       return;
     }
 
-    cart = lines;
+    // Revalidate draft lines against current catalog — remove items no longer
+    // available and warn the user so stale drafts don't cause checkout failures.
+    const _catalogItemIds = new Set([
+      ...(items || []).map((it) => String(it?.id || "").trim()),
+      ...(unofficialItems || []).map((it) => String(it?.id || "").trim()),
+    ].filter(Boolean));
+    const unavailableLines = lines.filter((ln) => {
+      const itemId = String(ln?.id || "").trim();
+      return itemId && !_catalogItemIds.has(itemId);
+    });
+    const availableLines = lines.filter((ln) => {
+      const itemId = String(ln?.id || "").trim();
+      return !itemId || _catalogItemIds.has(itemId);
+    });
+    if (unavailableLines.length > 0) {
+      const names = unavailableLines.map((ln) => String(ln?.name || ln?.sku || ln?.id || "unknown").trim()).join(", ");
+      if (availableLines.length === 0) {
+        reportError(`All draft items are no longer available in catalog: ${names}. Draft cannot be restored.`);
+        return;
+      }
+      reportError(`${unavailableLines.length} item(s) no longer available and removed from draft: ${names}.`);
+    }
+    const validatedLines = availableLines.length > 0 ? availableLines : lines;
+
+    cart = validatedLines;
     activeCustomer = _snapshotDraftCustomer(target?.customer);
     saleMode = _normalizeSaleMode(target?.sale_mode);
     onInvoiceCompanyModeChange(_normalizeInvoiceMode(target?.invoice_company_mode));
@@ -8462,6 +8529,39 @@
         return;
       }
 
+      // Fetch fresh customer balance for credit limit validation.
+      // Prevents approving credit sales against stale cached balances.
+      if ((payment_method === "credit" || isPartialCash) && requested_customer_id) {
+        const creditCompany = effectiveInvoiceCompany();
+        try {
+          const freshRes = await apiCallFor(creditCompany, `/customers/by-id?customer_id=${encodeURIComponent(requested_customer_id)}`);
+          const freshCustomer = freshRes?.customer || null;
+          if (freshCustomer) {
+            const creditLimitUsd = toNum(freshCustomer?.credit_limit_usd, 0);
+            const currentBalanceUsd = toNum(freshCustomer?.credit_balance_usd, 0);
+            const creditAmountUsd = isPartialCash ? (checkoutTotal - cashTendered) : checkoutTotal;
+            if (creditLimitUsd > 0) {
+              const newBalanceUsd = currentBalanceUsd + creditAmountUsd;
+              if (newBalanceUsd > creditLimitUsd) {
+                reportError(
+                  `Credit limit exceeded. Limit: $${creditLimitUsd.toFixed(2)}, Current balance: $${currentBalanceUsd.toFixed(2)}, ` +
+                  `Sale credit: $${creditAmountUsd.toFixed(2)}. New balance would be $${newBalanceUsd.toFixed(2)}.`
+                );
+                return;
+              }
+            }
+            // Update cached customer with fresh balance data.
+            if (activeCustomer) {
+              activeCustomer = { ...activeCustomer, credit_balance_usd: currentBalanceUsd, credit_limit_usd: creditLimitUsd };
+            }
+          }
+        } catch (e) {
+          // Non-blocking: if we cannot fetch fresh data, allow the sale to proceed
+          // (backend will enforce the limit). Log for debugging.
+          console.warn("[POS] credit limit pre-check failed:", e?.message || e);
+        }
+      }
+
       const _custText = (value) => String(value || "").trim();
       const _custLower = (value) => _custText(value).toLowerCase();
       const _custDigits = (value) => _custText(value).replace(/\D+/g, "");
@@ -8653,6 +8753,19 @@
       // Flag override: issue ONE invoice on Official for later review (even if items are mixed).
       if (flagOfficial) {
         const invoiceCompany = "official";
+        // Manager approval check for credit sales (flag-official path)
+        if (payment_method === "credit" || isPartialCash) {
+          const cfg = cfgFor(invoiceCompany);
+          if (!!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(invoiceCompany)) {
+            pendingCheckoutMethod = payment_method;
+            pendingCheckoutCashTendered = cashTendered || 0;
+            managerApprovalPendingCompanies = [invoiceCompany];
+            adminPinMode = "unlock";
+            openAdminPinModal();
+            reportNotice(`Manager approval required for credit sale (${_companyLabel(invoiceCompany)}). Enter admin PIN to continue.`);
+            return;
+          }
+        }
         if (!ensureCashierForCompanies([invoiceCompany], "sale")) return;
         if (!ensureShiftForCompanies([invoiceCompany], "sale")) return;
         const crossCompany = mixedCompanies || !cartCompanies.has(invoiceCompany);
@@ -8707,6 +8820,9 @@
         cart = [];
         activeCustomer = null;
         checkoutIntentId = "";
+        saleMode = "sale";
+        returnSourceContext = null;
+        setActiveScreen("pos");
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
         showSaleComplete = true;
@@ -8871,6 +8987,9 @@
           cart = [];
           activeCustomer = null;
           checkoutIntentId = "";
+          saleMode = "sale";
+          returnSourceContext = null;
+          setActiveScreen("pos");
           reportNotice(anyQueuedLocal ? "Sale saved offline — will sync when back online." : "Sale complete.");
           showSaleComplete = true;
           setTimeout(() => { showSaleComplete = false; }, 4000);
@@ -8892,15 +9011,22 @@
                 const companyLines = splitCartSnap.filter((ln) => ln.companyKey === o.companyKey);
                 const ocfg = cfgFor(o.companyKey);
                 const cashName = normalizeCompanyKey(o.companyKey) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
+                const _splitExRate = toNum(ocfg?.exchange_rate, 0);
                 const _splitSubUsd = companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
                 const _splitSubLbp = companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
-                const _splitTaxUsd = companyLines.reduce((s, ln) => {
-                  const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
-                  return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
-                }, 0);
+                // LBP-first tax (matches cartLineAmounts / backend).
                 const _splitTaxLbp = companyLines.reduce((s, ln) => {
-                  const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
-                  return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                  const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+                  const effectiveLbp = baseLbp === 0 && _splitExRate > 0 ? toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0) * _splitExRate : baseLbp;
+                  return s + roundLbp(effectiveLbp * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                }, 0);
+                const _splitTaxUsd = companyLines.reduce((s, ln) => {
+                  const baseUsd = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+                  const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+                  const effectiveLbp = baseLbp === 0 && _splitExRate > 0 ? baseUsd * _splitExRate : baseLbp;
+                  const vatRate = Math.max(0, toNum(vatRateForLine(ln), 0));
+                  const lineTaxLbp = roundLbp(effectiveLbp * vatRate);
+                  return s + (_splitExRate > 0 ? roundUsd(lineTaxLbp / _splitExRate) : roundUsd(baseUsd * vatRate));
                 }, 0);
                 _printOfflineReceipt(companyLines, {
                   companyKey: o.companyKey,
@@ -8934,6 +9060,19 @@
 
       // Single-company (or intentionally forced) flow.
       const invoiceCompany = effectiveInvoiceCompany();
+      // Manager approval check for credit sales (single-company path)
+      if (payment_method === "credit" || isPartialCash) {
+        const cfg = cfgFor(invoiceCompany);
+        if (!!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(invoiceCompany)) {
+          pendingCheckoutMethod = payment_method;
+          pendingCheckoutCashTendered = cashTendered || 0;
+          managerApprovalPendingCompanies = [invoiceCompany];
+          adminPinMode = "unlock";
+          openAdminPinModal();
+          reportNotice(`Manager approval required for credit sale (${_companyLabel(invoiceCompany)}). Enter admin PIN to continue.`);
+          return;
+        }
+      }
       if (!ensureCashierForCompanies([invoiceCompany], "sale")) return;
       if (!ensureShiftForCompanies([invoiceCompany], "sale")) return;
       const crossCompany = cartCompanies.size > 1 || (cartCompanies.size === 1 && !cartCompanies.has(invoiceCompany));
@@ -9004,21 +9143,32 @@
       const snapCashierName = queuedLocal
         ? String((normalizeCompanyKey(invoiceCompany) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName) || "").trim()
         : "";
+      const _snapExRate = queuedLocal ? toNum(cfg?.exchange_rate, 0) : 0;
       const _snapSubUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
       const _snapSubLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
-      const _snapTaxUsd = queuedLocal ? cart.reduce((s, ln) => {
-        const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
-        return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
-      }, 0) : 0;
+      // LBP-first tax: compute tax on LBP amounts then back-convert to USD
+      // (matches cartLineAmounts, _buildSalePayloadWeb, and backend computation).
       const _snapTaxLbp = queuedLocal ? cart.reduce((s, ln) => {
-        const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
-        return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+        const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+        const effectiveLbp = baseLbp === 0 && _snapExRate > 0 ? toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0) * _snapExRate : baseLbp;
+        return s + roundLbp(effectiveLbp * Math.max(0, toNum(vatRateForLine(ln), 0)));
+      }, 0) : 0;
+      const _snapTaxUsd = queuedLocal ? cart.reduce((s, ln) => {
+        const baseUsd = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+        const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+        const effectiveLbp = baseLbp === 0 && _snapExRate > 0 ? baseUsd * _snapExRate : baseLbp;
+        const vatRate = Math.max(0, toNum(vatRateForLine(ln), 0));
+        const lineTaxLbp = roundLbp(effectiveLbp * vatRate);
+        return s + (_snapExRate > 0 ? roundUsd(lineTaxLbp / _snapExRate) : roundUsd(baseUsd * vatRate));
       }, 0) : 0;
       const snapTotalUsd = _snapSubUsd + _snapTaxUsd;
       const snapTotalLbp = _snapSubLbp + _snapTaxLbp;
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
+      saleMode = "sale";
+      returnSourceContext = null;
+      setActiveScreen("pos");
       fetchData();
       // Fire-and-forget print — never block the checkout flow on printing.
       if (!deferred && !queuedLocal) {
@@ -9560,6 +9710,22 @@
       if (!successCompanies.length) {
         reportError(failures.join(" | ") || "Shift close failed.");
         return;
+      }
+      // Clear POS state on successful shift close to prevent stale data
+      // carrying over to the next shift.
+      if (successCompanies.length) {
+        cart = [];
+        activeCustomer = null;
+        checkoutIntentId = "";
+        saleMode = "sale";
+        returnSourceContext = null;
+        pendingCheckoutMethod = "";
+        pendingCheckoutCashTendered = 0;
+        pendingManagerAction = null;
+        managerApprovalPendingCompanies = [];
+        lastSaleSummary = null;
+        showSaleComplete = false;
+        saleSyncWarning = "";
       }
       Promise.resolve().then(() => fetchData({ background: true })).catch(() => {});
       reportNotice(`Shift closed: ${_companyListText(successCompanies)}`);
@@ -10471,7 +10637,7 @@
   isOpen={showPaymentModal}
   total={checkoutTotal}
   currency={currencyPrimary}
-  exchangeRate={config.exchange_rate || 0}
+  exchangeRate={checkoutExchangeRate}
   mode={saleMode}
   busy={loading || checkoutInFlight}
   lineCount={cart.length}

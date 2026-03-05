@@ -218,7 +218,7 @@ export default function PromotionsPage() {
     setSaving(true);
     setErr(null);
     try {
-      await apiPatch(`/promotions/${editId}`, {
+      await apiPatch(`/promotions/${encodeURIComponent(editId)}`, {
         code: editCode.trim(),
         name: editName.trim(),
         starts_on: editStartsOn || null,

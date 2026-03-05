@@ -9,14 +9,18 @@ Snapshots expected on-hand quantities from stock_moves at task creation.
 from datetime import date, timedelta
 from decimal import Decimal
 import json
+import logging
 
 import psycopg
 from psycopg.rows import dict_row
+
+logger = logging.getLogger(__name__)
 
 
 def run_cycle_count_scheduler(db_url: str, company_id: str, limit_plans: int = 50):
     today = date.today()
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
+        # Phase 1: Claim eligible plans with SKIP LOCKED.
         with conn.transaction():
             with conn.cursor() as cur:
                 # Company context for RLS.
@@ -29,7 +33,7 @@ def run_cycle_count_scheduler(db_url: str, company_id: str, limit_plans: int = 5
                     WHERE company_id=%s AND is_active=true AND next_run_date <= %s
                     ORDER BY next_run_date ASC, id ASC
                     LIMIT %s
-                    FOR UPDATE
+                    FOR UPDATE SKIP LOCKED
                     """,
                     (company_id, today, limit_plans),
                 )
@@ -37,70 +41,93 @@ def run_cycle_count_scheduler(db_url: str, company_id: str, limit_plans: int = 5
                 if not plans:
                     return
 
-                for p in plans:
-                    # Create task
-                    cur.execute(
-                        """
-                        INSERT INTO cycle_count_tasks
-                          (id, company_id, plan_id, warehouse_id, location_id, status, scheduled_date)
-                        VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, 'open', %s)
-                        RETURNING id
-                        """,
-                        (company_id, p["id"], p["warehouse_id"], p.get("location_id"), p["next_run_date"]),
-                    )
-                    task_id = cur.fetchone()["id"]
+        # Phase 2: Process each plan in its own transaction so a failure
+        # in one plan does not roll back work done for other plans.
+        for p in plans:
+            try:
+                with conn.transaction():
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT set_config('app.current_company_id', %s, true)", (company_id,))
 
-                    # Snapshot expected qty
-                    if p.get("location_id"):
+                        # Create task
                         cur.execute(
                             """
-                            SELECT item_id, COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) AS qty_on_hand
-                            FROM stock_moves
-                            WHERE company_id=%s AND warehouse_id=%s AND location_id=%s
-                            GROUP BY item_id
+                            INSERT INTO cycle_count_tasks
+                              (id, company_id, plan_id, warehouse_id, location_id, status, scheduled_date)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, %s, %s, 'open', %s)
+                            RETURNING id
                             """,
-                            (company_id, p["warehouse_id"], p["location_id"]),
+                            (company_id, p["id"], p["warehouse_id"], p.get("location_id"), p["next_run_date"]),
                         )
-                    else:
+                        task_id = cur.fetchone()["id"]
+
+                        # Snapshot expected qty -- exclude zero-balance items to limit result set.
+                        if p.get("location_id"):
+                            cur.execute(
+                                """
+                                SELECT item_id, COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) AS qty_on_hand
+                                FROM stock_moves
+                                WHERE company_id=%s AND warehouse_id=%s AND location_id=%s
+                                GROUP BY item_id
+                                HAVING COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) <> 0
+                                """,
+                                (company_id, p["warehouse_id"], p["location_id"]),
+                            )
+                        else:
+                            cur.execute(
+                                """
+                                SELECT item_id, COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) AS qty_on_hand
+                                FROM stock_moves
+                                WHERE company_id=%s AND warehouse_id=%s
+                                GROUP BY item_id
+                                HAVING COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) <> 0
+                                """,
+                                (company_id, p["warehouse_id"]),
+                            )
+                        rows = cur.fetchall() or []
+
+                        # Insert cycle count lines using savepoints so that a
+                        # single bad item does not abort the entire plan.
+                        for r in rows:
+                            try:
+                                with conn.transaction():
+                                    cur.execute(
+                                        """
+                                        INSERT INTO cycle_count_lines (id, company_id, task_id, item_id, expected_qty)
+                                        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                                        """,
+                                        (company_id, task_id, r["item_id"], r["qty_on_hand"] or 0),
+                                    )
+                            except Exception:
+                                logger.warning(
+                                    "Failed to insert cycle count line for item %s in task %s",
+                                    r["item_id"], task_id, exc_info=True,
+                                )
+
+                        # Advance next_run_date
+                        freq = int(p.get("frequency_days") or 7)
+                        freq = max(1, min(freq, 365))
+                        next_run = p["next_run_date"] + timedelta(days=freq)
                         cur.execute(
                             """
-                            SELECT item_id, COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0) AS qty_on_hand
-                            FROM stock_moves
-                            WHERE company_id=%s AND warehouse_id=%s
-                            GROUP BY item_id
+                            UPDATE cycle_count_plans
+                            SET next_run_date=%s, updated_at=now()
+                            WHERE company_id=%s AND id=%s
                             """,
-                            (company_id, p["warehouse_id"]),
+                            (next_run, company_id, p["id"]),
                         )
-                    rows = cur.fetchall() or []
-                    for r in rows:
+
+                        # Audit
                         cur.execute(
                             """
-                            INSERT INTO cycle_count_lines (id, company_id, task_id, item_id, expected_qty)
-                            VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                            INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                            VALUES (gen_random_uuid(), %s, NULL, 'cycle_count_scheduled', 'cycle_count_task', %s, %s::jsonb)
                             """,
-                            (company_id, task_id, r["item_id"], r["qty_on_hand"] or 0),
+                            (company_id, task_id, json.dumps({"plan_id": str(p["id"]), "scheduled_date": str(p["next_run_date"])})),
                         )
-
-                    # Advance next_run_date
-                    freq = int(p.get("frequency_days") or 7)
-                    freq = max(1, min(freq, 365))
-                    next_run = p["next_run_date"] + timedelta(days=freq)
-                    cur.execute(
-                        """
-                        UPDATE cycle_count_plans
-                        SET next_run_date=%s, updated_at=now()
-                        WHERE company_id=%s AND id=%s
-                        """,
-                        (next_run, company_id, p["id"]),
-                    )
-
-                    # Audit
-                    cur.execute(
-                        """
-                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                        VALUES (gen_random_uuid(), %s, NULL, 'cycle_count_scheduled', 'cycle_count_task', %s, %s::jsonb)
-                        """,
-                        (company_id, task_id, json.dumps({"plan_id": str(p["id"]), "scheduled_date": str(p["next_run_date"])})),
-                    )
-
+            except Exception:
+                logger.error(
+                    "Failed to process cycle count plan %s for company %s",
+                    p["id"], company_id, exc_info=True,
+                )

@@ -18,10 +18,26 @@ import logging
 from decimal import Decimal
 from typing import Any, Optional
 
+import re as _re
+
 from ...db import get_conn, set_company_context
 from .registry import ToolResult, register_tool
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_for_prompt(text: str, max_length: int = 200) -> str:
+    """Sanitize a database string before including it in AI prompt/tool responses.
+
+    Strips control characters and truncates to prevent prompt injection.
+    """
+    if not text:
+        return ""
+    cleaned = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', str(text))
+    cleaned = _re.sub(r'\s+', ' ', cleaned).strip()
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length] + "..."
+    return cleaned
 
 
 def _default_exchange_rate(cur, company_id: str) -> Decimal:
@@ -41,7 +57,7 @@ def _default_exchange_rate(cur, company_id: str) -> Decimal:
         ex = Decimal(str(r["usd_to_lbp"]))
         if ex > 0:
             return ex
-    return Decimal("90000")
+    raise ValueError("No exchange rate configured. Set an exchange rate before using AI financial operations.")
 
 
 def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
@@ -133,16 +149,28 @@ def create_purchase_order(
                     if qty <= 0:
                         continue
 
+                    # Prefer exact match, fall back to fuzzy LIKE
                     cur.execute(
                         """
                         SELECT id, name, sku FROM items
                         WHERE company_id = %s AND is_active = true
-                          AND (name ILIKE %s OR sku ILIKE %s OR barcode = %s)
+                          AND (lower(name) = lower(%s) OR lower(sku) = lower(%s) OR barcode = %s)
                         LIMIT 1
                         """,
-                        (company_id, f"%{name_or_sku}%", f"%{name_or_sku}%", name_or_sku),
+                        (company_id, name_or_sku, name_or_sku, name_or_sku),
                     )
                     item_row = cur.fetchone()
+                    if not item_row:
+                        cur.execute(
+                            """
+                            SELECT id, name, sku FROM items
+                            WHERE company_id = %s AND is_active = true
+                              AND (name ILIKE %s OR sku ILIKE %s)
+                            LIMIT 1
+                            """,
+                            (company_id, f"%{name_or_sku}%", f"%{name_or_sku}%"),
+                        )
+                        item_row = cur.fetchone()
                     if not item_row:
                         return ToolResult(error=f"Item '{name_or_sku}' not found.")
 
@@ -199,20 +227,19 @@ def create_purchase_order(
                       (id, company_id, order_no, supplier_id, warehouse_id, status,
                        total_usd, total_lbp, exchange_rate,
                        supplier_ref,
-                       requested_by_user_id, requested_at,
-                       approved_by_user_id, approved_at)
+                       requested_by_user_id, requested_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, 'posted',
+                      (gen_random_uuid(), %s, %s, %s, %s, 'draft',
                        %s, %s, %s,
                        %s,
-                       %s, now(), %s, now())
+                       %s, now())
                     RETURNING id
                     """,
                     (
                         company_id, order_no, sup["id"], wh["id"],
                         total_usd, total_lbp, exchange_rate,
                         notes.strip() or None,
-                        user["user_id"], user["user_id"],
+                        user["user_id"],
                     ),
                 )
                 po_id = str(cur.fetchone()["id"])
@@ -255,19 +282,24 @@ def create_purchase_order(
                     ),
                 )
 
-                line_summaries = [f"  • {l['item_name']} — {l['qty']} × ${l['unit_cost_usd']}" for l in lines]
+                line_summaries = [
+                    f"  • {_sanitize_for_prompt(l['item_name'])} — {l['qty']} × ${l['unit_cost_usd']}"
+                    for l in lines
+                ]
+                safe_sup = _sanitize_for_prompt(sup["name"])
+                safe_wh = _sanitize_for_prompt(wh["name"])
                 return ToolResult(
                     data={
                         "po_id": po_id,
                         "order_no": order_no,
-                        "supplier": sup["name"],
-                        "warehouse": wh["name"],
+                        "supplier": safe_sup,
+                        "warehouse": safe_wh,
                         "total_usd": str(total_usd),
                         "line_count": len(lines),
                     },
                     message=(
-                        f"Purchase Order **{order_no}** created for {sup['name']}.\n"
-                        f"Warehouse: {wh['name']}\n"
+                        f"Purchase Order **{order_no}** created for {safe_sup}.\n"
+                        f"Warehouse: {safe_wh}\n"
                         + "\n".join(line_summaries) + "\n"
                         f"**Total: ${total_usd} USD**"
                     ),
@@ -306,17 +338,28 @@ def update_item_price(
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                # Resolve item
+                # Resolve item — prefer exact match, fall back to fuzzy LIKE
                 cur.execute(
                     """
                     SELECT id, name, sku FROM items
                     WHERE company_id = %s AND is_active = true
-                      AND (name ILIKE %s OR sku ILIKE %s OR barcode = %s)
+                      AND (lower(name) = lower(%s) OR lower(sku) = lower(%s) OR barcode = %s)
                     LIMIT 1
                     """,
-                    (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%", item_name_or_sku.strip()),
+                    (company_id, item_name_or_sku.strip(), item_name_or_sku.strip(), item_name_or_sku.strip()),
                 )
                 item = cur.fetchone()
+                if not item:
+                    cur.execute(
+                        """
+                        SELECT id, name, sku FROM items
+                        WHERE company_id = %s AND is_active = true
+                          AND (name ILIKE %s OR sku ILIKE %s)
+                        LIMIT 1
+                        """,
+                        (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%"),
+                    )
+                    item = cur.fetchone()
                 if not item:
                     return ToolResult(error=f"Item '{item_name_or_sku}' not found.")
 
@@ -386,18 +429,21 @@ def update_item_price(
                     ),
                 )
 
+                safe_item_name = _sanitize_for_prompt(item["name"])
+                safe_sku = _sanitize_for_prompt(item["sku"], 50)
+                safe_pl = _sanitize_for_prompt(pl["name"])
                 return ToolResult(
                     data={
                         "price_list_item_id": new_id,
-                        "item_name": item["name"],
-                        "item_sku": item["sku"],
-                        "price_list": pl["name"],
+                        "item_name": safe_item_name,
+                        "item_sku": safe_sku,
+                        "price_list": safe_pl,
                         "new_price_usd": str(price_usd),
                         "new_price_lbp": str(price_lbp),
                     },
                     message=(
-                        f"Price updated for **{item['name']}** ({item['sku']}) "
-                        f"on price list '{pl['name']}': **${price_usd} USD** "
+                        f"Price updated for **{safe_item_name}** ({safe_sku}) "
+                        f"on price list '{safe_pl}': **${price_usd} USD** "
                         f"(LBP {price_lbp}), effective today."
                     ),
                 )
@@ -653,6 +699,8 @@ def create_stock_adjustment(
     """Create a stock adjustment (add or remove inventory) for an item."""
     if qty_change == 0:
         return ToolResult(error="Quantity change cannot be zero.")
+    if abs(qty_change) > 10000:
+        return ToolResult(error="Adjustment quantity exceeds maximum of 10,000 units. Contact admin for larger adjustments.")
     if not reason.strip():
         return ToolResult(error="A reason is required for stock adjustments.")
 
@@ -660,17 +708,28 @@ def create_stock_adjustment(
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                # Resolve item
+                # Resolve item — prefer exact match, fall back to fuzzy LIKE
                 cur.execute(
                     """
                     SELECT id, name, sku, unit_of_measure FROM items
                     WHERE company_id = %s AND is_active = true
-                      AND (name ILIKE %s OR sku ILIKE %s OR barcode = %s)
+                      AND (lower(name) = lower(%s) OR lower(sku) = lower(%s) OR barcode = %s)
                     LIMIT 1
                     """,
-                    (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%", item_name_or_sku.strip()),
+                    (company_id, item_name_or_sku.strip(), item_name_or_sku.strip(), item_name_or_sku.strip()),
                 )
                 item = cur.fetchone()
+                if not item:
+                    cur.execute(
+                        """
+                        SELECT id, name, sku, unit_of_measure FROM items
+                        WHERE company_id = %s AND is_active = true
+                          AND (name ILIKE %s OR sku ILIKE %s)
+                        LIMIT 1
+                        """,
+                        (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%"),
+                    )
+                    item = cur.fetchone()
                 if not item:
                     return ToolResult(error=f"Item '{item_name_or_sku}' not found.")
 
@@ -749,17 +808,22 @@ def create_stock_adjustment(
                 )
 
                 direction = "added" if qty > 0 else "removed"
+                safe_item_name = _sanitize_for_prompt(item["name"])
+                safe_sku = _sanitize_for_prompt(item["sku"], 50)
+                safe_wh = _sanitize_for_prompt(wh["name"])
+                safe_uom = _sanitize_for_prompt(item["unit_of_measure"], 30)
+                safe_reason = _sanitize_for_prompt(reason, 300)
                 return ToolResult(
                     data={
                         "move_id": move_id,
-                        "item_name": item["name"],
-                        "warehouse": wh["name"],
+                        "item_name": safe_item_name,
+                        "warehouse": safe_wh,
                         "qty_change": str(qty),
                     },
                     message=(
-                        f"Stock adjustment: {direction} {abs(qty)} {item['unit_of_measure']} "
-                        f"of **{item['name']}** ({item['sku']}) at {wh['name']}. "
-                        f"Reason: {reason}"
+                        f"Stock adjustment: {direction} {abs(qty)} {safe_uom} "
+                        f"of **{safe_item_name}** ({safe_sku}) at {safe_wh}. "
+                        f"Reason: {safe_reason}"
                     ),
                 )
 
@@ -840,10 +904,11 @@ def create_customer(
                     ),
                 )
 
+                safe_name = _sanitize_for_prompt(name)
                 return ToolResult(
-                    data={"customer_id": cust_id, "name": name},
-                    message=f"Customer **{name}** created successfully.",
-                    actions=[{"type": "navigate", "href": "/partners/customers", "label": f"View {name}"}],
+                    data={"customer_id": cust_id, "name": safe_name},
+                    message=f"Customer **{safe_name}** created successfully.",
+                    actions=[{"type": "navigate", "href": "/partners/customers", "label": f"View {safe_name}"}],
                 )
 
 

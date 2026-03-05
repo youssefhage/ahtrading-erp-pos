@@ -114,8 +114,9 @@ def export_masterdata(
         params = (company_id, since_ts, since_id, limit)
         cursor_col = "updated_at"
     elif entity == "pos_devices":
+        # Bug 1 fix: explicit column list to avoid leaking device_token_hash
         sql = """
-        SELECT *
+        SELECT id, company_id, branch_id, device_code, created_at, updated_at
         FROM pos_devices
         WHERE company_id=%s::uuid
           AND (updated_at, id) > (%s::timestamptz, %s::uuid)
@@ -125,8 +126,9 @@ def export_masterdata(
         params = (company_id, since_ts, since_id, limit)
         cursor_col = "updated_at"
     elif entity == "pos_cashiers":
+        # Bug 1 fix: explicit column list to avoid leaking pin_hash
         sql = """
-        SELECT *
+        SELECT id, company_id, name, is_active, user_id, created_at, updated_at
         FROM pos_cashiers
         WHERE company_id=%s::uuid
           AND (updated_at, id) > (%s::timestamptz, %s::uuid)

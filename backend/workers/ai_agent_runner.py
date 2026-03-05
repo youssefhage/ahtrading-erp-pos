@@ -17,6 +17,8 @@ def set_company_context(cur, company_id: str):
 
 
 def run_agents(db_url: str, company_id: str, limit: int):
+    # Safety cap to prevent unbounded result sets.
+    limit = max(1, min(int(limit or 50), 500))
     with get_conn(db_url) as conn:
         with conn.cursor() as cur:
             set_company_context(cur, company_id)
@@ -40,6 +42,7 @@ def run_agents(db_url: str, company_id: str, limit: int):
                         """
                         SELECT 1 FROM ai_recommendations
                         WHERE company_id = %s AND event_id = %s AND agent_code = 'AI_CORE'
+                        LIMIT 1
                         """,
                         (company_id, e["id"]),
                     )

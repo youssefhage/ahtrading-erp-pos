@@ -285,6 +285,8 @@ def create_import_batch(data: BankImportBatchIn, company_id: str = Depends(get_c
 def import_batch_transactions(batch_id: str, data: BankImportTxnsIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if not data.transactions:
         raise HTTPException(status_code=400, detail="transactions is required")
+    if len(data.transactions) > 5000:
+        raise HTTPException(status_code=400, detail="too many transactions (max 5000)")
     # Basic validation up front so we fail fast.
     for t in data.transactions:
         if t.row_no <= 0:
@@ -342,6 +344,8 @@ def import_batch_transactions(batch_id: str, data: BankImportTxnsIn, company_id:
                               imported_by_user_id = EXCLUDED.imported_by_user_id,
                               imported_at = now(),
                               updated_at = now()
+                          WHERE bank_transactions.reconciled_at IS NULL
+                            AND bank_transactions.matched_journal_id IS NULL
                         """,
                         (
                             company_id,
@@ -455,17 +459,29 @@ def match_transaction(txn_id: str, data: BankTxnMatchIn, company_id: str = Depen
                     raise HTTPException(status_code=400, detail="invalid journal_id")
                 cur.execute(
                     """
+                    SELECT matched_journal_id FROM bank_transactions
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (company_id, txn_id),
+                )
+                existing = cur.fetchone()
+                if not existing:
+                    raise HTTPException(status_code=404, detail="transaction not found")
+                if existing.get("matched_journal_id"):
+                    raise HTTPException(status_code=409, detail="transaction is already matched; unmatch first")
+                cur.execute(
+                    """
                     UPDATE bank_transactions
                     SET matched_journal_id = %s,
                         matched_at = now(),
                         updated_at = now()
-                    WHERE company_id = %s AND id = %s
+                    WHERE company_id = %s AND id = %s AND matched_journal_id IS NULL
                     RETURNING id
                     """,
                     (data.journal_id, company_id, txn_id),
                 )
                 if not cur.fetchone():
-                    raise HTTPException(status_code=404, detail="transaction not found")
+                    raise HTTPException(status_code=409, detail="transaction is already matched; unmatch first")
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
