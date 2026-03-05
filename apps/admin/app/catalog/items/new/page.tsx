@@ -103,7 +103,7 @@ export default function NewItemPage() {
   /* ---- Essential fields ---- */
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
-  const [uom, setUom] = useState("EA");
+  const [uom, setUom] = useState("PC");
   const [barcode, setBarcode] = useState("");
   const [taxCodeId, setTaxCodeId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -617,7 +617,7 @@ export default function NewItemPage() {
                   />
                   {uomError ? <p className="text-xs text-destructive">{uomError}</p> : null}
                   <p className="text-xs text-muted-foreground">
-                    EA = Each, KG = Kilogram, BOX = Box.{" "}
+                    PC = Piece, KG = Kilogram, BOX = Box.{" "}
                     <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">Manage units</Link>
                   </p>
                 </div>
@@ -930,8 +930,8 @@ export default function NewItemPage() {
                   <AccordionTrigger>Packaging &amp; Unit Conversions</AccordionTrigger>
                   <AccordionContent className="space-y-4 px-1 pt-2">
                     <p className="text-xs text-muted-foreground">
-                      Only needed if you buy or sell in a different unit than <span className="font-medium text-foreground">{uom || "EA"}</span>.
-                      For example, you stock in EA but purchase in BOX (1 BOX = 24 EA).
+                      Only needed if you buy or sell in a different unit than <span className="font-medium text-foreground">{uom || "PC"}</span>.
+                      For example, you stock in PC but purchase in BOX (1 BOX = 24 PC).
                     </p>
 
                     {/* Purchase Unit with inline conversion */}
@@ -945,11 +945,11 @@ export default function NewItemPage() {
                             if (!v || v === uom) setPurchaseUomFactor("");
                           }}
                           disabled={creating || loading}
-                          placeholder={`Same as ${uom || "EA"}`}
+                          placeholder={`Same as ${uom || "PC"}`}
                           searchPlaceholder="Search units..."
                           controlClassName="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
                           options={[
-                            { value: "", label: `(same as ${uom || "EA"})` },
+                            { value: "", label: `(same as ${uom || "PC"})` },
                             ...uoms.filter((x) => x !== uom).map((x) => ({ value: x, label: x })),
                           ]}
                         />
@@ -966,7 +966,7 @@ export default function NewItemPage() {
                               disabled={creating || loading}
                               className="h-9 w-[100px] font-mono"
                             />
-                            <span className="font-medium">{uom || "EA"}</span>
+                            <span className="font-medium">{uom || "PC"}</span>
                           </div>
                         ) : null}
                       </div>
@@ -984,11 +984,11 @@ export default function NewItemPage() {
                             if (!v || v === uom) setSalesUomFactor("");
                           }}
                           disabled={creating || loading}
-                          placeholder={`Same as ${uom || "EA"}`}
+                          placeholder={`Same as ${uom || "PC"}`}
                           searchPlaceholder="Search units..."
                           controlClassName="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
                           options={[
-                            { value: "", label: `(same as ${uom || "EA"})` },
+                            { value: "", label: `(same as ${uom || "PC"})` },
                             ...uoms.filter((x) => x !== uom).map((x) => ({ value: x, label: x })),
                           ]}
                         />
@@ -1005,7 +1005,7 @@ export default function NewItemPage() {
                               disabled={creating || loading || salesUomCode === purchaseUomCode}
                               className="h-9 w-[100px] font-mono"
                             />
-                            <span className="font-medium">{uom || "EA"}</span>
+                            <span className="font-medium">{uom || "PC"}</span>
                             {salesUomCode === purchaseUomCode ? (
                               <span className="text-xs text-muted-foreground">(same as purchase)</span>
                             ) : null}
@@ -1021,12 +1021,12 @@ export default function NewItemPage() {
                       <div className="space-y-2">
                         <Label>Case Pack Qty</Label>
                         <Input type="number" min="0" step="any" value={casePackQty} onChange={(e) => setCasePackQty(e.target.value)} placeholder="e.g. 24" disabled={creating || loading} />
-                        <p className="text-xs text-muted-foreground">How many {uom || "EA"} per outer case</p>
+                        <p className="text-xs text-muted-foreground">How many {uom || "PC"} per outer case</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Inner Pack Qty</Label>
                         <Input type="number" min="0" step="any" value={innerPackQty} onChange={(e) => setInnerPackQty(e.target.value)} placeholder="e.g. 6" disabled={creating || loading} />
-                        <p className="text-xs text-muted-foreground">How many {uom || "EA"} per inner pack</p>
+                        <p className="text-xs text-muted-foreground">How many {uom || "PC"} per inner pack</p>
                       </div>
                     </div>
                   </AccordionContent>
