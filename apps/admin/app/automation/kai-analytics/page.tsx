@@ -155,7 +155,7 @@ export default function KaiAnalyticsPage() {
     setError(null);
     try {
       const res = await apiGet(`/ai/conversations/analytics?days=${days}`);
-      setData(res);
+      setData(res as Analytics);
     } catch (e: any) {
       setError(e?.message || "Failed to load analytics");
     } finally {
