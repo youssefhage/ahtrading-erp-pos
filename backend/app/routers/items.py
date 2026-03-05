@@ -13,6 +13,7 @@ from psycopg import errors as pg_errors
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
 from ..ai.providers import get_ai_provider_config
 from ..ai.policy import is_external_ai_allowed
+from ..search_utils import normalize_search_query
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -654,7 +655,7 @@ def typeahead_items(
 
     Returns minimal item fields plus barcodes for fast picking by SKU/name/barcode.
     """
-    qq = (q or "").strip()
+    qq = normalize_search_query((q or "").strip())
     if limit <= 0 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
     like = f"%{qq}%"
@@ -688,10 +689,19 @@ def typeahead_items(
                         AND b.barcode ILIKE %s
                     )
                   )
-                ORDER BY i.sku
+                ORDER BY
+                  CASE WHEN %s = '' THEN 0
+                       ELSE 1 END,
+                  GREATEST(
+                    similarity(COALESCE(i.sku,''), %s),
+                    similarity(COALESCE(i.name,''), %s),
+                    similarity(COALESCE(i.barcode,''), %s)
+                  ) DESC,
+                  i.sku
                 LIMIT %s
                 """,
-                (company_id, include_inactive, qq, like, like, like, like, limit),
+                (company_id, include_inactive, qq, like, like, like, like,
+                 qq, qq, qq, qq, limit),
             )
             return {"items": cur.fetchall()}
 

@@ -6,6 +6,7 @@ from typing import Optional, Literal, List
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..search_utils import normalize_search_query
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
@@ -94,7 +95,7 @@ def typeahead_suppliers(
     include_inactive: bool = False,
     company_id: str = Depends(get_company_id),
 ):
-    qq = (q or "").strip()
+    qq = normalize_search_query((q or "").strip())
     if limit <= 0 or limit > 200:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
     like = f"%{qq}%"
@@ -118,10 +119,18 @@ def typeahead_suppliers(
                         OR (vat_no IS NOT NULL AND vat_no ILIKE %s)
                         OR (tax_id IS NOT NULL AND tax_id ILIKE %s)
                       )
-                    ORDER BY name
+                    ORDER BY
+                      CASE WHEN %s = '' THEN 0
+                           ELSE 1 END,
+                      GREATEST(
+                        similarity(COALESCE(name,''), %s),
+                        similarity(COALESCE(code,''), %s)
+                      ) DESC,
+                      name
                     LIMIT %s
                     """,
-                    (company_id, include_inactive, qq, like, like, like, like, like, like, limit),
+                    (company_id, include_inactive, qq, like, like, like, like, like, like,
+                     qq, qq, qq, limit),
                 )
             except pg_errors.UndefinedColumn:
                 cur.execute(
@@ -139,10 +148,18 @@ def typeahead_suppliers(
                         OR (vat_no IS NOT NULL AND vat_no ILIKE %s)
                         OR (tax_id IS NOT NULL AND tax_id ILIKE %s)
                       )
-                    ORDER BY name
+                    ORDER BY
+                      CASE WHEN %s = '' THEN 0
+                           ELSE 1 END,
+                      GREATEST(
+                        similarity(COALESCE(name,''), %s),
+                        similarity(COALESCE(code,''), %s)
+                      ) DESC,
+                      name
                     LIMIT %s
                     """,
-                    (company_id, include_inactive, qq, like, like, like, like, like, like, limit),
+                    (company_id, include_inactive, qq, like, like, like, like, like, like,
+                     qq, qq, qq, limit),
                 )
             return {"suppliers": cur.fetchall()}
 

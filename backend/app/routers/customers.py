@@ -6,6 +6,7 @@ from datetime import date
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..search_utils import normalize_search_query
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -106,7 +107,7 @@ def customers_typeahead(
     Scalable customer picker endpoint for Admin UI.
     Searches name/code/phone/email/membership_no. Defaults to active-only.
     """
-    q = (q or "").strip()
+    q = normalize_search_query((q or "").strip())
     limit = int(limit or 0)
     if limit <= 0:
         limit = 50
@@ -129,7 +130,16 @@ def customers_typeahead(
                     OR email ILIKE %s
                     OR membership_no ILIKE %s
                   )
-                ORDER BY is_active DESC, name ASC
+                ORDER BY
+                  is_active DESC,
+                  CASE WHEN %s = '' THEN 0
+                       ELSE 1 END,
+                  GREATEST(
+                    similarity(COALESCE(name,''), %s),
+                    similarity(COALESCE(code,''), %s),
+                    similarity(COALESCE(phone,''), %s)
+                  ) DESC,
+                  name ASC
                 LIMIT %s
                 """,
                 (
@@ -141,6 +151,7 @@ def customers_typeahead(
                     like,
                     like,
                     like,
+                    q, q, q, q,
                     limit,
                 ),
             )

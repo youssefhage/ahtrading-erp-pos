@@ -1,5 +1,6 @@
 <script>
   import { tick } from "svelte";
+  import { scoreFuzzyQuery, normalizeSearchText } from "../lib/fuzzy.js";
 
   export let items = []; // tagged with { companyKey }
   export let query = "";
@@ -133,28 +134,21 @@
         name: normalize(it.name),
         primaryBarcode: String(it.barcode || "").trim(),
         barcodes: allBarcodes,
+        // Pre-build composite text for fuzzy scoring
+        searchText: [it.sku, it.name, it.barcode, ...allBarcodes].filter(Boolean).join(" "),
       });
     }
     return rows;
   };
 
-  const scoreItem = (row, q, qRaw) => {
+  // Fast-path: exact barcode/SKU matching for scanner reliability.
+  // Returns a high score (1000+) for exact matches, or 0 to fall through to fuzzy.
+  const scoreExact = (row, q, qRaw) => {
     if (!row || !q) return 0;
-    const sku = row.sku;
-    const name = row.name;
-    const primaryBarcode = row.primaryBarcode;
-
-    if (sku && sku === q) return 1000;
-    if (primaryBarcode && primaryBarcode === qRaw) return 950;
+    if (row.sku && row.sku === q) return 2000;
+    if (row.primaryBarcode && row.primaryBarcode === qRaw) return 1950;
     for (const bc of row.barcodes || []) {
-      if (bc === qRaw) return 940;
-    }
-
-    if (sku && sku.startsWith(q)) return 820;
-    if (primaryBarcode && primaryBarcode.includes(qRaw)) return 520;
-    if (name && name.includes(q)) return 500;
-    for (const bc of row.barcodes || []) {
-      if (bc.includes(qRaw)) return 480;
+      if (bc === qRaw) return 1940;
     }
     return 0;
   };
@@ -165,12 +159,13 @@
   $: results = (() => {
     if (!qn) return [];
     const out = [];
-    const cap = 120;
     for (const row of searchRows || []) {
-      const s = scoreItem(row, qn, qRaw);
+      // Try exact match first (barcode scanner fast path)
+      let s = scoreExact(row, qn, qRaw);
+      // Fall back to fuzzy scoring
+      if (s <= 0) s = scoreFuzzyQuery(qn, row.searchText) ?? 0;
       if (s <= 0) continue;
       out.push({ it: row.it, s });
-      if (out.length >= cap) break;
     }
     out.sort((a, b) => {
       if (b.s !== a.s) return b.s - a.s;
