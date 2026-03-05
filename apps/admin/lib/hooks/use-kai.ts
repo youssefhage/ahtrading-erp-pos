@@ -431,6 +431,12 @@ export async function kaiAsk(
                 done: true,
               });
             } else if (parsed.type === "action" && parsed.action) {
+              // Reject external/javascript URLs for navigate actions
+              if (parsed.action.type === "navigate" && parsed.action.href) {
+                if (!parsed.action.href.startsWith("/")) {
+                  break;
+                }
+              }
               dispatch({ type: "SET_ACTION", action: parsed.action });
             } else if (parsed.type === "confirmation" && parsed.confirmation) {
               dispatch({

@@ -139,7 +139,12 @@ def _count_sales_invoice_lines(cur, company_id: str) -> int:
     return int((cur.fetchone() or {}).get("n") or 0)
 
 
+_ALLOWED_POS_EVENT_TABLES = {"pos_events_outbox", "pos_events_inbox"}
+
+
 def _count_pos_events(cur, company_id: str, table_name: str) -> int:
+    if table_name not in _ALLOWED_POS_EVENT_TABLES:
+        return 0
     if not _table_exists(cur, table_name) or not _table_exists(cur, "pos_devices"):
         return 0
     cur.execute(
@@ -257,7 +262,7 @@ def purge_sales_pos(
     if (data.confirm_text or "").strip() != PURGE_CONFIRM_PHRASE:
         raise HTTPException(
             status_code=400,
-            detail=f"confirm_text mismatch (expected: {PURGE_CONFIRM_PHRASE})",
+            detail="confirm_text mismatch",
         )
 
     with get_admin_conn() as conn:

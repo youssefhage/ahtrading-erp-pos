@@ -387,8 +387,10 @@ def list_exchange_rates(company_id: str = Depends(get_company_id)):
                 """
                 SELECT id, rate_date, rate_type, usd_to_lbp
                 FROM exchange_rates
+                WHERE company_id = %s
                 ORDER BY rate_date DESC
-                """
+                """,
+                (company_id,),
             )
             return {"rates": cur.fetchall()}
 

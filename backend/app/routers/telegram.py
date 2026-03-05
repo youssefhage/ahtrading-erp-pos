@@ -169,7 +169,9 @@ def telegram_webhook(
     if not bot_token:
         raise HTTPException(status_code=404, detail="telegram bot token not configured")
 
-    if expected_secret and not hmac.compare_digest((x_telegram_bot_api_secret_token or "").strip(), expected_secret):
+    if not expected_secret:
+        raise HTTPException(status_code=500, detail="telegram webhook secret not configured")
+    if not hmac.compare_digest((x_telegram_bot_api_secret_token or "").strip(), expected_secret):
         raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
     # Store raw update for traceability.
@@ -254,6 +256,7 @@ def _handle_text_message(
 
     # Resolve user
     linked_user = resolve_channel_user(company_id, "telegram", chat_id_str)
+    is_linked = bool(linked_user)
     if linked_user:
         user = linked_user
     else:
@@ -287,6 +290,9 @@ def _handle_text_message(
         user_permissions = load_user_permissions(company_id, user["user_id"])
     except Exception:
         pass
+    # Restrict unlinked users to read-only operations.
+    if not is_linked:
+        user_permissions = {"ai:read", "inventory:read", "sales:read", "purchases:read"}
 
     # Call agent
     try:

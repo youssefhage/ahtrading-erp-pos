@@ -41,7 +41,7 @@ def _default_exchange_rate(cur, company_id: str) -> Decimal:
         ex = Decimal(str(r["usd_to_lbp"]))
         if ex > 0:
             return ex
-    return Decimal("90000")
+    raise ValueError("No exchange rate configured. Set an exchange rate before using AI financial operations.")
 
 
 def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
@@ -133,16 +133,28 @@ def create_purchase_order(
                     if qty <= 0:
                         continue
 
+                    # Prefer exact match, fall back to fuzzy LIKE
                     cur.execute(
                         """
                         SELECT id, name, sku FROM items
                         WHERE company_id = %s AND is_active = true
-                          AND (name ILIKE %s OR sku ILIKE %s OR barcode = %s)
+                          AND (lower(name) = lower(%s) OR lower(sku) = lower(%s) OR barcode = %s)
                         LIMIT 1
                         """,
-                        (company_id, f"%{name_or_sku}%", f"%{name_or_sku}%", name_or_sku),
+                        (company_id, name_or_sku, name_or_sku, name_or_sku),
                     )
                     item_row = cur.fetchone()
+                    if not item_row:
+                        cur.execute(
+                            """
+                            SELECT id, name, sku FROM items
+                            WHERE company_id = %s AND is_active = true
+                              AND (name ILIKE %s OR sku ILIKE %s)
+                            LIMIT 1
+                            """,
+                            (company_id, f"%{name_or_sku}%", f"%{name_or_sku}%"),
+                        )
+                        item_row = cur.fetchone()
                     if not item_row:
                         return ToolResult(error=f"Item '{name_or_sku}' not found.")
 
@@ -199,20 +211,19 @@ def create_purchase_order(
                       (id, company_id, order_no, supplier_id, warehouse_id, status,
                        total_usd, total_lbp, exchange_rate,
                        supplier_ref,
-                       requested_by_user_id, requested_at,
-                       approved_by_user_id, approved_at)
+                       requested_by_user_id, requested_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, 'posted',
+                      (gen_random_uuid(), %s, %s, %s, %s, 'draft',
                        %s, %s, %s,
                        %s,
-                       %s, now(), %s, now())
+                       %s, now())
                     RETURNING id
                     """,
                     (
                         company_id, order_no, sup["id"], wh["id"],
                         total_usd, total_lbp, exchange_rate,
                         notes.strip() or None,
-                        user["user_id"], user["user_id"],
+                        user["user_id"],
                     ),
                 )
                 po_id = str(cur.fetchone()["id"])
@@ -306,17 +317,28 @@ def update_item_price(
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                # Resolve item
+                # Resolve item — prefer exact match, fall back to fuzzy LIKE
                 cur.execute(
                     """
                     SELECT id, name, sku FROM items
                     WHERE company_id = %s AND is_active = true
-                      AND (name ILIKE %s OR sku ILIKE %s OR barcode = %s)
+                      AND (lower(name) = lower(%s) OR lower(sku) = lower(%s) OR barcode = %s)
                     LIMIT 1
                     """,
-                    (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%", item_name_or_sku.strip()),
+                    (company_id, item_name_or_sku.strip(), item_name_or_sku.strip(), item_name_or_sku.strip()),
                 )
                 item = cur.fetchone()
+                if not item:
+                    cur.execute(
+                        """
+                        SELECT id, name, sku FROM items
+                        WHERE company_id = %s AND is_active = true
+                          AND (name ILIKE %s OR sku ILIKE %s)
+                        LIMIT 1
+                        """,
+                        (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%"),
+                    )
+                    item = cur.fetchone()
                 if not item:
                     return ToolResult(error=f"Item '{item_name_or_sku}' not found.")
 
@@ -653,6 +675,8 @@ def create_stock_adjustment(
     """Create a stock adjustment (add or remove inventory) for an item."""
     if qty_change == 0:
         return ToolResult(error="Quantity change cannot be zero.")
+    if abs(qty_change) > 10000:
+        return ToolResult(error="Adjustment quantity exceeds maximum of 10,000 units. Contact admin for larger adjustments.")
     if not reason.strip():
         return ToolResult(error="A reason is required for stock adjustments.")
 
@@ -660,17 +684,28 @@ def create_stock_adjustment(
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                # Resolve item
+                # Resolve item — prefer exact match, fall back to fuzzy LIKE
                 cur.execute(
                     """
                     SELECT id, name, sku, unit_of_measure FROM items
                     WHERE company_id = %s AND is_active = true
-                      AND (name ILIKE %s OR sku ILIKE %s OR barcode = %s)
+                      AND (lower(name) = lower(%s) OR lower(sku) = lower(%s) OR barcode = %s)
                     LIMIT 1
                     """,
-                    (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%", item_name_or_sku.strip()),
+                    (company_id, item_name_or_sku.strip(), item_name_or_sku.strip(), item_name_or_sku.strip()),
                 )
                 item = cur.fetchone()
+                if not item:
+                    cur.execute(
+                        """
+                        SELECT id, name, sku, unit_of_measure FROM items
+                        WHERE company_id = %s AND is_active = true
+                          AND (name ILIKE %s OR sku ILIKE %s)
+                        LIMIT 1
+                        """,
+                        (company_id, f"%{item_name_or_sku.strip()}%", f"%{item_name_or_sku.strip()}%"),
+                    )
+                    item = cur.fetchone()
                 if not item:
                     return ToolResult(error=f"Item '{item_name_or_sku}' not found.")
 

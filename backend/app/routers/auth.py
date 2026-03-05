@@ -543,7 +543,8 @@ class ProfileUpdateIn(BaseModel):
 
 @router.patch("/profile")
 def update_profile(data: ProfileUpdateIn, session=Depends(get_session)):
-    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    ALLOWED = {"full_name", "phone"}
+    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set()) if k in ALLOWED}
     if "full_name" in patch:
         patch["full_name"] = (patch.get("full_name") or "").strip() or None
     if "phone" in patch:

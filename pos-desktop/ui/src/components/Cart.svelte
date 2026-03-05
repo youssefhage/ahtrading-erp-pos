@@ -362,7 +362,11 @@
                 step="any"
                 class="qty-input flex-1 w-0 bg-transparent text-center font-bold num-readable text-sm text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
                 value={line.qty_entered}
-                on:change={(e) => updateQty(i, e.target.value)}
+                on:change={(e) => {
+                  const val = Number(e.target.value);
+                  const clamped = Number.isFinite(val) && val >= 1 ? Math.round(val) : 1;
+                  updateQty(i, clamped);
+                }}
                 on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
                 on:focus={selectField}
                 on:click={selectField}

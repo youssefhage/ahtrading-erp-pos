@@ -415,7 +415,7 @@ def get_pending_confirmation(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, tool_name, arguments_json, summary, created_at, expires_at
+                SELECT id, user_id, tool_name, arguments_json, summary, created_at, expires_at
                 FROM ai_pending_confirmations
                 WHERE conversation_id = %s AND company_id = %s
                   AND status = 'pending'
@@ -430,6 +430,7 @@ def get_pending_confirmation(
                 return None
             return {
                 "id": str(row["id"]),
+                "user_id": str(row["user_id"]) if row.get("user_id") else None,
                 "tool_name": row["tool_name"],
                 "arguments": row["arguments_json"],
                 "summary": row["summary"],
@@ -561,6 +562,7 @@ def agent_respond(
             company_id=company_id,
             user=user,
             conv_id=conv_id,
+            user_permissions=user_permissions,
         )
     elif pending and _is_rejection(user_query):
         return _handle_confirmation(
@@ -569,6 +571,7 @@ def agent_respond(
             company_id=company_id,
             user=user,
             conv_id=conv_id,
+            user_permissions=user_permissions,
         )
 
     # Build system prompt
@@ -653,7 +656,7 @@ def agent_respond(
                                  tool_call_id=tc.get("id"), tool_name=name)
                 else:
                     # Execute read tool directly
-                    tool_result = execute_tool(name, args, company_id, user)
+                    tool_result = execute_tool(name, args, company_id, user, user_permissions)
                     if tool_result.actions:
                         actions.extend(tool_result.actions)
                     result_data = tool_result.data if not tool_result.error else {"error": tool_result.error}
@@ -744,14 +747,14 @@ def agent_stream(
     pending = get_pending_confirmation(conv_id, company_id)
 
     if pending and _is_confirmation(user_query):
-        result = _handle_confirmation(pending, True, company_id, user, conv_id)
+        result = _handle_confirmation(pending, True, company_id, user, conv_id, user_permissions)
         yield _sse({"type": "chunk", "content": result["answer"]})
         for a in result.get("actions", []):
             yield _sse({"type": "action", "action": a})
         yield _sse({"type": "done", "full_answer": result["answer"], "conversation_id": conv_id})
         return
     elif pending and _is_rejection(user_query):
-        result = _handle_confirmation(pending, False, company_id, user, conv_id)
+        result = _handle_confirmation(pending, False, company_id, user, conv_id, user_permissions)
         yield _sse({"type": "chunk", "content": result["answer"]})
         yield _sse({"type": "done", "full_answer": result["answer"], "conversation_id": conv_id})
         return
@@ -791,12 +794,13 @@ def agent_stream(
             try:
                 resp = urllib.request.urlopen(req, timeout=90)
             except urllib.error.HTTPError as e:
-                body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
-                yield _sse({"type": "error", "message": f"AI provider error: {body[:300]}"})
+                logger.exception("AI provider HTTP error in streaming: %s", e)
+                yield _sse({"type": "error", "message": "An error occurred while processing your request. Please try again."})
                 yield _sse({"type": "done", "full_answer": full_answer, "conversation_id": conv_id})
                 return
             except Exception as e:
-                yield _sse({"type": "error", "message": f"Connection error: {str(e)[:300]}"})
+                logger.exception("Connection error in streaming: %s", e)
+                yield _sse({"type": "error", "message": "An error occurred while processing your request. Please try again."})
                 yield _sse({"type": "done", "full_answer": full_answer, "conversation_id": conv_id})
                 return
 
@@ -890,7 +894,7 @@ def agent_stream(
                         save_message(conv_id, "tool", json.dumps(tool_result_data),
                                      tool_call_id=tc["id"], tool_name=fn_name)
                     else:
-                        tool_result = execute_tool(fn_name, fn_args, company_id, user)
+                        tool_result = execute_tool(fn_name, fn_args, company_id, user, user_permissions)
                         if tool_result.actions:
                             actions.extend(tool_result.actions)
                             for a in tool_result.actions:
@@ -917,7 +921,7 @@ def agent_stream(
 
     except Exception as exc:
         logger.exception("agent streaming error: %s", exc)
-        yield _sse({"type": "error", "message": f"Unexpected error: {str(exc)[:300]}"})
+        yield _sse({"type": "error", "message": "An error occurred while processing your request. Please try again."})
         yield _sse({"type": "done", "full_answer": full_answer, "conversation_id": conv_id})
 
 
@@ -951,8 +955,18 @@ def _handle_confirmation(
     company_id: str,
     user: dict[str, Any],
     conv_id: str,
+    user_permissions: set[str] | None = None,
 ) -> dict[str, Any]:
     """Execute or reject a pending confirmation."""
+    # Verify the confirming user matches the user who initiated the action
+    if pending.get("user_id") and pending["user_id"] != user.get("user_id"):
+        return {
+            "answer": "You cannot confirm another user's pending action.",
+            "actions": [],
+            "conversation_id": conv_id,
+            "pending_confirmation": None,
+        }
+
     conf_id = pending["id"]
     tool_name = pending["tool_name"]
     args = pending["arguments"]
@@ -960,7 +974,7 @@ def _handle_confirmation(
     if confirmed:
         resolve_pending_confirmation(conf_id, company_id, "confirmed")
         # Execute the write tool
-        result = execute_tool(tool_name, args, company_id, user)
+        result = execute_tool(tool_name, args, company_id, user, user_permissions)
         answer = result.message if result.message else "Action completed."
         if result.error:
             answer = f"Error: {result.error}"

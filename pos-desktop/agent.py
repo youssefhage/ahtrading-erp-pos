@@ -97,16 +97,21 @@ _CONFIG_API_WRITABLE_KEYS = {
     "print_base_url",
     # Queue / outbox settings
     "outbox_stale_warn_minutes",
-    # Device setup keys (written by SettingsScreen after registration & manual edits)
-    "api_base_url", "cloud_api_base_url",
-    "company_id", "device_id", "device_token", "device_code",
+    # Non-sensitive device setup keys
     "warehouse_id", "branch_id",
     "pricing_currency", "exchange_rate",
+}
+
+# Sensitive device setup keys: only writable from loopback (localhost) requests.
+_CONFIG_SETUP_ONLY_KEYS = {
+    "api_base_url", "cloud_api_base_url",
+    "company_id", "device_id", "device_token", "device_code",
 }
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT, 'pos.sqlite')  # can be overridden via CLI/env (see main())
 CONFIG_PATH = os.path.join(ROOT, 'config.json')  # can be overridden via CLI/env (see main())
+_config_lock = threading.RLock()
 
 # When packaged as a single binary (PyInstaller), data files are extracted under
 # sys._MEIPASS. Keep runtime paths working in both dev + packaged modes.
@@ -213,14 +218,16 @@ def _q_lbp_f(v):
 
 def _round_usd(value) -> float:
     try:
-        return max(0.0, round(float(value or 0.0) + 1e-9, 2))
+        # max(0, ...) clamps negatives to zero
+        return max(0.0, round(float(value or 0.0), 2))
     except Exception:
         return 0.0
 
 
 def _round_lbp(value) -> int:
     try:
-        return max(0, int(round(float(value or 0.0) + 1e-9)))
+        # max(0, ...) clamps negatives to zero
+        return max(0, int(round(float(value or 0.0))))
     except Exception:
         return 0
 
@@ -385,18 +392,19 @@ def load_config():
 def save_config(data):
     import tempfile
     # Atomic write: write to temp file, then rename to prevent corruption on crash
-    dir_name = os.path.dirname(CONFIG_PATH)
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_path, CONFIG_PATH)
-    except Exception:
+    with _config_lock:
+        dir_name = os.path.dirname(CONFIG_PATH)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, CONFIG_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
 
 def db_connect():
@@ -573,8 +581,9 @@ def _set_admin_pin(cfg: dict, pin: str):
     if len(pin) < 4:
         raise ValueError("pin must be at least 4 digits")
     ph = bcrypt.hashpw(pin.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
-    cfg["admin_pin_hash"] = ph
-    save_config(cfg)
+    with _config_lock:
+        cfg["admin_pin_hash"] = ph
+        save_config(cfg)
     return ph
 
 
@@ -2039,7 +2048,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     <button onclick="window.close()">Close</button>
   </div>
   <script>
-    window.addEventListener('load', () => setTimeout(() => { window.print(); window.close(); }, 250));
+    window.addEventListener('load', () => setTimeout(() => {{ window.print(); window.close(); }}, 250));
   </script>
 </body>
 </html>"""
@@ -3949,8 +3958,13 @@ class Handler(BaseHTTPRequestHandler):
         # This prevents SSRF attacks where an attacker provides an arbitrary URL.
         cfg = load_config()
         allowed_base = (cfg.get("cloud_api_base_url") or "").strip().rstrip("/")
-        is_localhost = ("localhost" in cloud_base or "127.0.0.1" in cloud_base)
-        if not is_localhost and allowed_base and not cloud_base.startswith(allowed_base):
+        from urllib.parse import urlparse as _urlparse
+        _parsed_cloud = _urlparse(cloud_base)
+        is_localhost = _parsed_cloud.hostname in ("localhost", "127.0.0.1", "::1")
+        if not is_localhost and not allowed_base:
+            json_response(self, {"error": "cloud_api_base_url not configured"}, status=403)
+            return
+        if not is_localhost and not cloud_base.startswith(allowed_base):
             json_response(self, {"error": "Cloud base URL does not match configured cloud_api_base_url"}, status=403)
             return
         if not cloud_base.startswith("https://"):
@@ -4708,10 +4722,15 @@ class Handler(BaseHTTPRequestHandler):
                 data["receipt_footer_text"] = _clean_receipt_text(data.get("receipt_footer_text"), fallback="", limit=160)
             if "invoice_template" in data:
                 data["invoice_template"] = _effective_invoice_template_id(data.get("invoice_template"), cfg.get("company_id"))
-            for k, v in data.items():
-                if k in _CONFIG_API_WRITABLE_KEYS:
-                    cfg[k] = v
-            save_config(cfg)
+            is_local = _is_loopback(client_ip)
+            with _config_lock:
+                cfg = load_config()
+                for k, v in data.items():
+                    if k in _CONFIG_API_WRITABLE_KEYS:
+                        cfg[k] = v
+                    elif k in _CONFIG_SETUP_ONLY_KEYS and is_local:
+                        cfg[k] = v
+                save_config(cfg)
             json_response(self, {'ok': True, 'config': _public_config(cfg)})
             return
 
@@ -5277,6 +5296,20 @@ class Handler(BaseHTTPRequestHandler):
             exchange_rate = data.get('exchange_rate') or cfg.get('exchange_rate') or 0
             pricing_currency = data.get('pricing_currency') or cfg.get('pricing_currency') or 'USD'
             invoice_id = data.get('invoice_id') or None
+            # Validate invoice_id is present (server-side will also validate against original invoice)
+            if not str(invoice_id or "").strip():
+                json_response(self, {'error': 'invoice_id is required for returns'}, status=400)
+                return
+            # Validate return cart items: qty and amounts must be positive
+            for ci, citem in enumerate(cart):
+                cqty = float(citem.get("qty") or citem.get("qty_entered") or 0)
+                if cqty <= 0:
+                    json_response(self, {'error': f'Return qty must be positive (item index {ci})'}, status=400)
+                    return
+                cprice = float(citem.get("unit_price") or citem.get("unit_price_usd") or citem.get("unit_price_lbp") or 0)
+                if cprice < 0:
+                    json_response(self, {'error': f'Return price must not be negative (item index {ci})'}, status=400)
+                    return
             refund_method = data.get('refund_method') or data.get('payment_method') or 'cash'
             idempotency_key = str(data.get("idempotency_key") or "").strip() or None
             if idempotency_key:
@@ -5521,15 +5554,18 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 return
             _reset_pin_attempts(rate_key)
-            cfg['cashier_id'] = cashier['id']
-            save_config(cfg)
+            with _config_lock:
+                cfg = load_config()
+                cfg['cashier_id'] = cashier['id']
+                save_config(cfg)
             json_response(self, {'ok': True, 'cashier': cashier, 'config': _public_config(cfg)})
             return
 
         if parsed.path == '/api/cashiers/logout':
-            cfg = load_config()
-            cfg['cashier_id'] = ''
-            save_config(cfg)
+            with _config_lock:
+                cfg = load_config()
+                cfg['cashier_id'] = ''
+                save_config(cfg)
             json_response(self, {'ok': True, 'config': _public_config(cfg)})
             return
 

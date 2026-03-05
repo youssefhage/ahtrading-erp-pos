@@ -1,5 +1,7 @@
 import json
 import logging
+import time
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -31,6 +33,24 @@ _copilot_logger = logging.getLogger(__name__ + ".copilot")
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 EXECUTABLE_AGENT_CODES = frozenset({"AI_PURCHASE", "AI_DEMAND", "AI_PRICING"})
+
+# ---------------------------------------------------------------------------
+# In-memory rate limiter for copilot endpoints
+# ---------------------------------------------------------------------------
+_ai_rate_limits: dict[str, list[float]] = defaultdict(list)
+_AI_RATE_WINDOW = 60  # seconds
+_AI_RATE_MAX = 30  # requests per window per user
+
+
+def _check_ai_rate_limit(user_id: str) -> bool:
+    """Return True if request is allowed, False if rate limit exceeded."""
+    now = time.time()
+    window = _ai_rate_limits[user_id]
+    window[:] = [t for t in window if now - t < _AI_RATE_WINDOW]
+    if len(window) >= _AI_RATE_MAX:
+        return False
+    window.append(now)
+    return True
 
 
 def _normalize_agent_code(agent_code: Optional[str]) -> str:
@@ -388,7 +408,7 @@ class AgentSetting(BaseModel):
 
 
 class CopilotQueryIn(BaseModel):
-    query: str
+    query: str = Field(..., max_length=10000)
     context: Optional[dict] = None
     stream: bool = False
     conversation_id: Optional[str] = None
@@ -974,6 +994,11 @@ def copilot_query(
 
     Falls back to deterministic keyword matching when no AI provider is configured.
     """
+    # Rate limit check
+    uid = str(user.get("user_id") or user.get("id") or "")
+    if uid and not _check_ai_rate_limit(uid):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please wait before sending more requests.")
+
     q = (data.query or "").strip()
     if not q:
         raise HTTPException(status_code=400, detail="query is required")

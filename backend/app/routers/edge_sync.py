@@ -472,9 +472,9 @@ def import_sales_invoice_bundle(
                     """, (jid,))
                     bal = cur.fetchone()
                     if bal and (abs(bal["diff_usd"]) > Decimal("0.01") or abs(bal["diff_lbp"]) > Decimal("1")):
-                        logger.warning(
-                            "Edge sync: GL journal %s imbalanced after import: diff_usd=%s, diff_lbp=%s",
-                            jid, bal["diff_usd"], bal["diff_lbp"],
+                        raise ValueError(
+                            f"Edge sync: GL journal {jid} imbalanced after import: "
+                            f"diff_usd={bal['diff_usd']}, diff_lbp={bal['diff_lbp']}"
                         )
 
                 # Stock moves (insert last; triggers update summary tables).

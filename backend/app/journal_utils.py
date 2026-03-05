@@ -19,7 +19,7 @@ def q_lbp(v: Decimal) -> Decimal:
 
 def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
     """Back-fill missing USD or LBP from the exchange rate."""
-    if exchange_rate and exchange_rate != 0:
+    if exchange_rate and exchange_rate > 0:
         if usd == 0 and lbp != 0:
             usd = q_usd(lbp / exchange_rate)
         elif lbp == 0 and usd != 0:
@@ -154,3 +154,6 @@ def auto_balance_journal(
         """,
         (journal_id, rounding_acc, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id, branch_id),
     )
+
+    # Verify the journal is actually balanced after the rounding entry.
+    assert_journal_balanced(cur, journal_id)

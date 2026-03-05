@@ -8,6 +8,8 @@ import json
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 from ..period_locks import assert_period_open
+from ..account_defaults import ensure_company_account_defaults
+from ..journal_utils import auto_balance_journal, assert_journal_balanced, fetch_exchange_rate, q_usd, q_lbp
 
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 
@@ -683,8 +685,18 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
 
                 wh = str(t["warehouse_id"])
                 loc = str(t["location_id"]) if t.get("location_id") else None
+
+                # Fetch account defaults for GL posting.
+                defaults = ensure_company_account_defaults(cur, company_id, roles=("INVENTORY", "INV_ADJ", "COGS"))
+                inventory_acc = defaults.get("INVENTORY")
+                inv_adj_acc = defaults.get("INV_ADJ")
+
+                fx_rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
+                fx_rate = fx_rate or Decimal("0")
+
                 # Post adjustments per item.
                 moved = 0
+                gl_entries = []  # collect (debit_acc, credit_acc, amt_usd, amt_lbp) for journal
                 for ln in lines:
                     exp = Decimal(str(ln["expected_qty"] or 0))
                     cnt = ln.get("counted_qty")
@@ -696,13 +708,23 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
                         continue
                     qty_in = diff if diff > 0 else Decimal("0")
                     qty_out = (-diff) if diff < 0 else Decimal("0")
+
+                    # Fetch item average cost for monetary value.
+                    cur.execute(
+                        "SELECT avg_cost_usd, avg_cost_lbp FROM items WHERE company_id=%s AND id=%s",
+                        (company_id, ln["item_id"]),
+                    )
+                    cost_row = cur.fetchone() or {}
+                    unit_cost_usd = q_usd(Decimal(str(cost_row.get("avg_cost_usd") or 0)))
+                    unit_cost_lbp = q_lbp(Decimal(str(cost_row.get("avg_cost_lbp") or 0)))
+
                     cur.execute(
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
                            move_date, source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s, 0, 0, %s, 'cycle_count', %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, 'cycle_count', %s, %s, %s)
                         """,
                         (
                             company_id,
@@ -711,6 +733,8 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
                             loc,
                             qty_in,
                             qty_out,
+                            unit_cost_usd,
+                            unit_cost_lbp,
                             date.today(),
                             task_id,
                             user["user_id"],
@@ -718,6 +742,82 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
                         ),
                     )
                     moved += 1
+
+                    # Accumulate GL amounts.
+                    adj_qty = qty_in if qty_in > 0 else qty_out
+                    amt_usd = q_usd(adj_qty * unit_cost_usd)
+                    amt_lbp = q_lbp(adj_qty * unit_cost_lbp)
+                    if amt_usd > 0 or amt_lbp > 0:
+                        gl_entries.append({"qty_in": qty_in, "amt_usd": amt_usd, "amt_lbp": amt_lbp})
+
+                # Create GL journal for the cycle count adjustments.
+                journal_id = None
+                if moved > 0 and gl_entries and inventory_acc and inv_adj_acc:
+                    cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, "ADJ"))
+                    journal_no = cur.fetchone()["doc_no"]
+
+                    cur.execute(
+                        """
+                        INSERT INTO gl_journals
+                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, 'cycle_count', %s, CURRENT_DATE, 'market', %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (company_id, journal_no, task_id, fx_rate, "Cycle count adjustment", user["user_id"]),
+                    )
+                    journal_id = cur.fetchone()["id"]
+
+                    total_debit_inv_usd = Decimal("0")
+                    total_debit_inv_lbp = Decimal("0")
+                    total_credit_inv_usd = Decimal("0")
+                    total_credit_inv_lbp = Decimal("0")
+                    total_debit_adj_usd = Decimal("0")
+                    total_debit_adj_lbp = Decimal("0")
+                    total_credit_adj_usd = Decimal("0")
+                    total_credit_adj_lbp = Decimal("0")
+
+                    for ge in gl_entries:
+                        if ge["qty_in"] > 0:
+                            # Count > expected: Dr INVENTORY, Cr INV_ADJ
+                            total_debit_inv_usd += ge["amt_usd"]
+                            total_debit_inv_lbp += ge["amt_lbp"]
+                            total_credit_adj_usd += ge["amt_usd"]
+                            total_credit_adj_lbp += ge["amt_lbp"]
+                        else:
+                            # Count < expected: Dr INV_ADJ, Cr INVENTORY
+                            total_debit_adj_usd += ge["amt_usd"]
+                            total_debit_adj_lbp += ge["amt_lbp"]
+                            total_credit_inv_usd += ge["amt_usd"]
+                            total_credit_inv_lbp += ge["amt_lbp"]
+
+                    # INVENTORY account entry (net)
+                    if total_debit_inv_usd or total_debit_inv_lbp or total_credit_inv_usd or total_credit_inv_lbp:
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'Cycle count - inventory', %s)
+                            """,
+                            (journal_id, inventory_acc, total_debit_inv_usd, total_credit_inv_usd, total_debit_inv_lbp, total_credit_inv_lbp, wh),
+                        )
+                    # INV_ADJ account entry (net)
+                    if total_debit_adj_usd or total_debit_adj_lbp or total_credit_adj_usd or total_credit_adj_lbp:
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'Cycle count - adjustment', %s)
+                            """,
+                            (journal_id, inv_adj_acc, total_debit_adj_usd, total_credit_adj_usd, total_debit_adj_lbp, total_credit_adj_lbp, wh),
+                        )
+
+                    try:
+                        auto_balance_journal(cur, company_id, journal_id, warehouse_id=wh)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
+                    try:
+                        assert_journal_balanced(cur, journal_id)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -736,6 +836,6 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'cycle_count_posted', 'cycle_count_task', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], task_id, json.dumps({"adjusted_items": moved})),
+                    (company_id, user["user_id"], task_id, json.dumps({"adjusted_items": moved, "journal_id": str(journal_id) if journal_id else None})),
                 )
-                return {"ok": True, "adjusted_items": moved}
+                return {"ok": True, "adjusted_items": moved, "journal_id": str(journal_id) if journal_id else None}

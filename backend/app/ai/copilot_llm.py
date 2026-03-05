@@ -339,7 +339,7 @@ def _query_data(source: str, filt: str, company_id: str) -> dict[str, Any]:
                     return {"error": f"Unknown data source: {source}"}
     except Exception as exc:
         logger.exception("copilot tool query_data failed: %s", exc)
-        return {"error": f"Database query failed: {str(exc)[:200]}"}
+        return {"error": "An error occurred while querying data. Please try again."}
 
 
 def _serialize_rows(rows: list[Any]) -> list[dict[str, Any]]:
@@ -568,12 +568,13 @@ def stream_copilot_response(
             try:
                 resp = urllib.request.urlopen(req, timeout=90)
             except urllib.error.HTTPError as e:
-                body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
-                yield _sse({"type": "error", "message": f"AI provider error: {body[:300]}"})
+                logger.exception("AI provider HTTP error in streaming: %s", e)
+                yield _sse({"type": "error", "message": "An error occurred while processing your request. Please try again."})
                 yield _sse({"type": "done", "full_answer": full_answer})
                 return
             except Exception as e:
-                yield _sse({"type": "error", "message": f"Connection error: {str(e)[:300]}"})
+                logger.exception("Connection error in streaming: %s", e)
+                yield _sse({"type": "error", "message": "An error occurred while processing your request. Please try again."})
                 yield _sse({"type": "done", "full_answer": full_answer})
                 return
 
@@ -665,7 +666,7 @@ def stream_copilot_response(
 
     except Exception as exc:
         logger.exception("copilot streaming error: %s", exc)
-        yield _sse({"type": "error", "message": f"Unexpected error: {str(exc)[:300]}"})
+        yield _sse({"type": "error", "message": "An error occurred while processing your request. Please try again."})
         yield _sse({"type": "done", "full_answer": full_answer})
 
 

@@ -95,6 +95,7 @@ def presign_get(
     if (disposition or "").lower().startswith("attachment"):
         disp = "attachment"
     safe_name = (filename or "attachment").replace("\n", " ").replace("\r", " ").strip() or "attachment"
+    safe_name = safe_name.replace("\\", "_").replace('"', "_")
     cd = f'{disp}; filename="{safe_name}"'
     ct = (content_type or "application/octet-stream").strip() or "application/octet-stream"
 
