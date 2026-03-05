@@ -1525,6 +1525,22 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             )
 
     # GL posting
+    #
+    # Reconcile LBP for GL entries: Payment/AR LBP amounts are derived from
+    # USD × exchange_rate (via compute_applied_from_tender / normalize_dual_amounts),
+    # but base_lbp and tax_lbp are summed from front-end per-line LBP prices that
+    # may use a slightly different rate or accumulate per-line rounding.  When many
+    # lines compound, the LBP difference can exceed the 5 000 LBP auto-balance
+    # threshold, killing the sale.  Fix: derive GL credit-side LBP from USD × rate
+    # (same path as the debit side) so both sides are rate-consistent.  The invoice
+    # record keeps the original customer-facing LBP totals.
+    if exchange_rate and exchange_rate > 0:
+        gl_base_lbp = q_lbp(base_usd * exchange_rate)
+        gl_tax_lbp = q_lbp(tax_usd * exchange_rate) if tax else Decimal("0")
+    else:
+        gl_base_lbp = base_lbp
+        gl_tax_lbp = tax_lbp
+
     account_defaults = fetch_account_defaults(cur, company_id)
     ar = account_defaults.get("AR")
     cash = account_defaults.get("CASH")
@@ -1582,16 +1598,16 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             (journal_id, ar, credit_usd, credit_lbp, warehouse_id),
         )
 
-    # Credit sales
+    # Credit sales (use gl_base_lbp for rate-consistent LBP)
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue', %s)
         """,
-        (journal_id, sales, base_usd, base_lbp, warehouse_id),
+        (journal_id, sales, base_usd, gl_base_lbp, warehouse_id),
     )
 
-    # Credit VAT payable when tax is present (otherwise the journal would be imbalanced).
+    # Credit VAT payable when tax is present (use gl_tax_lbp for rate-consistent LBP).
     if tax:
         if not vat_payable:
             raise ValueError("Missing account default VAT_PAYABLE for tax posting")
@@ -1600,7 +1616,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
             VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable', %s)
             """,
-            (journal_id, vat_payable, tax_usd, tax_lbp, warehouse_id),
+            (journal_id, vat_payable, tax_usd, gl_tax_lbp, warehouse_id),
         )
 
     # Customer credit + loyalty
