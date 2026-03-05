@@ -142,7 +142,7 @@ export default function KaiSettingsPage() {
 
   const loadLinks = useCallback(async () => {
     try {
-      const res = await apiGet("/ai/channel-links");
+      const res = await apiGet("/ai/channel-links") as { links?: ChannelLink[] };
       setLinks(res.links || []);
     } catch (e: any) {
       setError(e?.message || "Failed to load channel links");
@@ -151,8 +151,8 @@ export default function KaiSettingsPage() {
 
   const loadConfig = useCallback(async () => {
     try {
-      const res = await apiGet("/ai/kai-channel-config");
-      const cfg: ChannelConfig = res.config;
+      const res = await apiGet("/ai/kai-channel-config") as { config: ChannelConfig; has_telegram: boolean; has_whatsapp: boolean };
+      const cfg = res.config;
       setHasTelegram(res.has_telegram);
       setHasWhatsApp(res.has_whatsapp);
       setTgBotToken(cfg.telegram.bot_token || "");

@@ -213,26 +213,26 @@ export default function KaiAnalyticsPage() {
               <KpiCard
                 title="Conversations"
                 value={data.totals.conversations}
-                icon={<MessagesSquare className="h-4 w-4" />}
-                subtitle={`${data.totals.conversations_24h} today`}
+                icon={MessagesSquare}
+                description={`${data.totals.conversations_24h} today`}
               />
               <KpiCard
                 title="Messages"
                 value={data.totals.messages}
-                icon={<MessageSquare className="h-4 w-4" />}
-                subtitle={`${data.totals.user_messages} user / ${data.totals.assistant_messages} assistant`}
+                icon={MessageSquare}
+                description={`${data.totals.user_messages} user / ${data.totals.assistant_messages} assistant`}
               />
               <KpiCard
                 title="Tool Calls"
                 value={data.totals.tool_calls}
-                icon={<Wrench className="h-4 w-4" />}
-                subtitle="Functions executed"
+                icon={Wrench}
+                description="Functions executed"
               />
               <KpiCard
                 title="Confirmations"
                 value={confirmationTotal}
-                icon={<Bot className="h-4 w-4" />}
-                subtitle={`${confirmedPct}% confirmed`}
+                icon={Bot}
+                description={`${confirmedPct}% confirmed`}
               />
             </div>
 
