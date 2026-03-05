@@ -1061,7 +1061,7 @@ def update_item_supplier_link(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     fields = []

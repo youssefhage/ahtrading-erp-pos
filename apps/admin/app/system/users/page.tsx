@@ -381,9 +381,13 @@ export default function UsersPage() {
                 variant="destructive"
                 onConfirm={async () => {
                   setStatus("Removing access...");
-                  await apiDelete(`/users/${encodeURIComponent(u.id)}`);
-                  await load();
-                  setStatus("");
+                  try {
+                    await apiDelete(`/users/${encodeURIComponent(u.id)}`);
+                    await load();
+                    setStatus("");
+                  } catch (err) {
+                    setStatus(err instanceof Error ? err.message : String(err));
+                  }
                 }}
                 trigger={
                   <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()}>

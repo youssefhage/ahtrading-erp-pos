@@ -151,7 +151,7 @@ function SupplierPaymentsInner() {
       setPayments(res.payments || []);
       setTotalRows(Number(res.total ?? (res.payments || []).length));
       setTotals({ amount_usd: n(res.totals?.amount_usd), amount_lbp: n(res.totals?.amount_lbp) });
-    } catch { /* noop */ } finally { setLoading(false); }
+    } catch (err) { toast.error("Load failed", err instanceof Error ? err.message : String(err)); setPayments([]); } finally { setLoading(false); }
   }, [supplierInvoiceId, supplierId, dateFrom, dateTo, page]);
 
   useEffect(() => { loadBase().catch(() => {}); }, [loadBase]);
@@ -210,7 +210,7 @@ function SupplierPaymentsInner() {
       toast.success("Payment recorded", "Supplier payment posted successfully.");
       setCreateOpen(false); setPayInvoiceId(""); setAmountUsd(""); setAmountLbp(""); setBankAccountId("");
       await loadPayments();
-    } catch { /* noop */ } finally { setCreating(false); }
+    } catch (err) { toast.error("Payment failed", err instanceof Error ? err.message : String(err)); } finally { setCreating(false); }
   }
 
   const selectedInvoice = payInvoiceId ? payableInvoiceById.get(payInvoiceId) || invoiceById.get(payInvoiceId) : null;

@@ -93,6 +93,16 @@ def _json_log(level: str, event: str, **fields):
     print(json.dumps(rec, default=str), file=sys.stderr)
 
 
+def _sanitize_error(msg: str, max_len: int = 500) -> str:
+    """Strip sensitive patterns (Bearer tokens, API keys) from error messages before DB storage."""
+    import re
+    s = (msg or "")[:max_len]
+    s = re.sub(r'Bearer\s+[A-Za-z0-9\-._~+/]+=*', 'Bearer [REDACTED]', s)
+    s = re.sub(r'(?:sk|key|api[_-]?key)[_-]?[A-Za-z0-9]{10,}', '[REDACTED_KEY]', s, flags=re.IGNORECASE)
+    s = re.sub(r'[Aa]uthorization["\s:]+\S+', 'Authorization: [REDACTED]', s)
+    return s
+
+
 def list_company_ids(db_url: str):
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
@@ -321,7 +331,7 @@ def run_due_jobs(db_url: str, company_id: str, max_jobs: int = 3) -> int:
                     record_job_run_finish(conn, company_id, run_id, "success")
             except Exception as ex:
                 with conn.transaction():
-                    record_job_run_finish(conn, company_id, run_id, "failed", error_message=str(ex))
+                    record_job_run_finish(conn, company_id, run_id, "failed", error_message=_sanitize_error(str(ex)))
             ran += 1
     return ran
 

@@ -10,7 +10,7 @@ from ..deps import get_company_id, require_permission, get_current_user
 from ..search_utils import normalize_search_query, escape_like
 from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
-from ..journal_utils import q_usd, q_lbp
+from ..journal_utils import q_usd, q_lbp, fetch_exchange_rate, auto_balance_journal, assert_journal_balanced
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -798,6 +798,11 @@ def adjust_customer_credit(customer_id: str, data: CreditAdjustIn, company_id: s
                 if not ar:
                     raise HTTPException(status_code=400, detail="Missing AR account default")
 
+                # Fetch current market exchange rate (must be > 0)
+                fx_rate, _stale = fetch_exchange_rate(cur, company_id, adj_date, "market")
+                if not fx_rate or fx_rate <= 0:
+                    raise HTTPException(status_code=400, detail="No valid exchange rate found")
+
                 # Create GL journal
                 journal_no = _next_journal_no(cur, company_id)
                 memo = f"Credit adjustment for {cust.get('name') or str(customer_id)[:8]}: {reason}"
@@ -808,10 +813,10 @@ def adjust_customer_credit(customer_id: str, data: CreditAdjustIn, company_id: s
                        rate_type, exchange_rate, memo, created_by_user_id)
                     VALUES
                       (gen_random_uuid(), %s, %s, 'customer_credit_adjust', %s, %s,
-                       'market', 0, %s, %s)
+                       'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, journal_no, customer_id, adj_date, memo, user["user_id"]),
+                    (company_id, journal_no, customer_id, adj_date, fx_rate, memo, user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -835,6 +840,12 @@ def adjust_customer_credit(customer_id: str, data: CreditAdjustIn, company_id: s
                     """,
                     (journal_id, adjustment_account, ar_credit_usd, ar_debit_usd, ar_credit_lbp, ar_debit_lbp, "Adjustment offset"),
                 )
+
+                try:
+                    auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                assert_journal_balanced(cur, journal_id)
 
                 # Update customer balance
                 cur.execute(

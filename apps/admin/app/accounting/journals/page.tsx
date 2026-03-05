@@ -451,6 +451,7 @@ export default function JournalsPage() {
 
   async function createManualJournal(e: React.FormEvent) {
     e.preventDefault();
+    if (!isBalanced) { setStatus("Journal must be balanced before submitting."); return; }
     setCreating(true);
     setStatus("Creating...");
     try {
@@ -808,7 +809,7 @@ export default function JournalsPage() {
                       <Plus className="mr-2 h-4 w-4" />
                       Add Line
                     </Button>
-                    <Button type="submit" disabled={creating} className="min-w-[180px]">
+                    <Button type="submit" disabled={creating || !isBalanced} className="min-w-[180px]">
                       {creating ? "Creating..." : "Create Journal"}
                     </Button>
                   </div>

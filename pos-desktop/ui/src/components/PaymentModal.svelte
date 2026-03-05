@@ -62,8 +62,8 @@
   $: allowedMethods = mode === "return" ? ["cash"] : ["cash", "credit"];
 
   // ── Numeric values & calculations ─────────────────────────────────
-  $: pNum = Number(cashPrimary) || 0;
-  $: sNum = Number(cashSecondary) || 0;
+  $: pNum = Math.max(0, Number(cashPrimary) || 0);
+  $: sNum = Math.max(0, Number(cashSecondary) || 0);
 
   // Convert secondary → primary equivalent (exchangeRate is USD-to-LBP)
   $: sEquiv = (() => {

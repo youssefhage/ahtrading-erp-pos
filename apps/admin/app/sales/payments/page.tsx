@@ -142,7 +142,7 @@ function SalesPaymentsInner() {
       toast.success("Payment recorded", "Customer payment posted successfully.");
       setCreateOpen(false); setPayInvoiceId(""); setMethod(methodChoices[0] || ""); setTenderUsd(""); setTenderLbp(""); setBankAccountId("");
       await loadPayments();
-    } catch {} finally { setCreating(false); }
+    } catch (err) { toast.error("Payment failed", err instanceof Error ? err.message : String(err)); } finally { setCreating(false); }
   }
 
   const [voidingId, setVoidingId] = useState("");

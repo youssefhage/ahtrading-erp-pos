@@ -357,7 +357,7 @@ def create_supplier_credit_draft(data: CreditDraftIn, company_id: str = Depends(
 
 @router.patch("/{credit_id}/draft", dependencies=[Depends(require_permission("purchases:write"))])
 def update_supplier_credit_draft(credit_id: str, data: CreditDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
 

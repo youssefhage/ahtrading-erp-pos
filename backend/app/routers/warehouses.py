@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from psycopg import sql as psycopg_sql
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 import json
@@ -102,10 +103,15 @@ def create_warehouse(data: WarehouseIn, company_id: str = Depends(get_company_id
                 return {"id": wid}
 
 
+_WAREHOUSE_UPDATABLE_COLUMNS = frozenset({
+    "name", "location", "address", "is_virtual", "binning_enabled",
+    "capacity_note", "min_shelf_life_days_for_sale_default", "allow_negative_stock",
+})
+
 @router.patch("/{warehouse_id}", dependencies=[Depends(require_permission("config:write"))])
 def update_warehouse(warehouse_id: str, data: WarehouseUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     # Build patch using fields explicitly provided so clients can clear nullable fields (set to NULL).
-    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    patch = data.model_dump(exclude_unset=True)
     if "address" in patch:
         patch["address"] = (patch.get("address") or "").strip() or None
     if "capacity_note" in patch:
@@ -119,21 +125,22 @@ def update_warehouse(warehouse_id: str, data: WarehouseUpdate, company_id: str =
     fields = []
     params = []
     for k, v in patch.items():
-        fields.append(f"{k} = %s")
+        if k not in _WAREHOUSE_UPDATABLE_COLUMNS:
+            continue
+        fields.append(psycopg_sql.SQL("{} = %s").format(psycopg_sql.Identifier(k)))
         params.append(v)
+    if not fields:
+        return {"ok": True}
     params.extend([company_id, warehouse_id])
+    set_clause = psycopg_sql.SQL(", ").join(fields)
+    query = psycopg_sql.SQL(
+        "UPDATE warehouses SET {} WHERE company_id = %s AND id = %s"
+    ).format(set_clause)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    UPDATE warehouses
-                    SET {', '.join(fields)}
-                    WHERE company_id = %s AND id = %s
-                    """,
-                    params,
-                )
+                cur.execute(query, params)
                 if cur.rowcount == 0:
                     raise HTTPException(status_code=404, detail="warehouse not found")
                 cur.execute(

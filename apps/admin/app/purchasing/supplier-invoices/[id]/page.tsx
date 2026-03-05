@@ -666,7 +666,7 @@ function SupplierInvoiceShowInner() {
         tax_lbp: number;
         total_usd: number;
         total_lbp: number;
-      }>(`/purchases/invoices/${detail.invoice.id}/post-preview`);
+      }>(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/post-preview`);
       setPostPreview(prev);
     } catch {
       setPostPreview(null);
@@ -701,7 +701,7 @@ function SupplierInvoiceShowInner() {
     setPostSubmitting(true);
     setStatus("Posting invoice...");
     try {
-      await apiPost(`/purchases/invoices/${detail.invoice.id}/post`, {
+      await apiPost(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/post`, {
         posting_date: postPostingDate || undefined,
         payments: paymentsOut
       });
@@ -724,7 +724,7 @@ function SupplierInvoiceShowInner() {
       const hd: any = detail.invoice.hold_details || {};
       const needsReason = String(detail.invoice.hold_reason || "").toLowerCase().includes("variance") || String(hd?.kind || "").includes("variance");
       const reason = needsReason ? (window.prompt("Why are you unholding this invoice? (optional but recommended)") || "").trim() : "";
-      await apiPost(`/purchases/invoices/${detail.invoice.id}/unhold`, { reason: reason || undefined });
+      await apiPost(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/unhold`, { reason: reason || undefined });
       await load();
       setStatus("");
     } catch (err) {
@@ -740,7 +740,7 @@ function SupplierInvoiceShowInner() {
     setHoldBusy(true);
     setStatus("Holding...");
     try {
-      await apiPost(`/purchases/invoices/${detail.invoice.id}/hold`, { reason: "Manual hold" });
+      await apiPost(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/hold`, { reason: "Manual hold" });
       await load();
       setStatus("");
     } catch (err) {
@@ -762,7 +762,7 @@ function SupplierInvoiceShowInner() {
     setStatus("Voiding invoice...");
     setCancelLocalError(null);
     try {
-      await apiPost(`/purchases/invoices/${detail.invoice.id}/cancel`, {
+      await apiPost(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/cancel`, {
         cancel_date: cancelDate || undefined,
         reason: cancelReason || undefined
       });
@@ -789,7 +789,7 @@ function SupplierInvoiceShowInner() {
     setCreatingDebitNote(true);
     setStatus("Creating debit note...");
     try {
-      const res = await apiPost<{ id: string; credit_no: string }>(`/purchases/invoices/${detail.invoice.id}/create-debit-note`, {});
+      const res = await apiPost<{ id: string; credit_no: string }>(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/create-debit-note`, {});
       setStatus("");
       router.push(`/purchasing/supplier-credits/${res.id}`);
     } catch (err) {
@@ -820,7 +820,7 @@ function SupplierInvoiceShowInner() {
     setCancelDrafting(true);
     setStatus("Canceling draft...");
     try {
-      await apiPost(`/purchases/invoices/${detail.invoice.id}/cancel-draft`, { reason: cancelDraftReason || undefined });
+      await apiPost(`/purchases/invoices/${encodeURIComponent(detail.invoice.id)}/cancel-draft`, { reason: cancelDraftReason || undefined });
       setCancelDraftOpen(false);
       await load();
       setStatus("");

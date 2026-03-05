@@ -193,10 +193,15 @@ export default function RolesPermissionsPage() {
         return;
       }
       setStatus("Deleting role...");
-      await apiDelete(`/users/roles/${encodeURIComponent(role.id)}`);
-      if (selectedRoleId === role.id) setSelectedRoleId("");
-      await load();
-      setStatus("");
+      try {
+        await apiDelete(`/users/roles/${encodeURIComponent(role.id)}`);
+        if (selectedRoleId === role.id) setSelectedRoleId("");
+        await load();
+        setStatus("");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus(message);
+      }
     },
     [load, selectedRoleId],
   );

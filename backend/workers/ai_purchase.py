@@ -36,16 +36,6 @@ def run_purchase_agent(db_url: str, company_id: str):
             settings = cur.fetchone() or {"auto_execute": False, "max_amount_usd": 0, "max_actions_per_day": 0}
             cur.execute(
                 """
-                SELECT COUNT(*) AS count
-                FROM ai_actions
-                WHERE company_id = %s AND agent_code = 'AI_PURCHASE'
-                  AND created_at::date = CURRENT_DATE
-                """,
-                (company_id,),
-            )
-            today_count = cur.fetchone()["count"]
-            cur.execute(
-                """
                 SELECT i.id AS item_id, i.sku, i.name, i.reorder_point, i.reorder_qty,
                        COALESCE(SUM(sm.qty_in) - SUM(sm.qty_out), 0) AS qty_on_hand,
                        s.supplier_id, s.lead_time_days, s.min_order_qty, s.last_cost_usd
@@ -108,9 +98,22 @@ def run_purchase_agent(db_url: str, company_id: str):
                         continue
                     execute = False
                     if auto_execute:
+                        # Re-check today's action count inside the transaction with
+                        # FOR UPDATE to serialize concurrent workers and prevent
+                        # exceeding max_actions_per_day.
+                        cur.execute(
+                            """
+                            SELECT COUNT(*) AS cnt
+                            FROM ai_actions
+                            WHERE company_id = %s AND agent_code = 'AI_PURCHASE'
+                              AND created_at >= CURRENT_DATE
+                            FOR UPDATE
+                            """,
+                            (company_id,),
+                        )
+                        today_count = cur.fetchone()["cnt"]
                         if (max_amount == 0 or amount_usd <= max_amount) and (max_actions == 0 or today_count < max_actions):
                             execute = True
-                            today_count += 1
 
                     status = "approved" if execute else "pending"
                     cur.execute(

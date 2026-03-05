@@ -419,8 +419,10 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
                 cur.execute(
                     """
                     SELECT id FROM intercompany_documents
-                    WHERE (issue_company_id=%s AND sell_company_id=%s)
-                       OR (issue_company_id=%s AND sell_company_id=%s)
+                    WHERE (
+                        (issue_company_id=%s AND sell_company_id=%s)
+                        OR (issue_company_id=%s AND sell_company_id=%s)
+                    )
                     AND settlement_status='open'
                     FOR UPDATE
                     """,

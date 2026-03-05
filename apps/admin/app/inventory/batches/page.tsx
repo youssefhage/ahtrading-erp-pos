@@ -129,7 +129,7 @@ export default function InventoryBatchesPage() {
         status: editStatus, hold_reason: editHoldReason.trim() || undefined, notes: editNotes.trim() || undefined,
       });
       setEditOpen(false); await load();
-    } catch { /* error shown by api layer */ }
+    } catch (err) { setEditOpen(false); alert(err instanceof Error ? err.message : String(err)); }
     finally { setSaving(false); }
   }
 

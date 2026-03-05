@@ -256,7 +256,7 @@ def create_transfer_draft(data: TransferDraftIn, company_id: str = Depends(get_c
 
 @router.patch("/{transfer_id}/draft", dependencies=[Depends(require_permission("inventory:write"))])
 def update_transfer_draft(transfer_id: str, data: TransferDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     with get_conn() as conn:
