@@ -1441,7 +1441,8 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                         """
                         INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, is_primary)
                         VALUES (gen_random_uuid(), %s, %s, %s, 1, %s, true)
-                        ON CONFLICT (company_id, barcode) DO NOTHING
+                        ON CONFLICT (company_id, barcode) DO UPDATE
+                        SET item_id = EXCLUDED.item_id, uom_code = EXCLUDED.uom_code, is_primary = true
                         """,
                         (company_id, item_id, barcode, uom),
                     )
@@ -1724,6 +1725,21 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     _ensure_uom_exists(cur, company_id, pu.strip())
                 if isinstance(su, str) and su.strip():
                     _ensure_uom_exists(cur, company_id, su.strip())
+
+                # Prevent deactivation if item has stock on hand.
+                if "is_active" in patch and patch["is_active"] is False:
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(qty_in - qty_out), 0) AS on_hand
+                        FROM stock_moves
+                        WHERE company_id = %s AND item_id = %s
+                        """,
+                        (company_id, item_id),
+                    )
+                    soh = cur.fetchone()
+                    if soh and Decimal(str(soh["on_hand"] or 0)) > 0:
+                        raise HTTPException(status_code=409, detail="cannot deactivate item with stock on hand")
+
                 cur.execute(
                     f"""
                     UPDATE items

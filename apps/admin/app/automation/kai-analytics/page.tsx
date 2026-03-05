@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BarChart3,
   Bot,
   Hash,
   MessageSquare,
@@ -155,7 +154,7 @@ export default function KaiAnalyticsPage() {
     setError(null);
     try {
       const res = await apiGet(`/ai/conversations/analytics?days=${days}`);
-      setData(res);
+      setData(res as Analytics);
     } catch (e: any) {
       setError(e?.message || "Failed to load analytics");
     } finally {
@@ -178,13 +177,13 @@ export default function KaiAnalyticsPage() {
   }, [data, confirmationTotal]);
 
   return (
-    <AiSetupGate>
+    <>
+      {error && <AiSetupGate error={error} />}
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <PageHeader
             title="Kai Analytics"
             description="Conversation usage, tool activity, and channel insights."
-            icon={<BarChart3 className="h-5 w-5" />}
           />
           <div className="flex items-center gap-3">
             <Select value={days} onValueChange={setDays}>
@@ -205,7 +204,7 @@ export default function KaiAnalyticsPage() {
           </div>
         </div>
 
-        {error && <ErrorBanner message={error} />}
+        {error && <ErrorBanner error={error} />}
 
         {data && (
           <>
@@ -214,26 +213,26 @@ export default function KaiAnalyticsPage() {
               <KpiCard
                 title="Conversations"
                 value={data.totals.conversations}
-                icon={<MessagesSquare className="h-4 w-4" />}
-                subtitle={`${data.totals.conversations_24h} today`}
+                icon={MessagesSquare}
+                description={`${data.totals.conversations_24h} today`}
               />
               <KpiCard
                 title="Messages"
                 value={data.totals.messages}
-                icon={<MessageSquare className="h-4 w-4" />}
-                subtitle={`${data.totals.user_messages} user / ${data.totals.assistant_messages} assistant`}
+                icon={MessageSquare}
+                description={`${data.totals.user_messages} user / ${data.totals.assistant_messages} assistant`}
               />
               <KpiCard
                 title="Tool Calls"
                 value={data.totals.tool_calls}
-                icon={<Wrench className="h-4 w-4" />}
-                subtitle="Functions executed"
+                icon={Wrench}
+                description="Functions executed"
               />
               <KpiCard
                 title="Confirmations"
                 value={confirmationTotal}
-                icon={<Bot className="h-4 w-4" />}
-                subtitle={`${confirmedPct}% confirmed`}
+                icon={Bot}
+                description={`${confirmedPct}% confirmed`}
               />
             </div>
 
@@ -455,6 +454,6 @@ export default function KaiAnalyticsPage() {
           </div>
         )}
       </div>
-    </AiSetupGate>
+    </>
   );
 }

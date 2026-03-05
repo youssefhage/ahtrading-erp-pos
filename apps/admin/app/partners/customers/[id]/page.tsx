@@ -12,7 +12,7 @@ import {
   User,
 } from "lucide-react";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { fmtUsdLbp } from "@/lib/money";
 import { PageHeader } from "@/components/business/page-header";
 import { DataTable } from "@/components/business/data-table";
@@ -21,10 +21,13 @@ import { StatusBadge } from "@/components/business/status-badge";
 import { EmptyState } from "@/components/business/empty-state";
 import { KpiCard } from "@/components/business/kpi-card";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
+import { useToast } from "@/components/toast-provider";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Tabs,
   TabsContent,
@@ -87,10 +90,16 @@ export default function CustomerViewPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id || "";
 
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ledger, setLedger] = useState<LoyaltyRow[]>([]);
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustUsd, setAdjustUsd] = useState("");
+  const [adjustLbp, setAdjustLbp] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjusting, setAdjusting] = useState(false);
 
   /* ---- data fetching ---- */
 
@@ -121,6 +130,32 @@ export default function CustomerViewPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function handleAdjust(e: React.FormEvent) {
+    e.preventDefault();
+    const usd = parseFloat(adjustUsd) || 0;
+    const lbp = parseFloat(adjustLbp) || 0;
+    if (usd === 0 && lbp === 0) return;
+    if (!adjustReason.trim()) return;
+    setAdjusting(true);
+    try {
+      await apiPost(`/customers/${encodeURIComponent(id)}/adjust-credit`, {
+        amount_usd: usd,
+        amount_lbp: lbp,
+        reason: adjustReason.trim(),
+      });
+      toast.success("Balance adjusted", "Credit balance and GL updated.");
+      setAdjustOpen(false);
+      setAdjustUsd("");
+      setAdjustLbp("");
+      setAdjustReason("");
+      await load();
+    } catch (err) {
+      toast.error("Adjustment failed", err instanceof Error ? err.message : String(err));
+    } finally {
+      setAdjusting(false);
+    }
+  }
 
   /* ---- loyalty columns ---- */
 
@@ -258,6 +293,9 @@ export default function CustomerViewPage() {
                   <FileText className="mr-2 h-4 w-4" />
                   SOA
                 </Link>
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setAdjustOpen(true)}>
+                Adjust Balance
               </Button>
               <Button size="sm" asChild>
                 <Link href="/partners/customers/new">
@@ -429,6 +467,40 @@ export default function CustomerViewPage() {
           </TabsContent>
         </Tabs>
       )}
+
+      <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Adjust AR Balance</DialogTitle>
+            <DialogDescription>
+              Positive amounts increase the balance (customer owes more).
+              Negative amounts decrease the balance (write-off / correction).
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAdjust} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Amount USD</label>
+                <Input type="number" step="0.01" value={adjustUsd} onChange={(e) => setAdjustUsd(e.target.value)} placeholder="0.00" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Amount LBP</label>
+                <Input type="number" step="1" value={adjustLbp} onChange={(e) => setAdjustLbp(e.target.value)} placeholder="0" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Reason (required)</label>
+              <Input value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} placeholder="write-off / correction / balance adjustment" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setAdjustOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={adjusting || (!adjustUsd && !adjustLbp) || !adjustReason.trim()}>
+                {adjusting ? "Adjusting..." : "Adjust Balance"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

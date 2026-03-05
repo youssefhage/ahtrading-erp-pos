@@ -67,9 +67,18 @@
     for (const ln of cart || []) {
       const qty = Math.max(0, toNum(ln?.qty, 0));
       const baseUsd = roundUsd(toNum(ln?.price_usd, 0) * qty);
+      const baseLbp = toNum(ln?.price_lbp, 0) * qty;
       const vatRate = Math.max(0, toNum(vatRateForLine ? vatRateForLine(ln) : 0, 0));
       subtotalUsd += baseUsd;
-      taxUsd += roundUsd(baseUsd * vatRate);
+      // LBP-first tax: compute tax on LBP amount then back-convert to USD
+      // (matches App.svelte checkout flow and backend computation).
+      if (baseLbp > 0 && baseUsd > 0) {
+        const taxLbp = Math.round(baseLbp * vatRate);
+        const impliedRate = baseLbp / baseUsd;
+        taxUsd += roundUsd(taxLbp / impliedRate);
+      } else {
+        taxUsd += roundUsd(baseUsd * vatRate);
+      }
     }
     return { subtotalUsd, taxUsd, totalUsd: subtotalUsd + taxUsd };
   })();

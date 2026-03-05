@@ -8,7 +8,6 @@ import {
   Plus,
   RefreshCw,
   Save,
-  Settings,
   Smartphone,
   Trash2,
   MessageSquare,
@@ -143,7 +142,7 @@ export default function KaiSettingsPage() {
 
   const loadLinks = useCallback(async () => {
     try {
-      const res = await apiGet("/ai/channel-links");
+      const res = await apiGet("/ai/channel-links") as { links?: ChannelLink[] };
       setLinks(res.links || []);
     } catch (e: any) {
       setError(e?.message || "Failed to load channel links");
@@ -152,8 +151,8 @@ export default function KaiSettingsPage() {
 
   const loadConfig = useCallback(async () => {
     try {
-      const res = await apiGet("/ai/kai-channel-config");
-      const cfg: ChannelConfig = res.config;
+      const res = await apiGet("/ai/kai-channel-config") as { config: ChannelConfig; has_telegram: boolean; has_whatsapp: boolean };
+      const cfg = res.config;
       setHasTelegram(res.has_telegram);
       setHasWhatsApp(res.has_whatsapp);
       setTgBotToken(cfg.telegram.bot_token || "");
@@ -239,13 +238,13 @@ export default function KaiSettingsPage() {
   const inactiveLinks = links.filter((l) => !l.is_active);
 
   return (
-    <AiSetupGate>
+    <>
+      {error && <AiSetupGate error={error} />}
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <PageHeader
             title="Kai Settings"
             description="Configure Telegram and WhatsApp channels for Kai AI copilot."
-            icon={<Settings className="h-5 w-5" />}
           />
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
@@ -255,7 +254,7 @@ export default function KaiSettingsPage() {
           </div>
         </div>
 
-        {error && <ErrorBanner message={error} />}
+        {error && <ErrorBanner error={error} />}
 
         {/* ============================================================ */}
         {/*  Channel Configuration Forms                                 */}
@@ -602,6 +601,6 @@ export default function KaiSettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AiSetupGate>
+    </>
   );
 }

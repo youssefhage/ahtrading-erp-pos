@@ -84,7 +84,7 @@ export function assertPaymentsWithinTotals({
   if (paidUsd > 0.0009) {
     throw new Error("Checkout guardrail: LBP settlement cannot include USD payment amounts.");
   }
-  if (paidLbp > expectedLbp) {
+  if (paidLbp - expectedLbp > 100) {
     throw new Error("Checkout guardrail: payment exceeds invoice total (LBP).");
   }
 }

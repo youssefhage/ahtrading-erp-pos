@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal, List
@@ -7,6 +8,9 @@ from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..search_utils import normalize_search_query
+from ..account_defaults import ensure_company_account_defaults
+from ..period_locks import assert_period_open
+from ..journal_utils import q_usd, q_lbp
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -743,3 +747,129 @@ def loyalty_ledger(customer_id: str, limit: int = 100, company_id: str = Depends
                 (company_id, customer_id, limit),
             )
             return {"customer_id": customer_id, "loyalty_points": row["loyalty_points"], "ledger": cur.fetchall()}
+
+
+class CreditAdjustIn(BaseModel):
+    amount_usd: Decimal = Decimal("0")
+    amount_lbp: Decimal = Decimal("0")
+    reason: str
+
+
+def _next_journal_no(cur, company_id: str) -> str:
+    cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, "JV"))
+    return cur.fetchone()["doc_no"]
+
+
+@router.post("/{customer_id}/adjust-credit", dependencies=[Depends(require_permission("customers:write"))])
+def adjust_customer_credit(customer_id: str, data: CreditAdjustIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Adjust a customer's AR credit balance directly.
+    Positive amounts increase the balance (customer owes more).
+    Negative amounts decrease the balance (write-off / correction).
+    Creates a GL journal: Dr/Cr AR vs. Other Income / Bad Debt.
+    """
+    amount_usd = q_usd(Decimal(str(data.amount_usd or 0)))
+    amount_lbp = q_lbp(Decimal(str(data.amount_lbp or 0)))
+    reason = (data.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+    if amount_usd == 0 and amount_lbp == 0:
+        raise HTTPException(status_code=400, detail="adjustment amount is required")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                adj_date = date.today()
+                assert_period_open(cur, company_id, adj_date)
+
+                cur.execute(
+                    "SELECT id, name FROM customers WHERE company_id=%s AND id=%s FOR UPDATE",
+                    (company_id, customer_id),
+                )
+                cust = cur.fetchone()
+                if not cust:
+                    raise HTTPException(status_code=404, detail="customer not found")
+
+                # Get AR account
+                defaults = ensure_company_account_defaults(cur, company_id, roles=("AR", "OTHER_INCOME"))
+                ar = defaults.get("AR")
+                adjustment_account = defaults.get("OTHER_INCOME") or ar
+                if not ar:
+                    raise HTTPException(status_code=400, detail="Missing AR account default")
+
+                # Create GL journal
+                journal_no = _next_journal_no(cur, company_id)
+                memo = f"Credit adjustment for {cust.get('name') or str(customer_id)[:8]}: {reason}"
+                cur.execute(
+                    """
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date,
+                       rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'customer_credit_adjust', %s, %s,
+                       'market', 0, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, journal_no, customer_id, adj_date, memo, user["user_id"]),
+                )
+                journal_id = cur.fetchone()["id"]
+
+                if amount_usd > 0 or amount_lbp > 0:
+                    # Increase AR: Dr AR, Cr Adjustment
+                    dr_usd = max(amount_usd, Decimal("0"))
+                    dr_lbp = max(amount_lbp, Decimal("0"))
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
+                        """,
+                        (journal_id, ar, dr_usd, dr_lbp, "AR adjustment"),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, %s)
+                        """,
+                        (journal_id, adjustment_account, dr_usd, dr_lbp, "Adjustment offset"),
+                    )
+                else:
+                    # Decrease AR (write-off): Dr Adjustment, Cr AR
+                    cr_usd = abs(amount_usd)
+                    cr_lbp = abs(amount_lbp)
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
+                        """,
+                        (journal_id, adjustment_account, cr_usd, cr_lbp, "Write-off / correction"),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, %s)
+                        """,
+                        (journal_id, ar, cr_usd, cr_lbp, "AR adjustment"),
+                    )
+
+                # Update customer balance
+                cur.execute(
+                    """
+                    UPDATE customers
+                    SET credit_balance_usd = credit_balance_usd + %s,
+                        credit_balance_lbp = credit_balance_lbp + %s
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (amount_usd, amount_lbp, company_id, customer_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'customer_credit_adjust', 'customer', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], customer_id,
+                     json.dumps({"amount_usd": str(amount_usd), "amount_lbp": str(amount_lbp), "reason": reason})),
+                )
+
+                return {"ok": True, "journal_id": str(journal_id)}

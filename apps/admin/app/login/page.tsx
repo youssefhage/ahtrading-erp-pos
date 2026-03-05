@@ -50,7 +50,9 @@ function LoginForm() {
         }
       }
       setStatus("Success");
-      const redirectTo = searchParams.get("redirect") || "/dashboard";
+      const raw = searchParams.get("redirect") || "/dashboard";
+      // Only allow relative paths to prevent open-redirect attacks.
+      const redirectTo = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dashboard";
       // Hard navigation ensures the middleware sees the freshly-set session
       // cookie and avoids a silent soft-navigation loop.
       window.location.href = redirectTo;

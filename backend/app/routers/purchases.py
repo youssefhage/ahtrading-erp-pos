@@ -229,8 +229,10 @@ def _compute_costed_lines(lines_in, exchange_rate: Decimal):
     out = []
     base_usd = Decimal('0')
     base_lbp = Decimal('0')
-    for ln in lines_in or []:
+    for idx, ln in enumerate(lines_in or []):
         qty = Decimal(str(getattr(ln, 'qty', 0) or 0))
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail=f"line {idx+1}: qty must be greater than 0")
         unit_usd = Decimal(str(getattr(ln, 'unit_cost_usd', 0) or 0))
         unit_lbp = Decimal(str(getattr(ln, 'unit_cost_lbp', 0) or 0))
         unit_usd, unit_lbp = normalize_dual_amounts(unit_usd, unit_lbp, exchange_rate)
@@ -1624,6 +1626,7 @@ def list_supplier_invoices(
                         SELECT SUM(p2.amount_usd)
                         FROM supplier_payments p2
                         WHERE p2.supplier_invoice_id = i.id
+                          AND p2.status != 'voided'
                       ), 0)
                     ) > 0.00005
                     OR
@@ -1633,6 +1636,7 @@ def list_supplier_invoices(
                         SELECT SUM(p3.amount_lbp)
                         FROM supplier_payments p3
                         WHERE p3.supplier_invoice_id = i.id
+                          AND p3.status != 'voided'
                       ), 0)
                     ) > 100
                   )
@@ -2013,22 +2017,28 @@ def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_c
 def update_purchase_order_status(order_id: str, data: PurchaseOrderStatusUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if data.status not in {"draft", "posted", "canceled"}:
         raise HTTPException(status_code=400, detail="invalid status")
+    _VALID_PO_TRANSITIONS = {
+        "draft": {"posted", "canceled"},
+        "posted": {"canceled"},
+    }
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    UPDATE purchase_orders
-                    SET status = %s
-                    WHERE company_id = %s AND id = %s
-                    RETURNING id
-                    """,
-                    (data.status, company_id, order_id),
+                    "SELECT status FROM purchase_orders WHERE company_id = %s AND id = %s FOR UPDATE",
+                    (company_id, order_id),
                 )
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="order not found")
+                allowed = _VALID_PO_TRANSITIONS.get(row["status"], set())
+                if data.status not in allowed:
+                    raise HTTPException(status_code=400, detail=f"cannot transition from '{row['status']}' to '{data.status}'")
+                cur.execute(
+                    "UPDATE purchase_orders SET status = %s WHERE company_id = %s AND id = %s",
+                    (data.status, company_id, order_id),
+                )
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -2310,16 +2320,22 @@ def cancel_purchase_order(order_id: str, company_id: str = Depends(get_company_i
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
+                    "SELECT status FROM purchase_orders WHERE company_id = %s AND id = %s FOR UPDATE",
+                    (company_id, order_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="order not found")
+                if row["status"] not in ("draft", "posted"):
+                    raise HTTPException(status_code=400, detail=f"cannot cancel order in '{row['status']}' status")
+                cur.execute(
                     """
                     UPDATE purchase_orders
                     SET status='canceled'
                     WHERE company_id = %s AND id = %s
-                    RETURNING id
                     """,
                     (company_id, order_id),
                 )
-                if not cur.fetchone():
-                    raise HTTPException(status_code=404, detail="order not found")
 
                 cur.execute(
                     """
@@ -2361,8 +2377,8 @@ def create_goods_receipt_draft_from_order(
                 order = cur.fetchone()
                 if not order:
                     raise HTTPException(status_code=404, detail="order not found")
-                if order["status"] == "canceled":
-                    raise HTTPException(status_code=400, detail="cannot receive against a canceled order")
+                if order["status"] not in ("posted", "partial"):
+                    raise HTTPException(status_code=400, detail=f"cannot receive against a '{order['status']}' order (must be posted)")
                 if not order.get("supplier_id"):
                     raise HTTPException(status_code=400, detail="order has no supplier_id")
 
@@ -2535,6 +2551,10 @@ def create_goods_receipt(data: GoodsReceiptIn, company_id: str = Depends(get_com
 def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if not data.lines:
         raise HTTPException(status_code=400, detail="lines is required")
+    # Recompute line totals server-side to prevent client-supplied mismatches
+    for l in data.lines:
+        l.line_total_usd = Decimal(str(l.qty)) * Decimal(str(l.unit_cost_usd))
+        l.line_total_lbp = Decimal(str(l.qty)) * Decimal(str(l.unit_cost_lbp))
     total_usd = sum([l.line_total_usd for l in data.lines])
     total_lbp = sum([l.line_total_lbp for l in data.lines])
     receipt_date = data.receipt_date or date.today()
@@ -3232,7 +3252,7 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                 # Reverse stock moves (receipt increases stock -> cancel reduces stock).
                 cur.execute(
                     """
-                    SELECT item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp
+                    SELECT item_id, warehouse_id, location_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp
                     FROM stock_moves
                     WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s
                     ORDER BY created_at ASC, id ASC
@@ -3255,15 +3275,16 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                         cur.execute(
                             """
                             INSERT INTO stock_moves
-                              (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
+                              (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                                source_type, source_id, created_by_user_id, reason)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s, %s, %s)
                             """,
                             (
                                 company_id,
                                 m["item_id"],
                                 m["warehouse_id"],
+                                m.get("location_id"),
                                 m["batch_id"],
                                 q_in,
                                 m["unit_cost_usd"],
@@ -3505,7 +3526,7 @@ def create_supplier_invoice_draft_from_receipt(
                        total_usd, total_lbp, exchange_rate, source_event_id,
                        invoice_date, due_date, tax_code_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -5193,3 +5214,215 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 )
 
             return {"id": payment_id}
+
+
+class SupplierPaymentVoidIn(BaseModel):
+    reason: Optional[str] = None
+
+@router.post("/payments/{payment_id}/void", dependencies=[Depends(require_permission("purchases:write"))])
+def void_supplier_payment(payment_id: str, data: SupplierPaymentVoidIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Soft-void a supplier payment:
+    - Marks the payment as voided.
+    - Creates a reversing GL journal for the payment.
+    - Creates an optional reversing bank transaction (if the original was system-created).
+    """
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT p.id, p.supplier_invoice_id, p.method,
+                           p.amount_usd, p.amount_lbp,
+                           p.voided_at,
+                           si.supplier_id, si.exchange_rate
+                    FROM supplier_payments p
+                    JOIN supplier_invoices si ON si.id = p.supplier_invoice_id AND si.company_id = %s
+                    WHERE p.id = %s::uuid
+                    FOR UPDATE
+                    """,
+                    (company_id, payment_id),
+                )
+                pay = cur.fetchone()
+                if not pay:
+                    raise HTTPException(status_code=404, detail="payment not found")
+                if pay.get("voided_at"):
+                    return {"ok": True}
+
+                void_date = date.today()
+                assert_period_open(cur, company_id, void_date)
+
+                # Reverse the payment journal.
+                memo = f"Void supplier payment {str(payment_id)[:8]}" + (f" ({reason})" if reason else "")
+                void_journal_id = _reverse_gl_journal(
+                    cur,
+                    company_id,
+                    "supplier_payment",
+                    str(payment_id),
+                    "supplier_payment_void",
+                    void_date,
+                    user["user_id"],
+                    memo,
+                )
+
+                # Reverse bank transaction if we had auto-created one for this payment.
+                cur.execute(
+                    """
+                    SELECT id, bank_account_id, txn_date, amount_usd, amount_lbp, description, reference, counterparty
+                    FROM bank_transactions
+                    WHERE company_id=%s AND source_type='supplier_payment' AND source_id=%s
+                    ORDER BY imported_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, str(payment_id)),
+                )
+                bt = cur.fetchone()
+                if bt and bt.get("bank_account_id"):
+                    cur.execute(
+                        """
+                        INSERT INTO bank_transactions
+                          (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
+                           description, reference, counterparty, matched_journal_id, matched_at,
+                           source_type, source_id, imported_by_user_id, imported_at)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s,
+                           %s, %s, %s, %s, now(),
+                           'supplier_payment_void', %s, %s, now())
+                        """,
+                        (
+                            company_id,
+                            bt["bank_account_id"],
+                            bt.get("txn_date") or void_date,
+                            Decimal(str(bt.get("amount_usd") or 0)),
+                            Decimal(str(bt.get("amount_lbp") or 0)),
+                            f"Void supplier payment {str(payment_id)[:8]}",
+                            bt.get("reference"),
+                            bt.get("counterparty"),
+                            void_journal_id,
+                            str(payment_id),
+                            user["user_id"],
+                        ),
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE supplier_payments
+                    SET voided_at=now(),
+                        voided_by_user_id=%s,
+                        void_reason=%s
+                    WHERE id=%s::uuid
+                    """,
+                    (user["user_id"], reason, payment_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_payment_void', 'supplier_payment', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], payment_id, json.dumps({"invoice_id": str(pay["supplier_invoice_id"]), "reason": reason, "void_journal_id": str(void_journal_id)})),
+                )
+
+                return {"ok": True, "void_journal_id": str(void_journal_id)}
+
+
+class CreateDebitNoteFromInvoiceIn(BaseModel):
+    reason: Optional[str] = None
+
+@router.post("/invoices/{invoice_id}/create-debit-note", dependencies=[Depends(require_permission("purchases:write"))])
+def create_debit_note_from_invoice(invoice_id: str, data: CreateDebitNoteFromInvoiceIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Create a draft supplier credit note (debit note) from a posted supplier invoice,
+    pre-filled with all invoice lines. User can review/edit and then post it.
+    """
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, supplier_id, invoice_no, status, exchange_rate, total_usd, total_lbp
+                    FROM supplier_invoices
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="supplier invoice not found")
+                if inv["status"] != "posted":
+                    raise HTTPException(status_code=400, detail="only posted invoices can have debit notes")
+
+                cur.execute(
+                    """
+                    SELECT item_id, description, qty, unit_cost_usd, unit_cost_lbp,
+                           line_total_usd, line_total_lbp
+                    FROM supplier_invoice_lines
+                    WHERE supplier_invoice_id=%s
+                    ORDER BY id
+                    """,
+                    (invoice_id,),
+                )
+                lines = cur.fetchall()
+                if not lines:
+                    raise HTTPException(status_code=400, detail="invoice has no lines")
+
+                exchange_rate = Decimal(str(inv.get("exchange_rate") or 0))
+
+                # Create supplier credit note draft
+                credit_no = _next_doc_no(cur, company_id, "SC")
+                credit_date = date.today()
+                memo = f"Debit note for invoice {inv['invoice_no'] or str(invoice_id)[:8]}"
+                if reason:
+                    memo += f" — {reason}"
+
+                cur.execute(
+                    """
+                    INSERT INTO supplier_credit_notes
+                      (id, company_id, credit_no, supplier_id, kind, credit_date,
+                       rate_type, exchange_rate, memo, status, total_usd, total_lbp,
+                       created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, 'expense', %s,
+                       'market', %s, %s, 'draft', 0, 0, %s)
+                    RETURNING id
+                    """,
+                    (company_id, credit_no, inv["supplier_id"], credit_date,
+                     exchange_rate, memo, user["user_id"]),
+                )
+                credit_id = cur.fetchone()["id"]
+
+                total_usd = Decimal("0")
+                total_lbp = Decimal("0")
+                for ln in lines:
+                    amt_usd = Decimal(str(ln.get("line_total_usd") or 0))
+                    amt_lbp = Decimal(str(ln.get("line_total_lbp") or 0))
+                    desc = ln.get("description") or ""
+                    cur.execute(
+                        """
+                        INSERT INTO supplier_credit_note_lines
+                          (id, company_id, supplier_credit_note_id, description, amount_usd, amount_lbp)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                        """,
+                        (company_id, credit_id, desc, amt_usd, amt_lbp),
+                    )
+                    total_usd += amt_usd
+                    total_lbp += amt_lbp
+
+                cur.execute(
+                    "UPDATE supplier_credit_notes SET total_usd=%s, total_lbp=%s WHERE id=%s",
+                    (total_usd, total_lbp, credit_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'debit_note_from_invoice', 'supplier_credit_note', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], str(credit_id), json.dumps({"source_invoice_id": invoice_id, "reason": reason})),
+                )
+
+                return {"id": str(credit_id), "credit_no": credit_no}

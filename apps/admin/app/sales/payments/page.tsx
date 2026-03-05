@@ -27,7 +27,7 @@ type Customer = { id: string; name: string };
 type InvoiceRow = { id: string; invoice_no: string; customer_id: string | null; customer_name?: string | null; status?: string; total_usd: string | number; total_lbp: string | number; exchange_rate?: string | number; settlement_currency?: string | null; created_at: string };
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 type BankAccount = { id: string; name: string; currency: string; is_active: boolean };
-type SalesPaymentRow = { id: string; invoice_id: string; invoice_no: string; customer_id: string | null; customer_name: string | null; method: string; amount_usd: string | number; amount_lbp: string | number; tender_usd?: string | number | null; tender_lbp?: string | number | null; created_at: string };
+type SalesPaymentRow = { id: string; invoice_id: string; invoice_no: string; customer_id: string | null; customer_name: string | null; method: string; amount_usd: string | number; amount_lbp: string | number; tender_usd?: string | number | null; tender_lbp?: string | number | null; voided_at?: string | null; created_at: string };
 type SalesPaymentsListResponse = { payments: SalesPaymentRow[]; total?: number; limit?: number; offset?: number; totals?: { applied_usd?: string | number | null; applied_lbp?: string | number | null; tender_usd?: string | number | null; tender_lbp?: string | number | null; has_tender?: boolean | null } };
 
 const PAGE_SIZE = 200;
@@ -145,6 +145,22 @@ function SalesPaymentsInner() {
     } catch {} finally { setCreating(false); }
   }
 
+  const [voidingId, setVoidingId] = useState("");
+
+  async function voidPayment(paymentId: string) {
+    if (!confirm("Void this payment? This will reverse the GL entries.")) return;
+    setVoidingId(paymentId);
+    try {
+      await apiPost(`/sales/payments/${paymentId}/void`, {});
+      toast.success("Payment voided", "GL entries reversed.");
+      await loadPayments();
+    } catch (err) {
+      toast.error("Void failed", err instanceof Error ? err.message : String(err));
+    } finally {
+      setVoidingId("");
+    }
+  }
+
   const columns = useMemo<ColumnDef<SalesPaymentRow>[]>(() => [
     { id: "created_at", accessorFn: (p) => p.created_at, header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />, cell: ({ row }) => <span className="text-xs">{formatDateTime(row.original.created_at)}</span> },
     { id: "invoice", accessorFn: (p) => p.invoice_no, header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice" />, cell: ({ row }) => <Link href={`/sales/invoices/${row.original.invoice_id}`} className="font-mono text-sm text-teal-600 underline-offset-4 hover:underline dark:text-teal-400">{row.original.invoice_no}</Link> },
@@ -152,7 +168,8 @@ function SalesPaymentsInner() {
     { id: "method", accessorFn: (p) => fmtMethod(p.method), header: ({ column }) => <DataTableColumnHeader column={column} title="Method" />, cell: ({ row }) => <span className="text-xs">{fmtMethod(row.original.method)}</span> },
     { id: "usd", accessorFn: (p) => hasTender(p) ? n(p.tender_usd) : n(p.amount_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="USD" />, cell: ({ row }) => { const p = row.original; const show = hasTender(p) ? n(p.tender_usd) : n(p.amount_usd); return <CurrencyDisplay amount={show} currency="USD" />; } },
     { id: "lbp", accessorFn: (p) => hasTender(p) ? n(p.tender_lbp) : n(p.amount_lbp), header: ({ column }) => <DataTableColumnHeader column={column} title="LBP" />, cell: ({ row }) => { const p = row.original; const show = hasTender(p) ? n(p.tender_lbp) : n(p.amount_lbp); return <CurrencyDisplay amount={show} currency="LBP" />; } },
-  ], [customerById]);
+    { id: "actions", header: "", cell: ({ row }) => { const p = row.original; if (p.voided_at) return <span className="text-xs text-destructive">Voided</span>; return <Button variant="ghost" size="sm" className="text-xs text-destructive" disabled={voidingId === p.id} onClick={(e) => { e.stopPropagation(); voidPayment(p.id); }}>{voidingId === p.id ? "..." : "Void"}</Button>; } },
+  ], [customerById, voidingId]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

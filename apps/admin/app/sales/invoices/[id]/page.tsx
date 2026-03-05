@@ -34,6 +34,7 @@ import { InvoiceItemsTab } from "./_components/invoice-items-tab";
 import { InvoiceTaxTab } from "./_components/invoice-tax-tab";
 import { PostInvoiceDialog } from "./_components/post-invoice-dialog";
 import { VoidInvoiceDialog, CancelDraftDialog, PrintPreviewDialog } from "./_components/void-invoice-dialog";
+import { CreateReturnDialog } from "./_components/create-return-dialog";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -231,6 +232,7 @@ function SalesInvoiceShowInner() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelDraftOpen, setCancelDraftOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [invoiceMathOpen, setInvoiceMathOpen] = useState(false);
 
   /* ---- Derived ---- */
@@ -558,6 +560,7 @@ function SalesInvoiceShowInner() {
   const inv = detail?.invoice;
   const isDraft = inv?.status === "draft";
   const isPosted = inv?.status === "posted";
+  const hasPayments = (detail?.payments || []).length > 0;
 
   /* ---- Sales channel badge ---- */
   const channelBadge = inv ? (
@@ -595,6 +598,7 @@ function SalesInvoiceShowInner() {
             ? { label: "Record Payment", onClick: () => { if (inv) window.open(`/sales/payments?invoice_id=${encodeURIComponent(inv.id)}&record=1`, "_blank", "noopener,noreferrer"); } }
             : undefined,
         secondary: [
+          { label: "Create Return", onClick: () => setReturnOpen(true), visible: isPosted },
           { label: "Preview", onClick: () => setPreviewOpen(true), visible: !!detail },
           { label: "Print / PDF", onClick: () => { if (inv) window.open(`/sales/invoices/${encodeURIComponent(inv.id)}/print`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
           { label: "Download PDF", onClick: () => { if (inv) window.open(`/exports/sales-invoices/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
@@ -605,7 +609,7 @@ function SalesInvoiceShowInner() {
         destructive: isDraft
           ? { label: "Cancel Draft", onClick: () => setCancelDraftOpen(true) }
           : isPosted
-            ? { label: "Void Invoice", onClick: () => setCancelOpen(true) }
+            ? { label: "Void Invoice", onClick: () => setCancelOpen(true), disabled: hasPayments, tooltip: hasPayments ? "Invoice has payments — use Create Return instead" : undefined }
             : undefined,
         utilities: detail ? (
           <DocumentUtilitiesDrawer entityType="sales_invoice" entityId={detail.invoice.id} allowUploadAttachments={isDraft} />
@@ -686,6 +690,7 @@ function SalesInvoiceShowInner() {
             invoiceId={detail.invoice.id}
             onVoided={load}
             onError={setStatus}
+            onSuggestReturn={() => setReturnOpen(true)}
           />
 
           <CancelDraftDialog
@@ -700,6 +705,18 @@ function SalesInvoiceShowInner() {
             open={previewOpen}
             onOpenChange={setPreviewOpen}
             invoiceId={detail.invoice.id}
+          />
+
+          <CreateReturnDialog
+            open={returnOpen}
+            onOpenChange={setReturnOpen}
+            invoiceId={detail.invoice.id}
+            invoiceTotal={{ usd: Number(detail.invoice.total_usd || 0), lbp: Number(detail.invoice.total_lbp || 0) }}
+            settlementCurrency={String(detail.invoice.settlement_currency || "USD")}
+            lineCount={detail.lines.length}
+            methodChoices={methodChoices}
+            onCreated={load}
+            onError={setStatus}
           />
         </>
       ) : null}

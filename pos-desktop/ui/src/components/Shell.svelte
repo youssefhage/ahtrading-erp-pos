@@ -11,6 +11,7 @@
   export let showTabs = false;
   export let plainBackground = false;
   export let pendingCount = 0;
+  export let isOnline = true;
 
   const tone = (kind) => {
     if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-medium";
@@ -127,7 +128,7 @@
   </header>
 
   <!-- Main Content -->
-  <main class="flex-1 min-h-0 w-full max-w-[1920px] mx-auto px-1.5 py-1.5 md:px-2 md:py-1.5 lg:px-3 lg:py-2 overflow-hidden flex flex-col">
+  <main class={`flex-1 min-h-0 w-full max-w-[1920px] mx-auto px-1.5 py-1.5 md:px-2 md:py-1.5 lg:px-3 lg:py-2 overflow-hidden flex flex-col ${!isOnline ? "pb-10" : ""}`}>
     <slot />
   </main>
 </div>

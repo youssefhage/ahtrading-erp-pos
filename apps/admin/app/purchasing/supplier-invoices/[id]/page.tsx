@@ -111,6 +111,7 @@ type SupplierPayment = {
   auth_code?: string | null;
   provider?: string | null;
   settlement_currency?: string | null;
+  voided_at?: string | null;
   captured_at?: string | null;
   created_at: string;
 };
@@ -750,12 +751,16 @@ function SupplierInvoiceShowInner() {
     }
   }
 
+  const [cancelLocalError, setCancelLocalError] = useState<string | null>(null);
+  const hasCancelPaymentError = cancelLocalError?.toLowerCase().includes("cannot cancel") && cancelLocalError?.toLowerCase().includes("payment");
+
   async function cancelPostedInvoice(e: React.FormEvent) {
     e.preventDefault();
     if (!detail) return;
     if (detail.invoice.status !== "posted") return;
     setCanceling(true);
     setStatus("Voiding invoice...");
+    setCancelLocalError(null);
     try {
       await apiPost(`/purchases/invoices/${detail.invoice.id}/cancel`, {
         cancel_date: cancelDate || undefined,
@@ -766,9 +771,45 @@ function SupplierInvoiceShowInner() {
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      if (message.toLowerCase().includes("cannot cancel") && message.toLowerCase().includes("payment")) {
+        setCancelLocalError(message);
+        setStatus("");
+      } else {
+        setStatus(message);
+      }
     } finally {
       setCanceling(false);
+    }
+  }
+
+  const [creatingDebitNote, setCreatingDebitNote] = useState(false);
+
+  async function createDebitNote() {
+    if (!detail) return;
+    setCreatingDebitNote(true);
+    setStatus("Creating debit note...");
+    try {
+      const res = await apiPost<{ id: string; credit_no: string }>(`/purchases/invoices/${detail.invoice.id}/create-debit-note`, {});
+      setStatus("");
+      router.push(`/purchasing/supplier-credits/${res.id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setCreatingDebitNote(false);
+    }
+  }
+
+  async function voidSupplierPayment(paymentId: string) {
+    if (!confirm("Void this payment? This will reverse GL entries.")) return;
+    setStatus("Voiding payment...");
+    try {
+      await apiPost(`/purchases/payments/${paymentId}/void`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
     }
   }
 
@@ -828,6 +869,7 @@ function SupplierInvoiceShowInner() {
           ? { label: "Post Draft", onClick: openPostDialog }
           : undefined,
         secondary: [
+          { label: "Create Debit Note", onClick: createDebitNote, disabled: creatingDebitNote, visible: isPosted },
           { label: "Print / PDF", onClick: () => { if (inv) window.open(`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}/print`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
           { label: "Download PDF", onClick: () => { if (inv) window.open(`/exports/supplier-invoices/${encodeURIComponent(inv.id)}/pdf`, "_blank", "noopener,noreferrer"); }, visible: !!detail },
           { label: "Edit Draft", onClick: () => { if (inv) router.push(`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}/edit`); }, visible: isDraft },
@@ -1105,8 +1147,16 @@ function SupplierInvoiceShowInner() {
                             <span className="data-mono">
                               {formatMethodLabel(p.method)}
                               {p.reference ? <span className="text-muted-foreground"> · {p.reference}</span> : null}
+                              {p.voided_at ? <span className="ml-1 text-xs text-destructive">(Voided)</span> : null}
                             </span>
-                            <span className="data-mono">{fmtUsdLbp(p.amount_usd, p.amount_lbp)}</span>
+                            <span className="flex items-center gap-2">
+                              <span className="data-mono">{fmtUsdLbp(p.amount_usd, p.amount_lbp)}</span>
+                              {!p.voided_at && detail.invoice.status === "posted" && (
+                                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive" onClick={() => voidSupplierPayment(p.id)}>
+                                  Void
+                                </Button>
+                              )}
+                            </span>
                           </div>
                         ))}
                         {detail.payments.length === 0 ? <p className="text-muted-foreground">No payments.</p> : null}
@@ -1515,7 +1565,7 @@ function SupplierInvoiceShowInner() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+          <Dialog open={cancelOpen} onOpenChange={(open) => { setCancelOpen(open); if (open) setCancelLocalError(null); }}>
             <DialogContent className="max-w-xl">
               <DialogHeader>
                 <DialogTitle>Void Supplier Invoice</DialogTitle>
@@ -1530,6 +1580,29 @@ function SupplierInvoiceShowInner() {
                   <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
                   <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="duplicate / correction / vendor dispute" />
                 </div>
+                {hasCancelPaymentError && (
+                  <div className="md:col-span-6 rounded-md border border-orange-300/50 bg-orange-50 dark:border-orange-500/25 dark:bg-orange-950/20 p-3 text-sm">
+                    <p className="font-medium text-foreground">This invoice has payments</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Posted invoices with payments cannot be voided directly.
+                      Create a debit note instead to reverse stock and GL.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      disabled={creatingDebitNote}
+                      onClick={() => {
+                        setCancelOpen(false);
+                        setCancelLocalError(null);
+                        createDebitNote();
+                      }}
+                    >
+                      {creatingDebitNote ? "Creating..." : "Create Debit Note Instead"}
+                    </Button>
+                  </div>
+                )}
                 <div className="md:col-span-6 flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setCancelOpen(false)}>
                     Close

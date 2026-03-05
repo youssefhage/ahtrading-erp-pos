@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -9,7 +9,7 @@ from ..period_locks import assert_period_open
 import json
 import uuid
 from backend.workers import pos_processor
-from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced, USD_Q
 from ..account_defaults import ensure_company_account_defaults
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
 from ..uom import load_item_uom_context, resolve_line_uom
@@ -314,6 +314,13 @@ class SaleLine(BaseModel):
     original_list_price_usd: Decimal = Decimal("0")
     original_list_price_lbp: Decimal = Decimal("0")
 
+    @field_validator("qty")
+    @classmethod
+    def qty_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("qty must be greater than 0")
+        return v
+
 
 class TaxBlock(BaseModel):
     tax_code_id: str
@@ -338,6 +345,13 @@ class SalesInvoiceIn(BaseModel):
     invoice_no: Optional[str] = None
     exchange_rate: Decimal
     pricing_currency: CurrencyCode = "USD"
+
+    @field_validator("exchange_rate")
+    @classmethod
+    def exchange_rate_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("exchange_rate must be greater than 0")
+        return v
     settlement_currency: CurrencyCode = "USD"
     customer_id: Optional[str] = None
     warehouse_id: Optional[str] = None
@@ -366,6 +380,13 @@ class SalesReturnIn(BaseModel):
     invoice_id: Optional[str] = None
     return_date: Optional[date] = None
     exchange_rate: Decimal
+
+    @field_validator("exchange_rate")
+    @classmethod
+    def exchange_rate_must_be_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("exchange_rate must be greater than 0")
+        return v
     warehouse_id: Optional[str] = None
     shift_id: Optional[str] = None
     refund_method: Optional[str] = None
@@ -749,11 +770,6 @@ class SalesInvoiceDraftLineIn(BaseModel):
     unit_price_entered_usd: Optional[Decimal] = None
     unit_price_entered_lbp: Optional[Decimal] = None
     # Commercial metadata (optional; defaults handled server-side).
-    pre_discount_unit_price_usd: Optional[Decimal] = None
-    pre_discount_unit_price_lbp: Optional[Decimal] = None
-    discount_pct: Optional[Decimal] = None
-    discount_amount_usd: Optional[Decimal] = None
-    discount_amount_lbp: Optional[Decimal] = None
     applied_promotion_id: Optional[str] = None
     applied_promotion_item_id: Optional[str] = None
     applied_price_list_id: Optional[str] = None
@@ -1532,6 +1548,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         SELECT credit_limit_usd, credit_limit_lbp, credit_balance_usd, credit_balance_lbp, payment_terms_days
                         FROM customers
                         WHERE company_id = %s AND id = %s
+                        FOR UPDATE
                         """,
                         (company_id, customer_id),
                     )
@@ -2072,6 +2089,114 @@ def cancel_sales_invoice_draft(invoice_id: str, data: CancelDraftIn, company_id:
                 return {"ok": True}
 
 
+class CreateReturnFromInvoiceIn(BaseModel):
+    refund_method: Optional[str] = None
+    reason: Optional[str] = None
+    return_date: Optional[date] = None
+
+
+@router.post("/invoices/{invoice_id}/create-return", dependencies=[Depends(require_permission("sales:write"))])
+def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn, company_id: str = Depends(get_company_id)):
+    """
+    Create a full return for a posted invoice.  Resolves device_id automatically
+    so the admin UI does not need to know about POS devices.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # 1. Validate invoice
+            cur.execute(
+                """
+                SELECT id, status, exchange_rate, warehouse_id, device_id
+                FROM sales_invoices
+                WHERE company_id=%s AND id=%s
+                """,
+                (company_id, invoice_id),
+            )
+            inv = cur.fetchone()
+            if not inv:
+                raise HTTPException(status_code=404, detail="invoice not found")
+            if inv["status"] != "posted":
+                raise HTTPException(status_code=400, detail="only posted invoices can have returns")
+
+            # 1b. Prevent duplicate full returns for the same invoice
+            cur.execute(
+                """
+                SELECT id FROM sales_returns
+                WHERE company_id=%s AND invoice_id=%s AND status IN ('posted', 'pending')
+                LIMIT 1
+                """,
+                (company_id, invoice_id),
+            )
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail="a return already exists for this invoice")
+
+            # 2. Fetch invoice lines
+            cur.execute(
+                """
+                SELECT item_id, qty, unit_price_usd, unit_price_lbp,
+                       line_total_usd, line_total_lbp
+                FROM sales_invoice_lines
+                WHERE invoice_id=%s
+                ORDER BY created_at
+                """,
+                (invoice_id,),
+            )
+            lines = cur.fetchall()
+            if not lines:
+                raise HTTPException(status_code=400, detail="invoice has no lines")
+
+            # 3. Resolve device_id
+            device_id = inv.get("device_id")
+            if not device_id:
+                cur.execute(
+                    "SELECT id FROM pos_devices WHERE company_id=%s ORDER BY created_at LIMIT 1",
+                    (company_id,),
+                )
+                dev = cur.fetchone()
+                if not dev:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="no POS device configured; add one in System > POS Devices",
+                    )
+                device_id = dev["id"]
+
+            # 4. Build return payload
+            return_lines = [
+                {
+                    "item_id": str(l["item_id"]),
+                    "qty": str(l["qty"]),
+                    "unit_price_usd": str(l["unit_price_usd"]),
+                    "unit_price_lbp": str(l["unit_price_lbp"]),
+                    "line_total_usd": str(l["line_total_usd"]),
+                    "line_total_lbp": str(l["line_total_lbp"]),
+                }
+                for l in lines
+            ]
+
+            payload = {
+                "device_id": str(device_id),
+                "invoice_id": str(invoice_id),
+                "exchange_rate": str(inv["exchange_rate"]),
+                "warehouse_id": str(inv["warehouse_id"]) if inv.get("warehouse_id") else None,
+                "refund_method": data.refund_method or None,
+                "reason": (data.reason or "").strip() or None,
+                "return_date": str(data.return_date) if data.return_date else str(date.today()),
+                "lines": return_lines,
+            }
+
+            # 5. Queue via outbox
+            cur.execute(
+                """
+                INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
+                VALUES (gen_random_uuid(), %s, 'sale.returned', %s::jsonb)
+                RETURNING id
+                """,
+                (str(device_id), json.dumps(payload, default=str)),
+            )
+            return {"event_id": cur.fetchone()["id"]}
+
+
 @router.get("/returns", dependencies=[Depends(require_permission("sales:read"))])
 def list_sales_returns(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -2147,6 +2272,232 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
             )
             refunds = cur.fetchall()
             return {"return": ret, "lines": lines, "tax_lines": tax_lines, "refunds": refunds}
+
+
+class SalesReturnVoidIn(BaseModel):
+    cancel_date: Optional[date] = None
+    reason: Optional[str] = None
+
+@router.post("/returns/{return_id}/void", dependencies=[Depends(require_permission("sales:write"))])
+def void_sales_return(return_id: str, data: SalesReturnVoidIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Void a posted sales return:
+    - Reverse GL journal entries.
+    - Reverse stock moves (create opposite stock_moves).
+    - Reverse tax lines.
+    - Reverse customer credit_balance adjustment if refund_method was 'credit'.
+    - Reverse bank transaction if refund created one.
+    - Update return status to 'canceled'.
+    """
+    reason = (data.reason or "").strip() or None
+    cancel_date = data.cancel_date or date.today()
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                assert_period_open(cur, company_id, cancel_date)
+
+                cur.execute(
+                    """
+                    SELECT id, return_no, invoice_id, status, refund_method,
+                           total_usd, total_lbp, exchange_rate
+                    FROM sales_returns
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, return_id),
+                )
+                ret = cur.fetchone()
+                if not ret:
+                    raise HTTPException(status_code=404, detail="return not found")
+                if ret["status"] == "canceled":
+                    return {"ok": True}
+                if ret["status"] != "posted":
+                    raise HTTPException(status_code=400, detail="only posted returns can be voided")
+
+                # Reverse GL journal
+                memo = f"Void return {ret.get('return_no') or str(return_id)[:8]}" + (f" ({reason})" if reason else "")
+                void_journal_id = _reverse_gl_journal(
+                    cur, company_id, "sales_return", str(return_id),
+                    "sales_return_void", cancel_date, user["user_id"], memo,
+                )
+
+                # Reverse stock moves: for each qty_in (returned stock), create a qty_out
+                cur.execute(
+                    """
+                    SELECT item_id, warehouse_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp
+                    FROM stock_moves
+                    WHERE company_id=%s AND source_type='sales_return' AND source_id=%s
+                    """,
+                    (company_id, return_id),
+                )
+                for sm in cur.fetchall():
+                    cur.execute(
+                        """
+                        INSERT INTO stock_moves
+                          (id, company_id, item_id, warehouse_id, source_type, source_id,
+                           qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, 'sales_return_void', %s,
+                           %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            company_id,
+                            sm["item_id"],
+                            sm["warehouse_id"],
+                            return_id,
+                            Decimal(str(sm.get("qty_out") or 0)),  # swap in/out
+                            Decimal(str(sm.get("qty_in") or 0)),
+                            Decimal(str(sm.get("unit_cost_usd") or 0)),
+                            Decimal(str(sm.get("unit_cost_lbp") or 0)),
+                            cancel_date,
+                        ),
+                    )
+
+                # Reverse tax lines
+                cur.execute(
+                    """
+                    SELECT tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp
+                    FROM tax_lines
+                    WHERE company_id=%s AND source_type='sales_return' AND source_id=%s
+                    """,
+                    (company_id, return_id),
+                )
+                cur.execute(
+                    "SELECT 1 FROM tax_lines WHERE company_id=%s AND source_type='sales_return_void' AND source_id=%s LIMIT 1",
+                    (company_id, return_id),
+                )
+                # Re-fetch since we consumed the cursor
+                if not cur.fetchone():
+                    cur.execute(
+                        """
+                        SELECT tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp
+                        FROM tax_lines
+                        WHERE company_id=%s AND source_type='sales_return' AND source_id=%s
+                        """,
+                        (company_id, return_id),
+                    )
+                    for t in cur.fetchall():
+                        cur.execute(
+                            """
+                            INSERT INTO tax_lines
+                              (id, company_id, source_type, source_id, tax_code_id,
+                               base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                            VALUES
+                              (gen_random_uuid(), %s, 'sales_return_void', %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                company_id, return_id, t["tax_code_id"],
+                                -Decimal(str(t["base_usd"] or 0)),
+                                -Decimal(str(t["base_lbp"] or 0)),
+                                -Decimal(str(t["tax_usd"] or 0)),
+                                -Decimal(str(t["tax_lbp"] or 0)),
+                                cancel_date,
+                            ),
+                        )
+
+                # Reverse customer credit if refund_method was 'credit'
+                if (ret.get("refund_method") or "").lower() == "credit":
+                    cur.execute(
+                        """
+                        SELECT customer_id FROM sales_invoices
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (company_id, ret["invoice_id"]),
+                    )
+                    inv_row = cur.fetchone()
+                    if inv_row and inv_row.get("customer_id"):
+                        total_usd = Decimal(str(ret.get("total_usd") or 0))
+                        total_lbp = Decimal(str(ret.get("total_lbp") or 0))
+                        cur.execute(
+                            """
+                            UPDATE customers
+                            SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                                credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
+                            WHERE company_id=%s AND id=%s
+                            """,
+                            (total_usd, total_lbp, company_id, inv_row["customer_id"]),
+                        )
+
+                # Reverse loyalty points earned from the original return
+                if ret.get("invoice_id"):
+                    cur.execute(
+                        "SELECT customer_id FROM sales_invoices WHERE company_id=%s AND id=%s",
+                        (company_id, ret["invoice_id"]),
+                    )
+                    _inv_lp = cur.fetchone()
+                    if _inv_lp and _inv_lp.get("customer_id"):
+                        cur.execute(
+                            """
+                            SELECT COALESCE(SUM(points), 0) AS pts
+                            FROM loyalty_transactions
+                            WHERE company_id=%s AND source_type='sales_return' AND source_id=%s
+                            """,
+                            (company_id, return_id),
+                        )
+                        _lp_row = cur.fetchone()
+                        _lp_pts = Decimal(str((_lp_row["pts"] if _lp_row else 0)))
+                        if _lp_pts != 0:
+                            pos_processor.apply_loyalty_points(
+                                cur, company_id, str(_inv_lp["customer_id"]),
+                                "sales_return_void", str(return_id), -_lp_pts
+                            )
+
+                # Reverse bank transaction (refund)
+                cur.execute(
+                    """
+                    SELECT id, bank_account_id, txn_date, amount_usd, amount_lbp, description, reference, counterparty
+                    FROM bank_transactions
+                    WHERE company_id=%s AND source_type='sales_refund' AND source_id=%s
+                    ORDER BY imported_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, return_id),
+                )
+                bt = cur.fetchone()
+                if bt and bt.get("bank_account_id"):
+                    cur.execute(
+                        """
+                        INSERT INTO bank_transactions
+                          (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
+                           description, reference, counterparty, matched_journal_id, matched_at,
+                           source_type, source_id, imported_by_user_id, imported_at)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s,
+                           %s, %s, %s, %s, now(),
+                           'sales_return_void', %s, %s, now())
+                        """,
+                        (
+                            company_id,
+                            bt["bank_account_id"],
+                            bt.get("txn_date") or cancel_date,
+                            Decimal(str(bt.get("amount_usd") or 0)),
+                            Decimal(str(bt.get("amount_lbp") or 0)),
+                            f"Void return {str(return_id)[:8]}",
+                            bt.get("reference"),
+                            bt.get("counterparty"),
+                            void_journal_id,
+                            str(return_id),
+                            user["user_id"],
+                        ),
+                    )
+
+                # Update status
+                cur.execute(
+                    "UPDATE sales_returns SET status='canceled' WHERE id=%s",
+                    (return_id,),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'sales_return_void', 'sales_return', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], return_id, json.dumps({"reason": reason, "void_journal_id": str(void_journal_id)})),
+                )
+
+                return {"ok": True, "void_journal_id": str(void_journal_id)}
 
 
 @router.post("/payments", dependencies=[Depends(require_permission("sales:write"))])
@@ -2577,6 +2928,24 @@ def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: st
                         ),
                     )
 
+                # Restore customer credit balance (mirrors create_sales_payment deduction).
+                if pay.get("customer_id"):
+                    cur.execute(
+                        """
+                        UPDATE customers
+                        SET credit_balance_usd = credit_balance_usd + %s,
+                            credit_balance_lbp = credit_balance_lbp + %s,
+                            updated_at = now()
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (
+                            Decimal(str(pay.get("amount_usd") or 0)),
+                            Decimal(str(pay.get("amount_lbp") or 0)),
+                            company_id,
+                            pay["customer_id"],
+                        ),
+                    )
+
                 cur.execute(
                     """
                     UPDATE sales_payments
@@ -2717,40 +3086,28 @@ def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, comp
                     )
                     adj_journal_id = cur.fetchone()["id"]
 
-                    if delta_usd > 0 or delta_lbp > 0:
-                        # Increased payment: Dr payment account, Cr AR.
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment recompute delta')
-                            """,
-                            (adj_journal_id, pay_account, delta_usd, delta_lbp),
-                        )
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement recompute delta')
-                            """,
-                            (adj_journal_id, ar, delta_usd, delta_lbp),
-                        )
-                    else:
-                        # Decreased payment: Dr AR, Cr payment account.
-                        abs_usd = abs(delta_usd)
-                        abs_lbp = abs(delta_lbp)
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'AR settlement recompute reversal')
-                            """,
-                            (adj_journal_id, ar, abs_usd, abs_lbp),
-                        )
-                        cur.execute(
-                            """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Customer payment recompute reversal')
-                            """,
-                            (adj_journal_id, pay_account, abs_usd, abs_lbp),
-                        )
+                    # Handle each currency independently to avoid negative debits/credits
+                    # when USD and LBP deltas have opposite signs.
+                    dr_pay_usd = max(delta_usd, Decimal("0"))
+                    cr_pay_usd = max(-delta_usd, Decimal("0"))
+                    dr_pay_lbp = max(delta_lbp, Decimal("0"))
+                    cr_pay_lbp = max(-delta_lbp, Decimal("0"))
+                    # Payment account: debit increases, credit decreases.
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'Customer payment recompute delta')
+                        """,
+                        (adj_journal_id, pay_account, dr_pay_usd, cr_pay_usd, dr_pay_lbp, cr_pay_lbp),
+                    )
+                    # AR account: opposite direction.
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'AR settlement recompute delta')
+                        """,
+                        (adj_journal_id, ar, cr_pay_usd, dr_pay_usd, cr_pay_lbp, dr_pay_lbp),
+                    )
 
                 # Bank txn (if present)
                 cur.execute(

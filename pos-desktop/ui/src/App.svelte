@@ -529,6 +529,14 @@
   let webHostHint = "";
   let runtimeVersionText = `pos-web v${POS_UI_VERSION}`;
   let webEventInvoiceMap = new Map();
+  const _WEB_EVENT_MAP_MAX = 500;
+  const _trimEventInvoiceMap = () => {
+    if (webEventInvoiceMap.size > _WEB_EVENT_MAP_MAX) {
+      const excess = webEventInvoiceMap.size - _WEB_EVENT_MAP_MAX;
+      const keys = Array.from(webEventInvoiceMap.keys()).slice(0, excess);
+      for (const k of keys) webEventInvoiceMap.delete(k);
+    }
+  };
   let webCatalogCache = new Map();
   let webLocalOutboxByCompany = { official: [], unofficial: [] };
   let webAuditByCompany = { official: [], unofficial: [] };
@@ -1459,10 +1467,6 @@
     return false;
   };
   const ensureShiftForCompanies = (companyKeys, actionLabel = "checkout") => {
-    // Allow sales to proceed when offline even without an open shift.
-    // The sale event is queued locally with shift_id: null and synced
-    // once the employee opens a shift and connection is restored.
-    if (typeof navigator !== "undefined" && !navigator.onLine) return true;
     const unique = Array.from(new Set((companyKeys || []).map((k) => normalizeCompanyKey(k))));
     const missing = unique.filter((k) => !shiftIdForCompany(k));
     if (!missing.length) return true;
@@ -2324,15 +2328,23 @@
     // the event is safe in the local outbox and will be retried later.
     if (statusCode === 0 || statusCode === 408 || statusCode === 429) return false;
     if (statusCode >= 400 && statusCode < 500) return true;
-    const msg = String(err?.message || "").trim().toLowerCase();
-    if (!msg) return false;
-    // Only match specific known permanent error patterns — avoid broad
-    // terms like "invalid" or "missing" that could match network-layer messages.
-    return (
-      msg.includes("payment exceeds invoice total")
-      || msg.includes("payments exceed invoice total")
-      || msg.includes("checkout guardrail")
-    );
+    // 5xx errors are treated as transient (retryable) by default.
+    // Only mark as permanent if the backend explicitly signals it via
+    // specific business-logic error messages (not generic infrastructure errors).
+    if (statusCode >= 500) {
+      const msg = String(err?.message || "").trim().toLowerCase();
+      if (!msg) return false;
+      // Only match very specific business-logic messages from our backend,
+      // NOT generic words like "missing"/"invalid" that infrastructure errors may contain.
+      return (
+        msg.includes("payment exceeds invoice total")
+        || msg.includes("payments exceed invoice total")
+        || msg.includes("checkout guardrail")
+        || msg.includes("duplicate idempotency")
+        || msg.includes("already processed")
+      );
+    }
+    return false;
   };
 
   const _nextRetryIso = (retryCount = 0) => {
@@ -2629,6 +2641,58 @@
     return null;
   };
 
+  /**
+   * Iframe-based print fallback for when window.open() is blocked
+   * (common in PWA mode, offline mode, or when popups are disabled).
+   * Creates a hidden iframe, writes the receipt HTML into it, then
+   * triggers print from the parent context so only the receipt prints.
+   */
+  const _printViaIframe = (html) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;width:0;height:0;border:none;left:0;bottom:0;opacity:0;pointer-events:none;";
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iframeDoc.open();
+    // Strip the auto-print/close script — we trigger print from the parent
+    // context via contentWindow.print() so only the iframe content prints.
+    const cleanHtml = html.replace(
+      /<script>window\.addEventListener\(['"]load['"].*?<\/script>/gs,
+      "",
+    );
+    iframeDoc.write(cleanHtml);
+    iframeDoc.close();
+
+    const cleanup = () => {
+      setTimeout(() => {
+        try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (_) {}
+      }, 1000);
+    };
+
+    // Wait for content to render, then print just the iframe content.
+    const triggerPrint = () => {
+      setTimeout(() => {
+        try {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+        } catch (e) {
+          console.warn("[POS] iframe print failed:", e?.message || e);
+        }
+        // Clean up after print dialog closes.
+        try { iframe.contentWindow.addEventListener("afterprint", cleanup); } catch (_) {}
+        // Fallback cleanup after 60s if afterprint doesn't fire.
+        setTimeout(cleanup, 60000);
+      }, 350);
+    };
+
+    // Use load event if available, otherwise trigger after short delay.
+    try {
+      iframe.contentWindow.addEventListener("load", triggerPrint);
+    } catch (_) {
+      triggerPrint();
+    }
+  };
+
   const _openPrintWindowWithHtml = (html, receiptWin = null) => {
     let win = receiptWin;
     try {
@@ -2639,7 +2703,9 @@
       win = null;
     }
     if (!win) {
-      throw new Error("Unable to open print window. Please allow popups for this site.");
+      // Popup blocked (common in PWA / offline mode) — use iframe fallback.
+      _printViaIframe(html);
+      return null;
     }
     win.document.open();
     win.document.write(html);
@@ -2673,8 +2739,10 @@
       return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div></td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(unitPrice, 2))}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(lineTotal, 2))}</td></tr>`;
     }).join("");
 
-    const totalUsd = cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
-    const totalLbp = cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
+    const subtotalUsd = toNum(totals?.subtotalUsd, 0);
+    const taxUsd = toNum(totals?.taxUsd, 0);
+    const totalUsd = toNum(totals?.totalUsd, 0);
+    const totalLbp = toNum(totals?.totalLbp, 0);
     const itemCount = cart.reduce((s, ln) => s + toNum(ln?.qty_entered ?? ln?.qty, 0), 0);
 
     const html = `<!doctype html>
@@ -2726,6 +2794,8 @@
   <div class="sep"></div>
   <section class="totals">
     <div class="tr"><span>Items</span><span class="mono">${itemCount}</span></div>
+    <div class="tr"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(subtotalUsd, 2))}</span></div>
+    ${taxUsd > 0 ? `<div class="tr"><span>VAT</span><span class="mono">${_escapeHtml(_fmtMoney(taxUsd, 2))}</span></div>` : ""}
     <div class="tr total-main"><span>Total USD</span><span class="mono">${_escapeHtml(_fmtMoney(totalUsd, 2))}</span></div>
     ${totalLbp ? `<div class="tr total-lbp"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(totalLbp, 0))}</span></div>` : ""}
   </section>
@@ -3625,6 +3695,46 @@
     return await _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
+  /**
+   * Iframe-based URL print fallback for when window.open() is blocked.
+   * Loads the URL in a hidden iframe and attempts to trigger print.
+   * Works for same-origin / blob URLs; cross-origin URLs may fail silently.
+   */
+  const _printUrlViaIframe = (url, { autoPrint = false } = {}) => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;width:0;height:0;border:none;left:0;bottom:0;opacity:0;pointer-events:none;";
+    iframe.src = url;
+    document.body.appendChild(iframe);
+
+    const cleanup = () => {
+      setTimeout(() => {
+        try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (_) {}
+      }, 1000);
+    };
+
+    if (autoPrint) {
+      iframe.addEventListener("load", () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          } catch (e) {
+            // Cross-origin URLs will fail here — accepted limitation.
+            console.warn("[POS] iframe URL print failed (may be cross-origin):", e?.message || e);
+          }
+          try { iframe.contentWindow.addEventListener("afterprint", cleanup); } catch (_) {}
+          setTimeout(cleanup, 60000);
+        }, 600);
+      });
+    } else {
+      // Page may have its own auto-print script; give it time then clean up.
+      iframe.addEventListener("load", () => {
+        try { iframe.contentWindow.addEventListener("afterprint", cleanup); } catch (_) {}
+      });
+      setTimeout(cleanup, 60000);
+    }
+  };
+
   const _openPrintWindowWithUrl = (url, receiptWin = null, { autoPrint = false } = {}) => {
     const u = String(url || "").trim();
     if (!u) return false;
@@ -3636,11 +3746,16 @@
       }
     } catch (_) {}
     if (!win) {
-      try {
-        win = window.open(u, "_blank");
-      } catch (_) {}
+      win = _openManagedPrintWindow();
+      if (win) {
+        try { win.location = u; } catch (_) { win = null; }
+      }
     }
-    if (!win) return false;
+    if (!win) {
+      // Popup blocked — try iframe fallback (works for blob / same-origin URLs).
+      _printUrlViaIframe(u, { autoPrint });
+      return true;
+    }
     if (autoPrint) {
       // PDF viewer needs time to load; poll until ready then trigger print dialog.
       let attempts = 0;
@@ -3854,8 +3969,16 @@
     }
     return false;
   };
+  const _localFlushInFlight = { official: false, unofficial: false };
   const _flushWebLocalOutbox = async (companyKey, { limit = 30, eventId = "" } = {}) => {
     const key = normalizeCompanyKey(companyKey);
+    // Concurrency guard: prevent duplicate flushes for the same company
+    if (_localFlushInFlight[key] && !eventId) return { sent: 0, failed: 0, skipped: 0 };
+    _localFlushInFlight[key] = true;
+    try { return await _flushWebLocalOutboxInner(key, { limit, eventId }); }
+    finally { _localFlushInFlight[key] = false; }
+  };
+  const _flushWebLocalOutboxInner = async (key, { limit = 30, eventId = "" } = {}) => {
     const targetId = String(eventId || "").trim();
     const nowMs = Date.now();
     const sourceRows = _webLocalOutboxRowsFor(key);
@@ -3933,6 +4056,7 @@
         failed.push({ event_id: rowEventId, error: e?.message || String(e) });
       }
     }
+    _trimEventInvoiceMap();
     return { sent, failed };
   };
 
@@ -5008,8 +5132,13 @@
     const agentUrl = _agentReceiptUrl(companyKey);
     if (agentUrl && agentUrl !== "/receipt/last") {
       try {
-        if (receiptWin) receiptWin.location = agentUrl;
-        else window.open(agentUrl, "_blank", "noopener,noreferrer");
+        if (receiptWin && !receiptWin.closed) {
+          receiptWin.location = agentUrl;
+        } else {
+          const agentWin = _openManagedPrintWindow();
+          if (agentWin) { agentWin.location = agentUrl; }
+          else { _printUrlViaIframe(agentUrl); }
+        }
         return;
       } catch (_) {}
     }
@@ -5068,7 +5197,12 @@
           try { if (receiptWin) receiptWin.close(); } catch (__) {}
         }
       } else {
-        try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); printed++; } catch (_) {}
+        try {
+          const agentWin = _openManagedPrintWindow();
+          if (agentWin) { agentWin.location = _agentReceiptUrl(companyKey); }
+          else { _printUrlViaIframe(_agentReceiptUrl(companyKey)); }
+          printed++;
+        } catch (_) {}
       }
     }
     if (printed === 0) reportError("No receipts found for this device.");
@@ -8280,7 +8414,9 @@
                     await _printLastReturnWeb(o.companyKey, null, { thermal: o.companyKey !== "official" });
                   }
                 } else {
-                  window.open(_agentReceiptUrl(o.companyKey), "_blank", "noopener,noreferrer");
+                  const rWin = _openManagedPrintWindow();
+                  if (rWin) { rWin.location = _agentReceiptUrl(o.companyKey); }
+                  else { _printUrlViaIframe(_agentReceiptUrl(o.companyKey)); }
                 }
               };
               printReturn().catch((err) => { console.warn(`[POS] return print failed (${o.companyKey}):`, err?.message || err); });
@@ -8312,7 +8448,9 @@
               await _printLastReturnWeb(returnCompany, null, { thermal: returnCompany !== "official" });
             }
           } else {
-            window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer");
+            const rWin = _openManagedPrintWindow();
+            if (rWin) { rWin.location = _agentReceiptUrl(returnCompany); }
+            else { _printUrlViaIframe(_agentReceiptUrl(returnCompany)); }
           }
         } catch (_) {}
         return;
@@ -8633,11 +8771,22 @@
         // replay harmlessly.
 
         // 1. Build submission descriptors (prepare, don't fire yet).
+        //    Proportion cash_tendered by each company's share of the grand total
+        //    so each invoice receives its fair portion (not the full amount).
+        // Use tax-inclusive per-company totals for proportioning cash_tendered,
+        // so companies with different VAT rates get the correct cash share.
+        const _officialTotalUsd = toNum(totalsByCompany?.official?.totalUsd, 0);
+        const _unofficialTotalUsd = toNum(totalsByCompany?.unofficial?.totalUsd, 0);
+        const _splitGrandTotal = _officialTotalUsd + _unofficialTotalUsd;
         const submissions = companiesInOrder.map((companyKey) => {
           const lines = cart.filter((c) => c.companyKey === companyKey);
           if (!lines.length) return null;
           const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
           const cfg = cfgFor(companyKey);
+          const companyTotalUsd = normalizeCompanyKey(companyKey) === "official" ? _officialTotalUsd : _unofficialTotalUsd;
+          const proportionedCash = (isPartialCash && _splitGrandTotal > 0)
+            ? roundUsd(cashTendered * (companyTotalUsd / _splitGrandTotal))
+            : undefined;
           const receipt_meta = {
             pilot: {
               mode: "split-by-company",
@@ -8656,7 +8805,7 @@
             cart: mapCartLines(lines),
             customer_id,
             payment_method,
-            cash_tendered: isPartialCash ? cashTendered : undefined,
+            cash_tendered: isPartialCash ? proportionedCash : undefined,
             receipt_meta,
             pricing_currency: cfg.pricing_currency,
             exchange_rate: cfg.exchange_rate,
@@ -8743,15 +8892,25 @@
                 const companyLines = splitCartSnap.filter((ln) => ln.companyKey === o.companyKey);
                 const ocfg = cfgFor(o.companyKey);
                 const cashName = normalizeCompanyKey(o.companyKey) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
+                const _splitSubUsd = companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0);
+                const _splitSubLbp = companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0);
+                const _splitTaxUsd = companyLines.reduce((s, ln) => {
+                  const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+                  return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                }, 0);
+                const _splitTaxLbp = companyLines.reduce((s, ln) => {
+                  const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+                  return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+                }, 0);
                 _printOfflineReceipt(companyLines, {
                   companyKey: o.companyKey,
                   paymentMethod: payment_method,
                   customerName: splitSnapCustomerName,
                   cashier: String(cashName || "").trim(),
                   eventId: o.res?.event_id || "",
-                  totalUsd: companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0),
-                  totalLbp: companyLines.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0),
-                  subtotalUsd: companyLines.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0),
+                  totalUsd: _splitSubUsd + _splitTaxUsd,
+                  totalLbp: _splitSubLbp + _splitTaxLbp,
+                  subtotalUsd: _splitSubUsd,
                   exchangeRate: toNum(ocfg?.exchange_rate, 0),
                   footerText: String(ocfg?.receipt_footer_text || "").trim(),
                 });
@@ -8845,8 +9004,18 @@
       const snapCashierName = queuedLocal
         ? String((normalizeCompanyKey(invoiceCompany) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName) || "").trim()
         : "";
-      const snapTotalUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
-      const snapTotalLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const _snapSubUsd = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const _snapSubLbp = queuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
+      const _snapTaxUsd = queuedLocal ? cart.reduce((s, ln) => {
+        const base = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+        return s + roundUsd(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+      }, 0) : 0;
+      const _snapTaxLbp = queuedLocal ? cart.reduce((s, ln) => {
+        const base = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+        return s + roundLbp(base * Math.max(0, toNum(vatRateForLine(ln), 0)));
+      }, 0) : 0;
+      const snapTotalUsd = _snapSubUsd + _snapTaxUsd;
+      const snapTotalLbp = _snapSubLbp + _snapTaxLbp;
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
@@ -8869,7 +9038,7 @@
           eventId: res?.event_id || "",
           totalUsd: snapTotalUsd,
           totalLbp: snapTotalLbp,
-          subtotalUsd: snapTotalUsd,
+          subtotalUsd: _snapSubUsd,
           exchangeRate: toNum(cfg?.exchange_rate, 0),
           footerText: String(cfg?.receipt_footer_text || "").trim(),
         });
@@ -9276,11 +9445,13 @@
     try {
       loading = true;
       const results = await Promise.allSettled(
-        companiesToOpen.map((k) => apiCallFor(k, "/shift/open", {
+        companiesToOpen.map((k, idx) => apiCallFor(k, "/shift/open", {
           method: "POST",
           body: {
-            opening_cash_usd: toNum(openingCashUsd, 0),
-            opening_cash_lbp: toNum(openingCashLbp, 0),
+            // In linked mode, only assign the cash drawer amount to the first company;
+            // the second company opens with 0 to avoid double-counting the same physical drawer.
+            opening_cash_usd: (linkedOpsMode && idx > 0) ? 0 : toNum(openingCashUsd, 0),
+            opening_cash_lbp: (linkedOpsMode && idx > 0) ? 0 : toNum(openingCashLbp, 0),
             cashier_id: cashierIdForCompany(k),
           },
         })),
@@ -9357,11 +9528,12 @@
       }
 
       const results = await Promise.allSettled(
-        companiesToClose.map((k) => apiCallFor(k, "/shift/close", {
+        companiesToClose.map((k, idx) => apiCallFor(k, "/shift/close", {
           method: "POST",
           body: {
-            closing_cash_usd: toNum(closingCashUsd, 0),
-            closing_cash_lbp: toNum(closingCashLbp, 0),
+            // In linked mode, only assign closing cash to the first company to avoid double-counting.
+            closing_cash_usd: (linkedOpsMode && idx > 0) ? 0 : toNum(closingCashUsd, 0),
+            closing_cash_lbp: (linkedOpsMode && idx > 0) ? 0 : toNum(closingCashLbp, 0),
             cashier_id: cashierIdForCompany(k),
           },
         })),
@@ -9795,6 +9967,7 @@
   showTabs={true}
   plainBackground={activeScreen === "pos"}
   pendingCount={totalPendingEvents}
+  isOnline={isOnline}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "h-7 px-2.5 rounded-lg text-[11px] font-bold border transition-all whitespace-nowrap"}
