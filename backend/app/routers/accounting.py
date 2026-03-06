@@ -655,7 +655,7 @@ def create_journal_template(data: JournalTemplateIn, company_id: str = Depends(g
 
 @router.patch("/journal-templates/{template_id}", dependencies=[Depends(require_permission("accounting:write"))])
 def update_journal_template(template_id: str, data: JournalTemplateUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     with get_conn() as conn:
@@ -669,9 +669,10 @@ def update_journal_template(template_id: str, data: JournalTemplateUpdateIn, com
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="template not found")
 
+                _JOURNAL_TEMPLATE_UPDATABLE = {"name", "is_active", "memo", "default_rate_type"}
                 sets = []
                 params = []
-                for k in ["name", "is_active", "memo", "default_rate_type"]:
+                for k in _JOURNAL_TEMPLATE_UPDATABLE:
                     if k in patch:
                         val = patch.get(k)
                         if k == "name":
@@ -1061,7 +1062,7 @@ def update_recurring_journal_rule(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     sets = []
@@ -1225,7 +1226,15 @@ def close_checklist(
             )
 
             # Worker/outbox failures (ops correctness).
-            cur.execute("SELECT COUNT(*)::int AS c FROM pos_events_outbox WHERE status IN ('failed','dead')", ())
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM pos_events_outbox o
+                JOIN pos_devices d ON d.id = o.device_id
+                WHERE d.company_id = %s AND o.status IN ('failed','dead')
+                """,
+                (company_id,),
+            )
             outbox_failed = int(cur.fetchone()["c"])
             checks.append(
                 {

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from datetime import date, datetime
@@ -538,6 +539,9 @@ def agent_respond(
             "pending_confirmation": dict | None,
         }
     """
+    if len(user_query) > 4000:
+        raise ValueError("Query too long (max 4000 characters)")
+
     model = ai_config.get("copilot_model") or ai_config.get("item_naming_model") or ""
     if not model:
         raise RuntimeError("No copilot model configured")
@@ -1059,6 +1063,8 @@ def _call_api(base_url: str, api_key: str, payload: dict[str, Any]) -> dict[str,
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        body = re.sub(r'(Bearer\s+)\S+', r'\1[REDACTED]', body)
+        body = re.sub(r'(sk-|key-)[A-Za-z0-9]+', '[REDACTED_KEY]', body)
         raise RuntimeError(f"AI provider HTTP {getattr(e, 'code', '?')}: {body[:500]}") from e
 
 

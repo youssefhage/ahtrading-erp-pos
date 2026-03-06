@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.request
 import urllib.error
 from datetime import date, datetime
@@ -519,6 +520,8 @@ def _call_chat_completions(base_url: str, api_key: str, payload: dict[str, Any])
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        body = re.sub(r'(Bearer\s+)\S+', r'\1[REDACTED]', body)
+        body = re.sub(r'(sk-|key-)[A-Za-z0-9]+', '[REDACTED_KEY]', body)
         raise RuntimeError(f"AI provider HTTP {getattr(e, 'code', '?')}: {body[:500]}") from e
 
 

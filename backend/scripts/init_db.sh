@@ -17,11 +17,13 @@ ensure_schema_migrations() {
 
 has_version() {
   local version=$1
+  version="$(echo "$version" | tr -cd 'a-zA-Z0-9_-')"
   psql_value -c "SELECT 1 FROM schema_migrations WHERE version = '${version}' LIMIT 1;"
 }
 
 mark_version() {
   local version=$1
+  version="$(echo "$version" | tr -cd 'a-zA-Z0-9_-')"
   psql_exec -c "INSERT INTO schema_migrations (version) VALUES ('${version}') ON CONFLICT DO NOTHING;"
 }
 
@@ -36,7 +38,11 @@ run_migration() {
 
 ensure_app_role() {
   local role="${APP_DB_USER:-ahapp}"
-  local pass="${APP_DB_PASSWORD:-ahapp}"
+  if [ -z "$APP_DB_PASSWORD" ]; then
+    echo "ERROR: APP_DB_PASSWORD must be set" >&2
+    exit 1
+  fi
+  local pass="$APP_DB_PASSWORD"
   if [[ -z "$role" ]]; then
     return
   fi

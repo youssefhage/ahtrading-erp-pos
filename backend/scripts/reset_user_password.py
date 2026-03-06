@@ -31,8 +31,7 @@ def main() -> int:
                 cur.execute(
                     """
                     UPDATE users
-                    SET hashed_password = %s,
-                        is_active = true
+                    SET hashed_password = %s
                     WHERE email = %s
                     RETURNING id
                     """,

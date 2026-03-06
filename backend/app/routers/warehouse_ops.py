@@ -692,7 +692,8 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
                 inv_adj_acc = defaults.get("INV_ADJ")
 
                 fx_rate, _stale = fetch_exchange_rate(cur, company_id, date.today(), "market")
-                fx_rate = fx_rate or Decimal("0")
+                if not fx_rate or fx_rate <= 0:
+                    raise HTTPException(status_code=400, detail="No valid exchange rate found; cannot post cycle count adjustments")
 
                 # Post adjustments per item.
                 moved = 0

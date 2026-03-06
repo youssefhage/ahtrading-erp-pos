@@ -178,6 +178,9 @@ def _reverse_gl_journal(cur, company_id: str, source_type: str, source_id: str, 
             ),
         )
 
+    auto_balance_journal(cur, new_journal_id)
+    assert_journal_balanced(cur, new_journal_id)
+
     return new_journal_id
 
 def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
@@ -1151,7 +1154,7 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
 
 @router.patch("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:write"))])
 def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -1161,6 +1164,7 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                     SELECT id, status, exchange_rate, invoice_date, due_date, customer_id
                     FROM sales_invoices
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, invoice_id),
                 )
@@ -1328,10 +1332,20 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                     if not patch["invoice_no"]:
                         patch.pop("invoice_no", None)
 
+                _SALES_INVOICE_UPDATABLE = {
+                    "customer_id", "warehouse_id", "exchange_rate", "memo",
+                    "supplier_ref", "due_date", "subtotal_usd", "subtotal_lbp",
+                    "tax_usd", "tax_lbp", "total_usd", "total_lbp",
+                    "discount_usd", "discount_lbp", "invoice_no", "invoice_date",
+                    "pricing_currency", "settlement_currency",
+                    "discount_total_usd", "discount_total_lbp",
+                }
                 fields = []
                 params = []
                 for k, v in patch.items():
                     if k == "lines":
+                        continue
+                    if k not in _SALES_INVOICE_UPDATABLE:
                         continue
                     fields.append(f"{k} = %s")
                     params.append(v)
@@ -2118,98 +2132,99 @@ def create_return_from_invoice(invoice_id: str, data: CreateReturnFromInvoiceIn,
     """
     with get_conn() as conn:
         set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            # 1. Validate invoice
-            cur.execute(
-                """
-                SELECT id, status, exchange_rate, warehouse_id, device_id
-                FROM sales_invoices
-                WHERE company_id=%s AND id=%s
-                """,
-                (company_id, invoice_id),
-            )
-            inv = cur.fetchone()
-            if not inv:
-                raise HTTPException(status_code=404, detail="invoice not found")
-            if inv["status"] != "posted":
-                raise HTTPException(status_code=400, detail="only posted invoices can have returns")
-
-            # 1b. Prevent duplicate full returns for the same invoice
-            cur.execute(
-                """
-                SELECT id FROM sales_returns
-                WHERE company_id=%s AND invoice_id=%s AND status IN ('posted', 'pending')
-                LIMIT 1
-                """,
-                (company_id, invoice_id),
-            )
-            if cur.fetchone():
-                raise HTTPException(status_code=409, detail="a return already exists for this invoice")
-
-            # 2. Fetch invoice lines
-            cur.execute(
-                """
-                SELECT item_id, qty, unit_price_usd, unit_price_lbp,
-                       line_total_usd, line_total_lbp
-                FROM sales_invoice_lines
-                WHERE invoice_id=%s
-                ORDER BY created_at
-                """,
-                (invoice_id,),
-            )
-            lines = cur.fetchall()
-            if not lines:
-                raise HTTPException(status_code=400, detail="invoice has no lines")
-
-            # 3. Resolve device_id
-            device_id = inv.get("device_id")
-            if not device_id:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                # 1. Validate invoice
                 cur.execute(
-                    "SELECT id FROM pos_devices WHERE company_id=%s ORDER BY created_at LIMIT 1",
-                    (company_id,),
+                    """
+                    SELECT id, status, exchange_rate, warehouse_id, device_id
+                    FROM sales_invoices
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, invoice_id),
                 )
-                dev = cur.fetchone()
-                if not dev:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="no POS device configured; add one in System > POS Devices",
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if inv["status"] != "posted":
+                    raise HTTPException(status_code=400, detail="only posted invoices can have returns")
+
+                # 1b. Prevent duplicate full returns for the same invoice
+                cur.execute(
+                    """
+                    SELECT id FROM sales_returns
+                    WHERE company_id=%s AND invoice_id=%s AND status IN ('posted', 'pending')
+                    LIMIT 1
+                    """,
+                    (company_id, invoice_id),
+                )
+                if cur.fetchone():
+                    raise HTTPException(status_code=409, detail="a return already exists for this invoice")
+
+                # 2. Fetch invoice lines
+                cur.execute(
+                    """
+                    SELECT item_id, qty, unit_price_usd, unit_price_lbp,
+                           line_total_usd, line_total_lbp
+                    FROM sales_invoice_lines
+                    WHERE invoice_id=%s
+                    ORDER BY created_at
+                    """,
+                    (invoice_id,),
+                )
+                lines = cur.fetchall()
+                if not lines:
+                    raise HTTPException(status_code=400, detail="invoice has no lines")
+
+                # 3. Resolve device_id
+                device_id = inv.get("device_id")
+                if not device_id:
+                    cur.execute(
+                        "SELECT id FROM pos_devices WHERE company_id=%s ORDER BY created_at LIMIT 1",
+                        (company_id,),
                     )
-                device_id = dev["id"]
+                    dev = cur.fetchone()
+                    if not dev:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="no POS device configured; add one in System > POS Devices",
+                        )
+                    device_id = dev["id"]
 
-            # 4. Build return payload
-            return_lines = [
-                {
-                    "item_id": str(l["item_id"]),
-                    "qty": str(l["qty"]),
-                    "unit_price_usd": str(l["unit_price_usd"]),
-                    "unit_price_lbp": str(l["unit_price_lbp"]),
-                    "line_total_usd": str(l["line_total_usd"]),
-                    "line_total_lbp": str(l["line_total_lbp"]),
+                # 4. Build return payload
+                return_lines = [
+                    {
+                        "item_id": str(l["item_id"]),
+                        "qty": str(l["qty"]),
+                        "unit_price_usd": str(l["unit_price_usd"]),
+                        "unit_price_lbp": str(l["unit_price_lbp"]),
+                        "line_total_usd": str(l["line_total_usd"]),
+                        "line_total_lbp": str(l["line_total_lbp"]),
+                    }
+                    for l in lines
+                ]
+
+                payload = {
+                    "device_id": str(device_id),
+                    "invoice_id": str(invoice_id),
+                    "exchange_rate": str(inv["exchange_rate"]),
+                    "warehouse_id": str(inv["warehouse_id"]) if inv.get("warehouse_id") else None,
+                    "refund_method": data.refund_method or None,
+                    "reason": (data.reason or "").strip() or None,
+                    "return_date": str(data.return_date) if data.return_date else str(date.today()),
+                    "lines": return_lines,
                 }
-                for l in lines
-            ]
 
-            payload = {
-                "device_id": str(device_id),
-                "invoice_id": str(invoice_id),
-                "exchange_rate": str(inv["exchange_rate"]),
-                "warehouse_id": str(inv["warehouse_id"]) if inv.get("warehouse_id") else None,
-                "refund_method": data.refund_method or None,
-                "reason": (data.reason or "").strip() or None,
-                "return_date": str(data.return_date) if data.return_date else str(date.today()),
-                "lines": return_lines,
-            }
-
-            # 5. Queue via outbox
-            cur.execute(
-                """
-                INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
-                VALUES (gen_random_uuid(), %s, 'sale.returned', %s::jsonb)
-                RETURNING id
-                """,
-                (str(device_id), json.dumps(payload, default=str)),
-            )
-            return {"event_id": cur.fetchone()["id"]}
+                # 5. Queue via outbox
+                cur.execute(
+                    """
+                    INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
+                    VALUES (gen_random_uuid(), %s, 'sale.returned', %s::jsonb)
+                    RETURNING id
+                    """,
+                    (str(device_id), json.dumps(payload, default=str)),
+                )
+                return {"event_id": cur.fetchone()["id"]}
 
 
 @router.get("/returns", dependencies=[Depends(require_permission("sales:read"))])
@@ -2337,6 +2352,7 @@ def void_sales_return(return_id: str, data: SalesReturnVoidIn, company_id: str =
                     cur, company_id, "sales_return", str(return_id),
                     "sales_return_void", cancel_date, user["user_id"], memo,
                 )
+                assert_journal_balanced(cur, void_journal_id)
 
                 # Reverse stock moves: for each qty_in (returned stock), create a qty_out
                 cur.execute(
@@ -2500,8 +2516,8 @@ def void_sales_return(return_id: str, data: SalesReturnVoidIn, company_id: str =
 
                 # Update status
                 cur.execute(
-                    "UPDATE sales_returns SET status='canceled' WHERE id=%s",
-                    (return_id,),
+                    "UPDATE sales_returns SET status='canceled' WHERE company_id=%s AND id=%s",
+                    (company_id, return_id),
                 )
 
                 cur.execute(
@@ -2907,6 +2923,7 @@ def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: st
                     user["user_id"],
                     memo,
                 )
+                assert_journal_balanced(cur, void_journal_id)
 
                 # Reverse bank transaction if we had auto-created one for this payment.
                 cur.execute(
@@ -3174,25 +3191,26 @@ def create_sales_invoice(data: SalesInvoiceIn, company_id: str = Depends(get_com
     payload = data.model_dump()
     with get_conn() as conn:
         set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1 FROM pos_devices
-                WHERE id = %s AND company_id = %s
-                """,
-                (data.device_id, company_id),
-            )
-            if not cur.fetchone():
-                raise HTTPException(status_code=400, detail="invalid device_id")
-            cur.execute(
-                """
-                INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
-                VALUES (gen_random_uuid(), %s, 'sale.completed', %s::jsonb)
-                RETURNING id
-                """,
-                (data.device_id, json.dumps(payload, default=str)),
-            )
-            return {"event_id": cur.fetchone()["id"]}
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1 FROM pos_devices
+                    WHERE id = %s AND company_id = %s
+                    """,
+                    (data.device_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail="invalid device_id")
+                cur.execute(
+                    """
+                    INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
+                    VALUES (gen_random_uuid(), %s, 'sale.completed', %s::jsonb)
+                    RETURNING id
+                    """,
+                    (data.device_id, json.dumps(payload, default=str)),
+                )
+                return {"event_id": cur.fetchone()["id"]}
 
 
 @router.post("/returns", dependencies=[Depends(require_permission("sales:write"))])
@@ -3200,22 +3218,23 @@ def create_sales_return(data: SalesReturnIn, company_id: str = Depends(get_compa
     payload = data.model_dump()
     with get_conn() as conn:
         set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT 1 FROM pos_devices
-                WHERE id = %s AND company_id = %s
-                """,
-                (data.device_id, company_id),
-            )
-            if not cur.fetchone():
-                raise HTTPException(status_code=400, detail="invalid device_id")
-            cur.execute(
-                """
-                INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
-                VALUES (gen_random_uuid(), %s, 'sale.returned', %s::jsonb)
-                RETURNING id
-                """,
-                (data.device_id, json.dumps(payload, default=str)),
-            )
-            return {"event_id": cur.fetchone()["id"]}
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1 FROM pos_devices
+                    WHERE id = %s AND company_id = %s
+                    """,
+                    (data.device_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail="invalid device_id")
+                cur.execute(
+                    """
+                    INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json)
+                    VALUES (gen_random_uuid(), %s, 'sale.returned', %s::jsonb)
+                    RETURNING id
+                    """,
+                    (data.device_id, json.dumps(payload, default=str)),
+                )
+                return {"event_id": cur.fetchone()["id"]}

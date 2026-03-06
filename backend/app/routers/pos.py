@@ -10,6 +10,7 @@ import secrets
 import json
 from decimal import Decimal
 from psycopg.errors import ForeignKeyViolation, UniqueViolation  # type: ignore
+from psycopg import sql as psycopg_sql
 import time as _time
 import logging as _logging
 
@@ -1019,7 +1020,10 @@ def delete_device(
                 ]
                 for table_name, column_name in checks:
                     cur.execute(
-                        f"SELECT COUNT(*)::int AS n FROM {table_name} WHERE company_id = %s AND {column_name} = %s",
+                        psycopg_sql.SQL("SELECT COUNT(*)::int AS n FROM {} WHERE company_id = %s AND {} = %s").format(
+                            psycopg_sql.Identifier(table_name),
+                            psycopg_sql.Identifier(column_name),
+                        ),
                         (company_id, device_id),
                     )
                     count = int((cur.fetchone() or {}).get("n") or 0)

@@ -10,7 +10,15 @@ _logger = logging.getLogger(__name__)
 
 # Server-side secret for HMAC-based device token hashing.
 # Falls back to a static key if not configured (backward compatibility).
-_DEVICE_TOKEN_SECRET = (os.environ.get("DEVICE_TOKEN_HMAC_SECRET") or "codex-pos-device-token-default-key").encode("utf-8")
+DEVICE_TOKEN_HMAC_SECRET = os.getenv("DEVICE_TOKEN_HMAC_SECRET", "")
+if not DEVICE_TOKEN_HMAC_SECRET:
+    import logging as _sec_logging
+    _sec_logging.getLogger(__name__).warning(
+        "DEVICE_TOKEN_HMAC_SECRET not set — using insecure default. "
+        "Set this in production!"
+    )
+    DEVICE_TOKEN_HMAC_SECRET = "codex-pos-device-token-default-key"
+_DEVICE_TOKEN_SECRET = DEVICE_TOKEN_HMAC_SECRET.encode("utf-8")
 
 
 def hash_password(password: str) -> str:

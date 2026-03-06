@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ahtrading}
       POSTGRES_USER: ${POSTGRES_USER:-ahtrading}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ahtrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -61,11 +61,11 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-prod}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:-ahtrading}@db:5432/${POSTGRES_DB:-ahtrading}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-ahtrading}
       # Non-superuser app role used by API/worker so RLS is actually enforced.
       APP_DB_USER: ${APP_DB_USER:-ahapp}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
-      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/${POSTGRES_DB:-ahtrading}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}@db:5432/${POSTGRES_DB:-ahtrading}
 
       # Admin bootstrap (use once, then disable).
       BOOTSTRAP_ADMIN: ${BOOTSTRAP_ADMIN:-0}
@@ -121,10 +121,10 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:-ahtrading}@db:5432/${POSTGRES_DB:-ahtrading}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-ahtrading}
       APP_DB_USER: ${APP_DB_USER:-ahapp}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
-      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/${POSTGRES_DB:-ahtrading}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}@db:5432/${POSTGRES_DB:-ahtrading}
 
       # Edge -> Cloud sync (worker needs the same env as api).
       EDGE_SYNC_TARGET_URL: ${EDGE_SYNC_TARGET_URL:-}
@@ -184,10 +184,10 @@ services:
     restart: "no"
     environment:
       APP_ENV: ${APP_ENV:-prod}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:-ahtrading}@db:5432/${POSTGRES_DB:-ahtrading}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-ahtrading}
       APP_DB_USER: ${APP_DB_USER:-ahapp}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
-      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/${POSTGRES_DB:-ahtrading}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:?APP_DB_PASSWORD must be set}@db:5432/${POSTGRES_DB:-ahtrading}
     depends_on:
       db:
         condition: service_healthy

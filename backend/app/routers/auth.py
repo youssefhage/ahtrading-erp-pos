@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
@@ -20,6 +20,49 @@ _LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes
 _LOGIN_PRUNE_INTERVAL = 600  # prune every 10 minutes
 _LOGIN_ENTRY_TTL = 900  # expire entries after 15 minutes of inactivity
 _login_last_prune: float = 0.0
+
+_ip_login_attempts: dict = {}  # ip -> {"count": int, "locked_until": float, "last_activity": float}
+_ip_login_last_prune: float = 0.0
+
+
+def _prune_ip_login_attempts():
+    """Remove expired IP-based entries to prevent unbounded dict growth."""
+    global _ip_login_last_prune
+    now = _time.time()
+    if now - _ip_login_last_prune < _LOGIN_PRUNE_INTERVAL:
+        return
+    _ip_login_last_prune = now
+    expired = [
+        k for k, v in _ip_login_attempts.items()
+        if v.get("locked_until", 0) < now and (now - v.get("last_activity", 0)) > _LOGIN_ENTRY_TTL
+    ]
+    for k in expired:
+        _ip_login_attempts.pop(k, None)
+
+
+def _check_ip_rate_limit(ip: str) -> bool:
+    """Returns True if the IP should be blocked."""
+    _prune_ip_login_attempts()
+    now = _time.time()
+    entry = _ip_login_attempts.get(ip)
+    if entry and entry.get("locked_until", 0) > now:
+        return True
+    return False
+
+
+def _record_ip_login_failure(ip: str):
+    now = _time.time()
+    entry = _ip_login_attempts.get(ip, {"count": 0, "locked_until": 0})
+    entry["count"] = entry.get("count", 0) + 1
+    entry["last_activity"] = now
+    if entry["count"] >= _LOGIN_MAX_ATTEMPTS:
+        entry["locked_until"] = now + _LOGIN_LOCKOUT_SECONDS
+        entry["count"] = 0
+    _ip_login_attempts[ip] = entry
+
+
+def _reset_ip_login_attempts(ip: str):
+    _ip_login_attempts.pop(ip, None)
 
 
 def _prune_login_attempts():
@@ -106,10 +149,13 @@ class LoginIn(BaseModel):
 
 
 @router.post("/login")
-def login(data: LoginIn):
+def login(data: LoginIn, request: Request):
     rate_key = data.email.lower().strip()
+    client_ip = request.client.host if request.client else "unknown"
     if _check_login_rate_limit(rate_key):
         raise HTTPException(status_code=429, detail="too many login attempts, try again later")
+    if _check_ip_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="too many login attempts from this IP, try again later")
     # Use the admin connection for auth because we need to query memberships across companies.
     with get_admin_conn() as conn:
         with conn.cursor() as cur:
@@ -124,9 +170,11 @@ def login(data: LoginIn):
             user = cur.fetchone()
             if not user or not user["is_active"]:
                 _record_login_failure(rate_key)
+                _record_ip_login_failure(client_ip)
                 raise HTTPException(status_code=401, detail="invalid credentials")
             if not verify_password(data.password, user["hashed_password"]):
                 _record_login_failure(rate_key)
+                _record_ip_login_failure(client_ip)
                 raise HTTPException(status_code=401, detail="invalid credentials")
 
             if needs_rehash(user["hashed_password"]):
@@ -165,6 +213,7 @@ def login(data: LoginIn):
                     (user["id"], hash_session_token(mfa_token), mfa_expires),
                 )
                 _reset_login_attempts(rate_key)
+                _reset_ip_login_attempts(client_ip)
                 return {
                     "mfa_required": True,
                     "mfa_token": mfa_token,
@@ -174,6 +223,7 @@ def login(data: LoginIn):
                 }
 
             _reset_login_attempts(rate_key)
+            _reset_ip_login_attempts(client_ip)
             # Use a strong random token and store only a one-way hash in the DB.
             token = secrets.token_urlsafe(32)
             expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)

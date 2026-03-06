@@ -217,6 +217,9 @@ def _reverse_gl_journal(cur, company_id: str, source_type: str, source_id: str, 
             ),
         )
 
+    auto_balance_journal(cur, new_journal_id)
+    assert_journal_balanced(cur, new_journal_id)
+
     return new_journal_id
 
 def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
@@ -227,6 +230,8 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
 def _compute_costed_lines(lines_in, exchange_rate: Decimal):
     # Normalize USD/LBP unit costs using exchange rate and compute line totals.
     exchange_rate = Decimal(str(exchange_rate or 0))
+    if exchange_rate <= 0:
+        raise HTTPException(status_code=400, detail="exchange_rate must be greater than 0")
     out = []
     base_usd = Decimal('0')
     base_lbp = Decimal('0')
@@ -2134,7 +2139,7 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
 
 @router.patch("/orders/{order_id}/draft", dependencies=[Depends(require_permission("purchases:write"))])
 def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
 
@@ -2147,6 +2152,7 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                     SELECT id, status, supplier_id, warehouse_id, supplier_ref, expected_delivery_date, exchange_rate
                     FROM purchase_orders
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, order_id),
                 )
@@ -2857,7 +2863,7 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
 
 @router.patch("/receipts/{receipt_id}/draft", dependencies=[Depends(require_permission("purchases:write"))])
 def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
 
@@ -2870,6 +2876,7 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                     SELECT id, status, supplier_id, supplier_ref, warehouse_id, exchange_rate, purchase_order_id
                     FROM goods_receipts
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, receipt_id),
                 )
@@ -3732,7 +3739,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
 
 @router.patch("/invoices/{invoice_id}/draft", dependencies=[Depends(require_permission("purchases:write"))])
 def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
 
@@ -3745,6 +3752,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                     SELECT id, status, supplier_id, invoice_no, supplier_ref, exchange_rate, invoice_date, due_date, tax_code_id, goods_receipt_id
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, invoice_id),
                 )
@@ -5175,8 +5183,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                       (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    # Payment journals don't require an FX rate; keep 0 for auditability consistency.
-                    (company_id, f"SP-{str(payment_id)[:8]}", payment_id, pay_date, 0, "Supplier payment", user["user_id"]),
+                    (company_id, f"SP-{str(payment_id)[:8]}", payment_id, pay_date, Decimal(str(inv.get("exchange_rate") or 0)), "Supplier payment", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 

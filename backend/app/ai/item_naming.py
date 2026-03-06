@@ -25,6 +25,8 @@ def _responses_api_call(payload: dict[str, Any], *, base_url: str | None = None,
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        body = re.sub(r'(Bearer\s+)\S+', r'\1[REDACTED]', body)
+        body = re.sub(r'(sk-|key-)[A-Za-z0-9]+', '[REDACTED_KEY]', body)
         raise RuntimeError(f"OpenAI HTTP {getattr(e, 'code', '?')}: {body}") from e
 
 
