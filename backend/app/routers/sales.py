@@ -716,7 +716,9 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                        l.discount_pct, l.discount_amount_usd, l.discount_amount_lbp,
                        l.applied_promotion_id, l.applied_promotion_item_id, l.applied_price_list_id,
                        l.line_total_usd, l.line_total_lbp,
-                       l.price_override, l.original_list_price_usd, l.original_list_price_lbp
+                       l.price_override, l.original_list_price_usd, l.original_list_price_lbp,
+                       l.unit_cost_usd, l.unit_cost_lbp,
+                       l.replacement_cost_usd, l.replacement_cost_lbp
                 FROM sales_invoice_lines l
                 LEFT JOIN items it
                   ON it.company_id = %s AND it.id = l.item_id

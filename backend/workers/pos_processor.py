@@ -981,6 +981,51 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     if not lines:
         raise ValueError("sale event has no lines")
 
+    # ── Batch-fetch replacement costs from price lists ──────────────
+    # Each line may carry applied_price_list_id; fall back to company default.
+    cur.execute(
+        "SELECT value_json->>'id' AS id FROM company_settings WHERE company_id=%s AND key='default_price_list_id'",
+        (company_id,),
+    )
+    _srow = cur.fetchone()
+    _default_pl_id = _srow["id"] if _srow else None
+
+    _rc_pairs: set[tuple[str, str]] = set()
+    for _l in lines:
+        _pl = _l.get("applied_price_list_id") or _default_pl_id
+        _iid = _l.get("item_id")
+        if _pl and _iid:
+            _rc_pairs.add((str(_pl), str(_iid)))
+
+    _replacement_costs: dict[tuple[str, str], tuple[Decimal, Decimal]] = {}
+    if _rc_pairs:
+        _rc_pl_ids = [p[0] for p in _rc_pairs]
+        _rc_item_ids = [p[1] for p in _rc_pairs]
+        cur.execute(
+            """
+            SELECT req.pl_id, req.item_id, lc.cost_usd, lc.cost_lbp
+            FROM unnest(%s::uuid[], %s::uuid[]) AS req(pl_id, item_id)
+            LEFT JOIN LATERAL (
+                SELECT cost_usd, cost_lbp
+                FROM price_list_items pli
+                WHERE pli.company_id = %s
+                  AND pli.price_list_id = req.pl_id
+                  AND pli.item_id = req.item_id
+                  AND pli.effective_from <= CURRENT_DATE
+                  AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
+                ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
+                LIMIT 1
+            ) lc ON true
+            """,
+            (_rc_pl_ids, _rc_item_ids, company_id),
+        )
+        for _rcrow in (cur.fetchall() or []):
+            _replacement_costs[(str(_rcrow["pl_id"]), str(_rcrow["item_id"]))] = (
+                Decimal(str(_rcrow["cost_usd"] or 0)),
+                Decimal(str(_rcrow["cost_lbp"] or 0)),
+            )
+    # ── End replacement cost batch-fetch ────────────────────────────
+
     base_usd = Decimal("0")
     base_lbp = Decimal("0")
     discount_total_usd = Decimal("0")
@@ -1043,6 +1088,13 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         l["_resolved_unit_cost_lbp"] = str(unit_cost_lbp)
         total_cost_usd += q_usd(qty * unit_cost_usd)
         total_cost_lbp += q_lbp(qty * unit_cost_lbp)
+
+        # Replacement cost snapshot (from price list, for pricing analysis).
+        _rc_pl = l.get("applied_price_list_id") or _default_pl_id
+        _rc_key = (str(_rc_pl), str(l.get("item_id"))) if _rc_pl and l.get("item_id") else None
+        _rc_u, _rc_l = _replacement_costs.get(_rc_key, (Decimal("0"), Decimal("0"))) if _rc_key else (Decimal("0"), Decimal("0"))
+        l["_resolved_replacement_cost_usd"] = str(_rc_u)
+        l["_resolved_replacement_cost_lbp"] = str(_rc_l)
 
     tax = payload.get("tax") or None
     tax_rows: list[dict] = []
@@ -1294,7 +1346,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                discount_pct, discount_amount_usd, discount_amount_lbp,
                applied_promotion_id, applied_promotion_item_id, applied_price_list_id,
-               line_no)
+               line_no,
+               unit_cost_usd, unit_cost_lbp, replacement_cost_usd, replacement_cost_lbp)
             VALUES
               (%s, %s, %s, %s, %s, %s, %s, %s,
                %s, %s, %s,
@@ -1302,7 +1355,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                %s, %s,
                %s, %s, %s,
                %s, %s, %s,
-               %s)
+               %s,
+               %s, %s, %s, %s)
             """,
             (
                 line_id,
@@ -1328,6 +1382,10 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 l.get("applied_promotion_item_id"),
                 l.get("applied_price_list_id"),
                 line_no,
+                Decimal(str(l.get("_resolved_unit_cost_usd", 0) or 0)),
+                Decimal(str(l.get("_resolved_unit_cost_lbp", 0) or 0)),
+                Decimal(str(l.get("_resolved_replacement_cost_usd", 0) or 0)),
+                Decimal(str(l.get("_resolved_replacement_cost_lbp", 0) or 0)),
             ),
         )
 

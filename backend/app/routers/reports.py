@@ -1912,6 +1912,20 @@ def sales_margin_by_item(
                     AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
                     AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
                   GROUP BY sm.item_id
+                ),
+                repl_cogs AS (
+                  SELECT l.item_id,
+                         COALESCE(SUM(l.qty * l.replacement_cost_usd), 0) AS repl_cogs_usd,
+                         COALESCE(SUM(l.qty * l.replacement_cost_lbp), 0) AS repl_cogs_lbp
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                    AND l.replacement_cost_usd > 0
+                  GROUP BY l.item_id
                 )
                 SELECT it.id AS item_id,
                        it.sku,
@@ -1922,16 +1936,28 @@ def sales_margin_by_item(
                        COALESCE(cogs.cogs_usd, 0) AS cogs_usd,
                        COALESCE(cogs.cogs_lbp, 0) AS cogs_lbp,
                        (COALESCE(rev.revenue_usd, 0) - COALESCE(cogs.cogs_usd, 0)) AS margin_usd,
-                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp,
+                       COALESCE(repl_cogs.repl_cogs_usd, 0) AS replacement_cogs_usd,
+                       COALESCE(repl_cogs.repl_cogs_lbp, 0) AS replacement_cogs_lbp,
+                       (COALESCE(rev.revenue_usd, 0) - COALESCE(repl_cogs.repl_cogs_usd, 0)) AS replacement_margin_usd,
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(repl_cogs.repl_cogs_lbp, 0)) AS replacement_margin_lbp
                 FROM items it
                 LEFT JOIN rev ON rev.item_id = it.id
                 LEFT JOIN cogs ON cogs.item_id = it.id
+                LEFT JOIN repl_cogs ON repl_cogs.item_id = it.id
                 WHERE it.company_id = %s
                   AND (rev.item_id IS NOT NULL OR cogs.item_id IS NOT NULL)
                 ORDER BY COALESCE(rev.revenue_usd, 0) DESC, it.sku ASC
                 LIMIT %s
                 """,
                 (
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
                     company_id,
                     start_date,
                     end_date,
@@ -1959,6 +1985,12 @@ def sales_margin_by_item(
                 mar_lbp = Decimal(str(r.get("margin_lbp") or 0))
                 r["margin_pct_usd"] = (mar_usd / rev_usd) if rev_usd else None
                 r["margin_pct_lbp"] = (mar_lbp / rev_lbp) if rev_lbp else None
+                repl_cogs_usd = Decimal(str(r.get("replacement_cogs_usd") or 0))
+                repl_mar_usd = Decimal(str(r.get("replacement_margin_usd") or 0))
+                r["replacement_margin_pct_usd"] = float(repl_mar_usd / rev_usd) if (rev_usd and repl_cogs_usd) else None
+                repl_cogs_lbp = Decimal(str(r.get("replacement_cogs_lbp") or 0))
+                repl_mar_lbp = Decimal(str(r.get("replacement_margin_lbp") or 0))
+                r["replacement_margin_pct_lbp"] = float(repl_mar_lbp / rev_lbp) if (rev_lbp and repl_cogs_lbp) else None
             return {
                 "start_date": str(start_date),
                 "end_date": str(end_date),
@@ -2022,6 +2054,20 @@ def sales_margin_by_customer(
                     AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
                     AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
                   GROUP BY i.customer_id
+                ),
+                repl_cogs AS (
+                  SELECT i.customer_id,
+                         COALESCE(SUM(l.qty * l.replacement_cost_usd), 0) AS repl_cogs_usd,
+                         COALESCE(SUM(l.qty * l.replacement_cost_lbp), 0) AS repl_cogs_lbp
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                    AND l.replacement_cost_usd > 0
+                  GROUP BY i.customer_id
                 )
                 SELECT c.id AS customer_id,
                        c.code AS customer_code,
@@ -2031,16 +2077,28 @@ def sales_margin_by_customer(
                        COALESCE(cogs.cogs_usd, 0) AS cogs_usd,
                        COALESCE(cogs.cogs_lbp, 0) AS cogs_lbp,
                        (COALESCE(rev.revenue_usd, 0) - COALESCE(cogs.cogs_usd, 0)) AS margin_usd,
-                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp,
+                       COALESCE(repl_cogs.repl_cogs_usd, 0) AS replacement_cogs_usd,
+                       COALESCE(repl_cogs.repl_cogs_lbp, 0) AS replacement_cogs_lbp,
+                       (COALESCE(rev.revenue_usd, 0) - COALESCE(repl_cogs.repl_cogs_usd, 0)) AS replacement_margin_usd,
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(repl_cogs.repl_cogs_lbp, 0)) AS replacement_margin_lbp
                 FROM customers c
                 LEFT JOIN rev ON rev.customer_id = c.id
                 LEFT JOIN cogs ON cogs.customer_id = c.id
+                LEFT JOIN repl_cogs ON repl_cogs.customer_id = c.id
                 WHERE c.company_id = %s
                   AND (rev.customer_id IS NOT NULL OR cogs.customer_id IS NOT NULL)
                 ORDER BY COALESCE(rev.revenue_usd, 0) DESC, c.name ASC
                 LIMIT %s
                 """,
                 (
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
                     company_id,
                     start_date,
                     end_date,
@@ -2067,6 +2125,12 @@ def sales_margin_by_customer(
                 mar_lbp = Decimal(str(r.get("margin_lbp") or 0))
                 r["margin_pct_usd"] = (mar_usd / rev_usd) if rev_usd else None
                 r["margin_pct_lbp"] = (mar_lbp / rev_lbp) if rev_lbp else None
+                repl_cogs_usd = Decimal(str(r.get("replacement_cogs_usd") or 0))
+                repl_mar_usd = Decimal(str(r.get("replacement_margin_usd") or 0))
+                r["replacement_margin_pct_usd"] = float(repl_mar_usd / rev_usd) if (rev_usd and repl_cogs_usd) else None
+                repl_cogs_lbp = Decimal(str(r.get("replacement_cogs_lbp") or 0))
+                repl_mar_lbp = Decimal(str(r.get("replacement_margin_lbp") or 0))
+                r["replacement_margin_pct_lbp"] = float(repl_mar_lbp / rev_lbp) if (rev_lbp and repl_cogs_lbp) else None
             return {
                 "start_date": str(start_date),
                 "end_date": str(end_date),
@@ -2132,6 +2196,21 @@ def sales_margin_by_category(
                     AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
                     AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
                   GROUP BY it.category_id
+                ),
+                repl_cogs AS (
+                  SELECT it.category_id,
+                         COALESCE(SUM(l.qty * l.replacement_cost_usd), 0) AS repl_cogs_usd,
+                         COALESCE(SUM(l.qty * l.replacement_cost_lbp), 0) AS repl_cogs_lbp
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  JOIN items it ON it.id = l.item_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                    AND l.replacement_cost_usd > 0
+                  GROUP BY it.category_id
                 )
                 SELECT cat.id AS category_id,
                        cat.name,
@@ -2140,16 +2219,28 @@ def sales_margin_by_category(
                        COALESCE(cogs.cogs_usd, 0) AS cogs_usd,
                        COALESCE(cogs.cogs_lbp, 0) AS cogs_lbp,
                        (COALESCE(rev.revenue_usd, 0) - COALESCE(cogs.cogs_usd, 0)) AS margin_usd,
-                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp,
+                       COALESCE(repl_cogs.repl_cogs_usd, 0) AS replacement_cogs_usd,
+                       COALESCE(repl_cogs.repl_cogs_lbp, 0) AS replacement_cogs_lbp,
+                       (COALESCE(rev.revenue_usd, 0) - COALESCE(repl_cogs.repl_cogs_usd, 0)) AS replacement_margin_usd,
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(repl_cogs.repl_cogs_lbp, 0)) AS replacement_margin_lbp
                 FROM item_categories cat
                 LEFT JOIN rev ON rev.category_id = cat.id
                 LEFT JOIN cogs ON cogs.category_id = cat.id
+                LEFT JOIN repl_cogs ON repl_cogs.category_id = cat.id
                 WHERE cat.company_id = %s
                   AND (rev.category_id IS NOT NULL OR cogs.category_id IS NOT NULL)
                 ORDER BY COALESCE(rev.revenue_usd, 0) DESC, cat.name ASC
                 LIMIT %s
                 """,
                 (
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
                     company_id,
                     start_date,
                     end_date,
@@ -2176,6 +2267,12 @@ def sales_margin_by_category(
                 mar_lbp = Decimal(str(r.get("margin_lbp") or 0))
                 r["margin_pct_usd"] = (mar_usd / rev_usd) if rev_usd else None
                 r["margin_pct_lbp"] = (mar_lbp / rev_lbp) if rev_lbp else None
+                repl_cogs_usd = Decimal(str(r.get("replacement_cogs_usd") or 0))
+                repl_mar_usd = Decimal(str(r.get("replacement_margin_usd") or 0))
+                r["replacement_margin_pct_usd"] = float(repl_mar_usd / rev_usd) if (rev_usd and repl_cogs_usd) else None
+                repl_cogs_lbp = Decimal(str(r.get("replacement_cogs_lbp") or 0))
+                repl_mar_lbp = Decimal(str(r.get("replacement_margin_lbp") or 0))
+                r["replacement_margin_pct_lbp"] = float(repl_mar_lbp / rev_lbp) if (rev_lbp and repl_cogs_lbp) else None
             return {
                 "start_date": str(start_date),
                 "end_date": str(end_date),

@@ -34,6 +34,12 @@ type Row = {
   margin_lbp: string | number;
   margin_pct_usd?: number | null;
   margin_pct_lbp?: number | null;
+  replacement_cogs_usd?: string | number;
+  replacement_cogs_lbp?: string | number;
+  replacement_margin_usd?: string | number;
+  replacement_margin_lbp?: string | number;
+  replacement_margin_pct_usd?: number | null;
+  replacement_margin_pct_lbp?: number | null;
 };
 
 type Res = {
@@ -82,14 +88,24 @@ export default function MarginByItemPage() {
 
   const totals = useMemo(() => {
     let revUsd = 0, revLbp = 0, cogsUsd = 0, cogsLbp = 0;
+    let replCogsUsd = 0, replCogsLbp = 0;
     for (const r of data?.rows || []) {
       revUsd += toNum(r.revenue_usd); revLbp += toNum(r.revenue_lbp);
       cogsUsd += toNum(r.cogs_usd); cogsLbp += toNum(r.cogs_lbp);
+      replCogsUsd += toNum(r.replacement_cogs_usd);
+      replCogsLbp += toNum(r.replacement_cogs_lbp);
     }
-    return { revUsd, revLbp, cogsUsd, cogsLbp, marUsd: revUsd - cogsUsd, marLbp: revLbp - cogsLbp };
+    return {
+      revUsd, revLbp, cogsUsd, cogsLbp,
+      marUsd: revUsd - cogsUsd, marLbp: revLbp - cogsLbp,
+      replCogsUsd, replCogsLbp,
+      replMarUsd: replCogsUsd > 0 ? revUsd - replCogsUsd : 0,
+      replMarLbp: replCogsLbp > 0 ? revLbp - replCogsLbp : 0,
+    };
   }, [data]);
 
   const marginTrend = totals.marUsd > 0 ? "up" as const : totals.marUsd < 0 ? "down" as const : "neutral" as const;
+  const replMarginTrend = totals.replMarUsd > 0 ? "up" as const : totals.replMarUsd < 0 ? "down" as const : "neutral" as const;
 
   const load = useCallback(async () => {
     setError("");
@@ -133,7 +149,7 @@ export default function MarginByItemPage() {
       ),
     },
     {
-      id: "cogs_usd", accessorFn: (r) => toNum(r.cogs_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="COGS" />,
+      id: "cogs_usd", accessorFn: (r) => toNum(r.cogs_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Actual COGS" />,
       cell: ({ row }) => (
         <div className="text-right">
           <CurrencyDisplay amount={toNum(row.original.cogs_usd)} currency="USD" className="font-mono text-sm" />
@@ -142,7 +158,7 @@ export default function MarginByItemPage() {
       ),
     },
     {
-      id: "margin_usd", accessorFn: (r) => toNum(r.margin_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Margin" />,
+      id: "margin_usd", accessorFn: (r) => toNum(r.margin_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Actual Margin" />,
       cell: ({ row }) => (
         <div className="text-right">
           <CurrencyDisplay amount={toNum(row.original.margin_usd)} currency="USD" className="font-mono text-sm" />
@@ -150,14 +166,52 @@ export default function MarginByItemPage() {
         </div>
       ),
     },
-    { id: "margin_pct_usd", accessorFn: (r) => toNum(r.margin_pct_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Margin %" />, cell: ({ row }) => <div className="text-right font-mono text-sm">{fmtPct(row.original.margin_pct_usd)}</div> },
+    { id: "margin_pct_usd", accessorFn: (r) => toNum(r.margin_pct_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Actual %" />, cell: ({ row }) => <div className="text-right font-mono text-sm">{fmtPct(row.original.margin_pct_usd)}</div> },
+    {
+      id: "repl_cogs_usd", accessorFn: (r) => toNum(r.replacement_cogs_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Repl. COGS" />,
+      cell: ({ row }) => {
+        const v = toNum(row.original.replacement_cogs_usd);
+        if (v === 0) return <div className="text-right text-sm text-muted-foreground">-</div>;
+        return (
+          <div className="text-right">
+            <CurrencyDisplay amount={v} currency="USD" className="font-mono text-sm" />
+            <div className="text-xs text-muted-foreground">{fmtLbp(row.original.replacement_cogs_lbp)}</div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "repl_margin_usd", accessorFn: (r) => toNum(r.replacement_margin_usd), header: ({ column }) => <DataTableColumnHeader column={column} title="Repl. Margin" />,
+      cell: ({ row }) => {
+        const v = toNum(row.original.replacement_margin_usd);
+        const hasData = toNum(row.original.replacement_cogs_usd) > 0;
+        if (!hasData) return <div className="text-right text-sm text-muted-foreground">-</div>;
+        return (
+          <div className="text-right">
+            <CurrencyDisplay amount={v} currency="USD" className="font-mono text-sm" />
+            <div className="text-xs text-muted-foreground">{fmtLbp(row.original.replacement_margin_lbp)}</div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "repl_margin_pct", accessorFn: (r) => toNum(r.replacement_margin_pct_usd),
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Repl. %" />,
+      cell: ({ row }) => {
+        const pct = row.original.replacement_margin_pct_usd;
+        if (pct == null) return <div className="text-right text-sm text-muted-foreground">-</div>;
+        const n = Number(pct);
+        const color = n >= 0.30 ? "text-emerald-600" : n >= 0.15 ? "text-amber-600" : "text-red-600";
+        return <div className={`text-right font-mono text-sm font-medium ${color}`}>{fmtPct(pct)}</div>;
+      },
+    },
   ], []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <PageHeader
         title="Margin by Item"
-        description={`Posted sales invoices, using stock moves for COGS -- ${data?.rows?.length || 0} items`}
+        description={`Posted sales invoices — ${data?.rows?.length || 0} items. Actual COGS from stock moves, Repl. COGS from supplier price at time of sale.`}
         actions={
           <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -213,10 +267,11 @@ export default function MarginByItemPage() {
       </Card>
 
       {/* KPI cards */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         <KpiCard title="Revenue" value={fmtUsd(totals.revUsd)} description={fmtLbp(totals.revLbp)} trend="up" />
-        <KpiCard title="COGS" value={fmtUsd(totals.cogsUsd)} description={fmtLbp(totals.cogsLbp)} trend="down" />
-        <KpiCard title="Margin" value={fmtUsd(totals.marUsd)} description={fmtLbp(totals.marLbp)} trend={marginTrend} />
+        <KpiCard title="Actual COGS" value={fmtUsd(totals.cogsUsd)} description={fmtLbp(totals.cogsLbp)} trend="down" />
+        <KpiCard title="Actual Margin" value={fmtUsd(totals.marUsd)} description={fmtLbp(totals.marLbp)} trend={marginTrend} />
+        <KpiCard title="Repl. Margin" value={totals.replCogsUsd > 0 ? fmtUsd(totals.replMarUsd) : "-"} description={totals.replCogsLbp > 0 ? fmtLbp(totals.replMarLbp) : "No replacement cost data"} trend={totals.replCogsUsd > 0 ? replMarginTrend : "neutral"} />
       </div>
 
       <DataTable columns={columns} data={data?.rows || []} isLoading={loading} searchPlaceholder="Search SKU / item..." />

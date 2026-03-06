@@ -308,7 +308,8 @@ def import_sales_invoice_bundle(
                            unit_price_entered_usd, unit_price_entered_lbp,
                            pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                            discount_pct, discount_amount_usd, discount_amount_lbp,
-                           applied_promotion_id, applied_promotion_item_id, applied_price_list_id)
+                           applied_promotion_id, applied_promotion_item_id, applied_price_list_id,
+                           unit_cost_usd, unit_cost_lbp, replacement_cost_usd, replacement_cost_lbp)
                         VALUES
                           (%s::uuid, %s::uuid, %s::uuid, %s, %s,
                            %s, %s, %s, %s,
@@ -316,7 +317,8 @@ def import_sales_invoice_bundle(
                            %s, %s,
                            %s, %s,
                            %s, %s, %s,
-                           %s::uuid, %s::uuid, %s::uuid)
+                           %s::uuid, %s::uuid, %s::uuid,
+                           %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
                         """,
                         (
@@ -342,6 +344,10 @@ def import_sales_invoice_bundle(
                             l.get("applied_promotion_id"),
                             l.get("applied_promotion_item_id"),
                             l.get("applied_price_list_id"),
+                            l.get("unit_cost_usd") or 0,
+                            l.get("unit_cost_lbp") or 0,
+                            l.get("replacement_cost_usd") or 0,
+                            l.get("replacement_cost_lbp") or 0,
                         ),
                     )
 
