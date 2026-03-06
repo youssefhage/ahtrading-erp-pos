@@ -47,6 +47,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -633,7 +634,17 @@ export default function PriceListsPage() {
     {
       accessorFn: (li) => Number(li.cost_usd || 0),
       id: "cost_usd",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Cost $" />,
+      header: ({ column }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span><DataTableColumnHeader column={column} title="Repl. Cost $" /></span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[240px] text-xs">
+            <p className="font-semibold">Replacement Cost (USD)</p>
+            <p>Today&apos;s market price to replenish this item from the supplier. Used for pricing decisions &amp; margin display only — does NOT affect COGS or accounting.</p>
+          </TooltipContent>
+        </Tooltip>
+      ),
       cell: ({ row }) => {
         const v = Number(row.original.cost_usd || 0);
         if (!editMode) return <span className="font-mono text-xs text-muted-foreground">{v > 0 ? v : "-"}</span>;
@@ -655,7 +666,17 @@ export default function PriceListsPage() {
     {
       accessorFn: (li) => Number(li.cost_lbp || 0),
       id: "cost_lbp",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Cost L" />,
+      header: ({ column }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span><DataTableColumnHeader column={column} title="Repl. Cost L" /></span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[240px] text-xs">
+            <p className="font-semibold">Replacement Cost (LBP)</p>
+            <p>Today&apos;s market price to replenish this item. For pricing decisions only — does NOT affect COGS.</p>
+          </TooltipContent>
+        </Tooltip>
+      ),
       cell: ({ row }) => {
         const v = Number(row.original.cost_lbp || 0);
         if (!editMode) return <span className="font-mono text-xs text-muted-foreground">{v > 0 ? v : "-"}</span>;
@@ -676,7 +697,16 @@ export default function PriceListsPage() {
     },
     {
       id: "margin",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Margin" />,
+      header: ({ column }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span><DataTableColumnHeader column={column} title="Margin" /></span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[220px] text-xs">
+            Based on replacement cost, not historical purchase cost. Shows if your sell price covers today&apos;s supplier price.
+          </TooltipContent>
+        </Tooltip>
+      ),
       cell: ({ row }) => {
         const price = Number(row.original.price_usd || 0);
         const cost = Number(row.original.cost_usd || 0);
@@ -888,7 +918,7 @@ export default function PriceListsPage() {
                       </Badge>
                     ) : null}
                   </DialogTitle>
-                  <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
+                  <DialogDescription>Sell prices &amp; replacement costs (what the supplier charges today). Your actual purchase cost (COGS) from invoices is tracked separately and is never changed here.</DialogDescription>
                 </div>
                 <Button
                   variant={editMode ? "default" : "outline"}
@@ -1082,15 +1112,18 @@ export default function PriceListsPage() {
                             <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Replacement Cost USD</Label>
-                            <Input value={addCostUsd} onChange={(e) => setAddCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Replacement Cost USD</Label>
+                              <Input value={addCostUsd} onChange={(e) => setAddCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Replacement Cost LBP</Label>
+                              <Input value={addCostLbp} onChange={(e) => setAddCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            <Label>Replacement Cost LBP</Label>
-                            <Input value={addCostLbp} onChange={(e) => setAddCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
-                          </div>
+                          <p className="text-xs text-muted-foreground">What the supplier charges today to buy this item. Used for margin display &amp; pricing rules only — your actual COGS (from purchase invoices) is never affected.</p>
                         </div>
                         <div className="space-y-2">
                           <Label>Effective To (optional)</Label>
@@ -1158,15 +1191,18 @@ export default function PriceListsPage() {
                 <Input value={editLbp} onChange={(e) => setEditLbp(e.target.value)} placeholder="0" inputMode="decimal" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Replacement Cost USD</Label>
-                <Input value={editCostUsd} onChange={(e) => setEditCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Replacement Cost USD</Label>
+                  <Input value={editCostUsd} onChange={(e) => setEditCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Replacement Cost LBP</Label>
+                  <Input value={editCostLbp} onChange={(e) => setEditCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Replacement Cost LBP</Label>
-                <Input value={editCostLbp} onChange={(e) => setEditCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
-              </div>
+              <p className="text-xs text-muted-foreground">What the supplier charges today. Does NOT change your actual COGS from purchase invoices.</p>
             </div>
             <DialogFooter>
               <Button type="submit" disabled={editItemSaving}>
