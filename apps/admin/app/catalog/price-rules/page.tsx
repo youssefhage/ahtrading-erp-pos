@@ -81,20 +81,20 @@ type ItemOverrideRow = {
   item_id: string;
   item_sku: string;
   item_name: string;
-  mode: "exempt" | "markup_pct" | "discount_pct";
+  mode: "exempt" | "markup_pct" | "discount_pct" | "cost_markup_pct";
   pct: number;
 };
 
 type SupplierOverrideRow = {
   supplier_id: string;
   supplier_name: string;
-  mode: "exempt" | "markup_pct" | "discount_pct";
+  mode: "exempt" | "markup_pct" | "discount_pct" | "cost_markup_pct";
   pct: number;
 };
 
 type BrandOverrideRow = {
   brand: string;
-  mode: "exempt" | "markup_pct" | "discount_pct";
+  mode: "exempt" | "markup_pct" | "discount_pct" | "cost_markup_pct";
   pct: number;
 };
 
@@ -106,13 +106,13 @@ type DerivationRow = {
   base_price_list_id: string;
   base_code: string;
   base_name: string;
-  mode: "markup_pct" | "discount_pct";
+  mode: "markup_pct" | "discount_pct" | "cost_markup_pct";
   pct: string | number;
   usd_round_step: string | number;
   lbp_round_step: string | number;
   min_margin_pct: string | number | null;
   skip_if_cost_missing: boolean;
-  category_overrides: { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct"; pct: number }[];
+  category_overrides: { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct" | "cost_markup_pct"; pct: number }[];
   item_overrides: ItemOverrideRow[];
   supplier_overrides: SupplierOverrideRow[];
   brand_overrides: BrandOverrideRow[];
@@ -145,7 +145,7 @@ function displayToFrac(display: string): number {
 /*  Category Overrides                                                        */
 /* -------------------------------------------------------------------------- */
 
-type Override = { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct"; pct: number };
+type Override = { category_id: string; mode: "exempt" | "markup_pct" | "discount_pct" | "cost_markup_pct"; pct: number };
 
 function CategoryOverrides({
   categories,
@@ -191,6 +191,7 @@ function CategoryOverrides({
               <SelectItem value="exempt">Exempt</SelectItem>
               <SelectItem value="markup_pct">Markup</SelectItem>
               <SelectItem value="discount_pct">Discount</SelectItem>
+              <SelectItem value="cost_markup_pct">Cost + Markup</SelectItem>
             </SelectContent>
           </Select>
           {ov.mode !== "exempt" && (
@@ -327,6 +328,7 @@ function ItemOverrides({
               <SelectItem value="exempt">Exempt</SelectItem>
               <SelectItem value="markup_pct">Markup</SelectItem>
               <SelectItem value="discount_pct">Discount</SelectItem>
+              <SelectItem value="cost_markup_pct">Cost + Markup</SelectItem>
             </SelectContent>
           </Select>
           {ov.mode !== "exempt" && (
@@ -489,6 +491,7 @@ function SupplierOverrides({
               <SelectItem value="exempt">Exempt</SelectItem>
               <SelectItem value="markup_pct">Markup</SelectItem>
               <SelectItem value="discount_pct">Discount</SelectItem>
+              <SelectItem value="cost_markup_pct">Cost + Markup</SelectItem>
             </SelectContent>
           </Select>
           {ov.mode !== "exempt" && (
@@ -585,6 +588,7 @@ function BrandOverrides({
               <SelectItem value="exempt">Exempt</SelectItem>
               <SelectItem value="markup_pct">Markup</SelectItem>
               <SelectItem value="discount_pct">Discount</SelectItem>
+              <SelectItem value="cost_markup_pct">Cost + Markup</SelectItem>
             </SelectContent>
           </Select>
           {ov.mode !== "exempt" && (
@@ -653,7 +657,7 @@ export default function PriceRulesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [targetId, setTargetId] = useState("");
   const [baseId, setBaseId] = useState("");
-  const [mode, setMode] = useState<"markup_pct" | "discount_pct">("markup_pct");
+  const [mode, setMode] = useState<"markup_pct" | "discount_pct" | "cost_markup_pct">("markup_pct");
   const [pct, setPct] = useState("5");
   const [usdStep, setUsdStep] = useState("0.25");
   const [lbpStep, setLbpStep] = useState("5000");
@@ -682,7 +686,7 @@ export default function PriceRulesPage() {
   /* ---- Edit ---- */
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState("");
-  const [editMode, setEditMode] = useState<"markup_pct" | "discount_pct">("markup_pct");
+  const [editMode, setEditMode] = useState<"markup_pct" | "discount_pct" | "cost_markup_pct">("markup_pct");
   const [editPct, setEditPct] = useState("");
   const [editUsdStep, setEditUsdStep] = useState("");
   const [editLbpStep, setEditLbpStep] = useState("");
@@ -909,10 +913,11 @@ export default function PriceRulesPage() {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Rule" />,
       cell: ({ row }) => {
         const r = row.original;
-        const sign = r.mode === "markup_pct" ? "+" : "-";
+        const sign = r.mode === "discount_pct" ? "-" : "+";
+        const label = r.mode === "cost_markup_pct" ? "Cost" : "";
         return (
           <Badge variant="secondary" className="font-mono text-xs">
-            {sign}{(pctNum(r.pct) * 100).toFixed(2)}%
+            {label ? `${label} ` : ""}{sign}{(pctNum(r.pct) * 100).toFixed(2)}%
           </Badge>
         );
       },
@@ -953,7 +958,7 @@ export default function PriceRulesPage() {
           const name = categories.find((c) => c.id === o.category_id)?.name || o.category_id.slice(0, 6);
           if (o.mode === "exempt") labels.push(`${name} exempt`);
           else {
-            const sign = o.mode === "markup_pct" ? "+" : "-";
+            const sign = o.mode === "discount_pct" ? "-" : "+";
             labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
           }
         }
@@ -961,7 +966,7 @@ export default function PriceRulesPage() {
           const name = o.item_sku || o.item_id.slice(0, 6);
           if (o.mode === "exempt") labels.push(`${name} exempt`);
           else {
-            const sign = o.mode === "markup_pct" ? "+" : "-";
+            const sign = o.mode === "discount_pct" ? "-" : "+";
             labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
           }
         }
@@ -969,14 +974,14 @@ export default function PriceRulesPage() {
           const name = o.supplier_name || o.supplier_id.slice(0, 6);
           if (o.mode === "exempt") labels.push(`${name} exempt`);
           else {
-            const sign = o.mode === "markup_pct" ? "+" : "-";
+            const sign = o.mode === "discount_pct" ? "-" : "+";
             labels.push(`${name} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
           }
         }
         for (const o of brnOvs) {
           if (o.mode === "exempt") labels.push(`${o.brand} exempt`);
           else {
-            const sign = o.mode === "markup_pct" ? "+" : "-";
+            const sign = o.mode === "discount_pct" ? "-" : "+";
             labels.push(`${o.brand} ${sign}${(Number(o.pct || 0) * 100).toFixed(1)}%`);
           }
         }
@@ -1105,11 +1110,12 @@ export default function PriceRulesPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Mode</Label>
-                      <Select value={mode} onValueChange={(v) => setMode(v as "markup_pct" | "discount_pct")}>
+                      <Select value={mode} onValueChange={(v) => setMode(v as "markup_pct" | "discount_pct" | "cost_markup_pct")}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="markup_pct">Markup (%)</SelectItem>
                           <SelectItem value="discount_pct">Discount (%)</SelectItem>
+                          <SelectItem value="cost_markup_pct">Cost + Markup (%)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1262,11 +1268,12 @@ export default function PriceRulesPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Mode</Label>
-                <Select value={editMode} onValueChange={(v) => setEditMode(v as "markup_pct" | "discount_pct")}>
+                <Select value={editMode} onValueChange={(v) => setEditMode(v as "markup_pct" | "discount_pct" | "cost_markup_pct")}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="markup_pct">Markup (%)</SelectItem>
                     <SelectItem value="discount_pct">Discount (%)</SelectItem>
+                    <SelectItem value="cost_markup_pct">Cost + Markup (%)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

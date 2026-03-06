@@ -463,12 +463,12 @@ def product_catalog(
                        COALESCE(tc.rate, 0) AS tax_rate,
                        COALESCE(plp.price_usd, p.price_usd, 0) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp, 0) AS price_lbp,
-                       COALESCE(i.standard_cost_usd, 0) AS cost_usd,
+                       COALESCE(NULLIF(plp.cost_usd, 0), i.standard_cost_usd, 0) AS cost_usd,
                        COALESCE(barcodes.codes, '') AS barcodes
                 FROM items i
                 LEFT JOIN tax_codes tc ON tc.id = i.tax_code_id
                 LEFT JOIN LATERAL (
-                    SELECT price_usd, price_lbp
+                    SELECT price_usd, price_lbp, cost_usd, cost_lbp
                     FROM price_list_items pli
                     WHERE pli.company_id = i.company_id
                       AND pli.price_list_id = %s::uuid

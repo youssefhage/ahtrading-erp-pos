@@ -1860,6 +1860,8 @@ def list_item_batches(
 class PosItemPriceOverrideIn(BaseModel):
     price_usd: Decimal
     price_lbp: Decimal
+    cost_usd: Decimal = Decimal("0")
+    cost_lbp: Decimal = Decimal("0")
     effective_from: date
     effective_to: Optional[date] = None
     price_list_id: Optional[str] = None
@@ -1904,12 +1906,14 @@ def pos_add_item_price(
                     cur.execute(
                         """
                         INSERT INTO price_list_items
-                          (id, company_id, price_list_id, item_id, price_usd, price_lbp, effective_from, effective_to)
+                          (id, company_id, price_list_id, item_id, price_usd, price_lbp, cost_usd, cost_lbp, effective_from, effective_to)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (company_id, price_list_id, item_id, effective_from) DO UPDATE
                         SET price_usd = EXCLUDED.price_usd,
                             price_lbp = EXCLUDED.price_lbp,
+                            cost_usd = EXCLUDED.cost_usd,
+                            cost_lbp = EXCLUDED.cost_lbp,
                             effective_to = EXCLUDED.effective_to
                         RETURNING id
                         """,
@@ -1919,6 +1923,8 @@ def pos_add_item_price(
                             item_id,
                             data.price_usd,
                             data.price_lbp,
+                            data.cost_usd,
+                            data.cost_lbp,
                             data.effective_from,
                             data.effective_to,
                         ),
