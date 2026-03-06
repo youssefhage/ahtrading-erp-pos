@@ -1190,6 +1190,12 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             receipt_printed_at = None
     receipt_meta = payload.get("receipt_meta") or None
 
+    # Checkout method: how the sale was checked out (cash/credit/delivery).
+    # Falls back to inferring from credit_sale flag for older clients that don't send it.
+    raw_checkout_method = (payload.get("checkout_method") or "").strip().lower() or None
+    if not raw_checkout_method:
+        raw_checkout_method = "credit" if credit_sale else "cash"
+
     cur.execute(
         """
         INSERT INTO sales_invoices
@@ -1199,11 +1205,13 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
            invoice_date, due_date, cashier_id,
            sales_channel,
            branch_id,
-           receipt_no, receipt_seq, receipt_printer, receipt_printed_at, receipt_meta)
+           receipt_no, receipt_seq, receipt_printer, receipt_printed_at, receipt_meta,
+           checkout_method)
         VALUES
           (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
            %s,
-           %s, %s, %s, %s, %s::jsonb)
+           %s, %s, %s, %s, %s::jsonb,
+           %s)
         RETURNING id
         """,
         (
@@ -1234,6 +1242,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             receipt_printer,
             receipt_printed_at,
             json.dumps(receipt_meta) if isinstance(receipt_meta, (dict, list)) else (json.dumps({"value": receipt_meta}) if receipt_meta is not None else None),
+            raw_checkout_method,
         ),
     )
     invoice_id = cur.fetchone()["id"]

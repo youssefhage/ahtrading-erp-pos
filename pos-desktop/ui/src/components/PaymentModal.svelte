@@ -11,8 +11,8 @@
   export let onConfirm = (method, cashTendered) => {};
   export let onCancel = () => {};
 
-  // ── View state: "choose" → "cash" | "credit" ─────────────────────
-  let view = "choose"; // "choose" | "cash" | "credit"
+  // ── View state: "choose" → "cash" | "credit" | "delivery" ────────
+  let view = "choose"; // "choose" | "cash" | "credit" | "delivery"
   let paymentMethod = "cash";
   let cashPrimary = "";
   let cashSecondary = "";
@@ -59,7 +59,7 @@
   }
 
   // ── Payment methods ────────────────────────────────────────────────
-  $: allowedMethods = mode === "return" ? ["cash"] : ["cash", "credit"];
+  $: allowedMethods = mode === "return" ? ["cash"] : ["cash", "credit", "delivery"];
 
   // ── Numeric values & calculations ─────────────────────────────────
   $: pNum = Math.max(0, Number(cashPrimary) || 0);
@@ -85,7 +85,7 @@
       ? roundUsd(creditRemainder / exchangeRate)
       : roundLbp(creditRemainder * exchangeRate);
   })();
-  $: sufficient = view !== "cash" || totalPaid >= tTotal || isPartialCredit;
+  $: sufficient = (view !== "cash") || totalPaid >= tTotal || isPartialCredit;
 
   // Change in secondary currency (for display alongside primary)
   $: changeDueSecondary = (() => {
@@ -126,6 +126,11 @@
   function chooseCredit() {
     paymentMethod = "credit";
     view = "credit";
+  }
+
+  function chooseDelivery() {
+    paymentMethod = "delivery";
+    view = "delivery";
   }
 
   function goBack() {
@@ -209,21 +214,21 @@
               </div>
             </div>
 
-            <!-- Two big method buttons -->
-            <div class="grid grid-cols-2 gap-4 w-full">
+            <!-- Method buttons -->
+            <div class="grid grid-cols-3 gap-3 w-full">
               <button
-                class="group flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-ink/10 bg-surface-highlight/50 hover:bg-emerald-500/12 hover:border-emerald-500/40 active:scale-[0.97] transition-all duration-200"
+                class="group flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border-2 border-ink/10 bg-surface-highlight/50 hover:bg-emerald-500/12 hover:border-emerald-500/40 active:scale-[0.97] transition-all duration-200"
                 on:click={chooseCash}
                 disabled={busy}
               >
                 <div class="p-3 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
                   <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                 </div>
-                <span class="font-bold text-base text-ink/90 group-hover:text-emerald-600 transition-colors">Cash</span>
+                <span class="font-bold text-sm text-ink/90 group-hover:text-emerald-600 transition-colors">Cash</span>
               </button>
 
               <button
-                class="group flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 transition-all duration-200
+                class="group flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border-2 transition-all duration-200
                   {!hasCustomer
                     ? 'border-ink/5 bg-surface-highlight/30 opacity-50 cursor-not-allowed'
                     : 'border-ink/10 bg-surface-highlight/50 hover:bg-amber-500/12 hover:border-amber-500/40 active:scale-[0.97]'}"
@@ -234,7 +239,25 @@
                 <div class="p-3 rounded-full bg-amber-500 text-white shadow-lg shadow-amber-500/30">
                   <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
-                <span class="font-bold text-base text-ink/90 {hasCustomer ? 'group-hover:text-amber-600' : ''} transition-colors">Credit</span>
+                <span class="font-bold text-sm text-ink/90 {hasCustomer ? 'group-hover:text-amber-600' : ''} transition-colors">Credit</span>
+                {#if !hasCustomer}
+                  <span class="text-[10px] text-muted font-medium">Requires customer</span>
+                {/if}
+              </button>
+
+              <button
+                class="group flex flex-col items-center justify-center gap-3 p-5 rounded-2xl border-2 transition-all duration-200
+                  {!hasCustomer
+                    ? 'border-ink/5 bg-surface-highlight/30 opacity-50 cursor-not-allowed'
+                    : 'border-ink/10 bg-surface-highlight/50 hover:bg-sky-500/12 hover:border-sky-500/40 active:scale-[0.97]'}"
+                on:click={chooseDelivery}
+                disabled={busy || !hasCustomer}
+                title={!hasCustomer ? "Select a customer before using delivery" : ""}
+              >
+                <div class="p-3 rounded-full bg-sky-500 text-white shadow-lg shadow-sky-500/30">
+                  <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" /></svg>
+                </div>
+                <span class="font-bold text-sm text-ink/90 {hasCustomer ? 'group-hover:text-sky-600' : ''} transition-colors">Delivery</span>
                 {#if !hasCustomer}
                   <span class="text-[10px] text-muted font-medium">Requires customer</span>
                 {/if}
@@ -296,6 +319,61 @@
               on:click={handleConfirm}
               disabled={busy || !hasCustomer}
               title={!hasCustomer ? "Select a customer before completing credit sale" : ""}
+            >
+              {#if busy}
+                <span class="flex items-center justify-center gap-2">
+                  <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Processing...
+                </span>
+              {:else}
+                {hasCustomer ? "Complete Sale" : "Customer Required"}
+              {/if}
+            </button>
+          </div>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- VIEW: Delivery Confirmation                                -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        {:else if view === "delivery"}
+          <div class="p-6 flex flex-col items-center gap-5">
+            <!-- Total -->
+            <div class="text-center relative py-2">
+              <div class="absolute inset-0 bg-accent/15 blur-3xl rounded-full"></div>
+              <div class="relative">
+                <span class="text-5xl num-readable font-extrabold text-ink tracking-tighter drop-shadow-lg">
+                  {fmtDisplay(total)}
+                </span>
+                <span class="text-lg text-accent font-bold ml-2">{currency}</span>
+              </div>
+            </div>
+
+            <!-- Delivery badge -->
+            <div class="flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-sky-500/12 border border-sky-500/30">
+              <div class="p-1.5 rounded-full bg-sky-500 text-white">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" /></svg>
+              </div>
+              <span class="font-bold text-sky-600 text-sm">Delivery — Payment Pending</span>
+            </div>
+          </div>
+
+          <!-- Footer: Back + Complete -->
+          <div class="p-5 border-t border-ink/10 bg-surface-highlight/40 flex gap-3">
+            <button
+              class="flex-1 py-3.5 px-5 rounded-xl border border-ink/10 bg-surface-highlight/50 text-ink/75 hover:text-ink hover:bg-surface-highlight/60 font-bold transition-colors"
+              on:click={goBack}
+              disabled={busy}
+            >
+              Back
+            </button>
+            <button
+              class="flex-[2] py-3.5 px-5 rounded-xl font-bold text-lg tracking-wide transition-all
+                {!busy && hasCustomer
+                  ? 'bg-accent bg-gradient-to-r from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98]'
+                  : 'bg-surface-highlight/60 text-ink/40 cursor-not-allowed'}
+                {busy ? 'opacity-60 pointer-events-none' : ''}"
+              on:click={handleConfirm}
+              disabled={busy || !hasCustomer}
+              title={!hasCustomer ? "Select a customer before completing delivery sale" : ""}
             >
               {#if busy}
                 <span class="flex items-center justify-center gap-2">

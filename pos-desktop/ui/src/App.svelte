@@ -2271,6 +2271,7 @@
       } : null,
       tax_breakdown: taxBreakdown,
       payments,
+      checkout_method: String(payload.checkout_method || paymentMethod || "cash").trim().toLowerCase(),
       loyalty_points: baseUsd * toNum(cfg.loyalty_rate, 0),
       receipt_meta: payload.receipt_meta || null,
       skip_stock_moves: !!payload.skip_stock_moves,
@@ -3971,7 +3972,7 @@
   const _managerApprovalRequiredForPayload = (cfg, eventType, payload) => {
     const pm = String(payload?.payment_method || payload?.refund_method || "").trim().toLowerCase();
     if (eventType === "sale.completed") {
-      if (cfg?.require_manager_approval_credit && pm === "credit") return true;
+      if (cfg?.require_manager_approval_credit && (pm === "credit" || pm === "delivery")) return true;
       const pilot = payload?.receipt_meta?.pilot || {};
       if (cfg?.require_manager_approval_cross_company && (pilot?.cross_company || pilot?.flagged_for_adjustment)) return true;
       return false;
@@ -8297,6 +8298,7 @@
       }
     }, 45000);
     let payment_method = String(method || "cash").trim().toLowerCase();
+    const isUnpaid = payment_method === "credit" || payment_method === "delivery";
     const isPartialCash = payment_method === "cash" && cashTendered > 0 && cashTendered < checkoutTotal;
     lastSaleSummary = {
       method: isPartialCash ? "split" : payment_method,
@@ -8525,14 +8527,14 @@
       }
 
       const requested_customer_id = (activeCustomer?.id || "").trim() || null;
-      if ((payment_method === "credit" || isPartialCash) && !requested_customer_id) {
-        reportError("Credit sales require a customer.");
+      if ((isUnpaid || isPartialCash) && !requested_customer_id) {
+        reportError(payment_method === "delivery" ? "Delivery sales require a customer." : "Credit sales require a customer.");
         return;
       }
 
       // Fetch fresh customer balance for credit limit validation.
       // Prevents approving credit sales against stale cached balances.
-      if ((payment_method === "credit" || isPartialCash) && requested_customer_id) {
+      if ((isUnpaid || isPartialCash) && requested_customer_id) {
         const creditCompany = effectiveInvoiceCompany();
         try {
           const freshRes = await apiCallFor(creditCompany, `/customers/by-id?customer_id=${encodeURIComponent(requested_customer_id)}`);
@@ -8690,8 +8692,8 @@
       const inferredPrimary = primaryCompanyFromCart();
       const invForPay = effectiveInvoiceCompany();
       const crossCompanyCredit = !!inferredPrimary && !mixedCompanies && invForPay !== inferredPrimary;
-      if (!flagOfficial && crossCompanyCredit && (payment_method === "credit" || isPartialCash)) {
-        reportError("Credit is disabled for cross-company invoices. Use cash/card/transfer, or Flag to invoice Official for review.");
+      if (!flagOfficial && crossCompanyCredit && (isUnpaid || isPartialCash)) {
+        reportError("Credit/delivery is disabled for cross-company invoices. Use cash/card/transfer, or Flag to invoice Official for review.");
         return;
       }
 
@@ -8710,13 +8712,13 @@
             return provisionedId;
           }
 
-          if (payment_method === "credit" || isPartialCash) {
-            throw new Error(`Customer not found on ${companyKey}. Credit sale requires a valid customer.`);
+          if (isUnpaid || isPartialCash) {
+            throw new Error(`Customer not found on ${companyKey}. Credit/delivery sale requires a valid customer.`);
           }
           return null;
         } catch (e) {
-          // For non-credit, don't block checkout if customer link/provision fails.
-          if (payment_method !== "credit" && !isPartialCash) return null;
+          // For non-credit/delivery, don't block checkout if customer link/provision fails.
+          if (!isUnpaid && !isPartialCash) return null;
           throw e;
         }
       };
@@ -8754,8 +8756,8 @@
       // Flag override: issue ONE invoice on Official for later review (even if items are mixed).
       if (flagOfficial) {
         const invoiceCompany = "official";
-        // Manager approval check for credit sales (flag-official path)
-        if (payment_method === "credit" || isPartialCash) {
+        // Manager approval check for credit/delivery sales (flag-official path)
+        if (isUnpaid || isPartialCash) {
           const cfg = cfgFor(invoiceCompany);
           if (!!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(invoiceCompany)) {
             pendingCheckoutMethod = payment_method;
@@ -8806,6 +8808,7 @@
             cart: mapCartLines(cart),
             customer_id,
             payment_method,
+            checkout_method: payment_method,
             cash_tendered: isPartialCash ? cashTendered : undefined,
             receipt_meta,
             pricing_currency: cfg.pricing_currency,
@@ -8838,7 +8841,7 @@
       if (mixedCompanies) {
         const groupId = `split-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
         const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
-        if (payment_method === "credit" || isPartialCash) {
+        if (isUnpaid || isPartialCash) {
           const needsApproval = companiesInOrder.filter((companyKey) => {
             const cfg = cfgFor(companyKey);
             return !!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(companyKey);
@@ -8922,6 +8925,7 @@
             cart: mapCartLines(lines),
             customer_id,
             payment_method,
+            checkout_method: payment_method,
             cash_tendered: isPartialCash ? proportionedCash : undefined,
             receipt_meta,
             pricing_currency: cfg.pricing_currency,
@@ -9061,8 +9065,8 @@
 
       // Single-company (or intentionally forced) flow.
       const invoiceCompany = effectiveInvoiceCompany();
-      // Manager approval check for credit sales (single-company path)
-      if (payment_method === "credit" || isPartialCash) {
+      // Manager approval check for credit/delivery sales (single-company path)
+      if (isUnpaid || isPartialCash) {
         const cfg = cfgFor(invoiceCompany);
         if (!!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(invoiceCompany)) {
           pendingCheckoutMethod = payment_method;
@@ -9115,6 +9119,7 @@
           cart: mapCartLines(cart),
           customer_id,
           payment_method,
+          checkout_method: payment_method,
           cash_tendered: isPartialCash ? cashTendered : undefined,
           receipt_meta,
           pricing_currency: cfg.pricing_currency,
@@ -10786,7 +10791,7 @@
       <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500/20 flex items-center justify-center">
         <svg class="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
       </div>
-      <h3 class="text-2xl font-bold text-ink mb-2">{lastSaleSummary.method === 'credit' ? 'Credit Sale Recorded' : 'Sale Complete'}</h3>
+      <h3 class="text-2xl font-bold text-ink mb-2">{lastSaleSummary.method === 'credit' ? 'Credit Sale Recorded' : lastSaleSummary.method === 'delivery' ? 'Delivery Order Recorded' : 'Sale Complete'}</h3>
       <div class="text-4xl num-readable font-extrabold text-accent mb-3">{lastSaleSummary.total?.toFixed?.(2) || '0.00'} {lastSaleSummary.currency || 'USD'}</div>
       {#if lastSaleSummary.method === 'cash' && lastSaleSummary.changeDue > 0}
         <div class="text-lg font-bold text-emerald-400 mb-2">Change: {lastSaleSummary.changeDue?.toFixed?.(2) || '0.00'} {lastSaleSummary.currency || 'USD'}</div>

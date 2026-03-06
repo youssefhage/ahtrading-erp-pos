@@ -30,6 +30,7 @@ type InvoiceRow = {
   outstanding_usd?: string | number;
   outstanding_lbp?: string | number;
   sales_channel?: string | null;
+  checkout_method?: string | null;
   total_usd: string | number;
   total_lbp: string | number;
   invoice_date?: string;
@@ -136,6 +137,22 @@ export default function SalesInvoicesPage() {
       cell: ({ row }) => (
         <Badge variant="outline" className="text-xs">{sourceLabel(row.original.sales_channel)}</Badge>
       ),
+    },
+    {
+      id: "checkout_method",
+      accessorFn: (r) => r.checkout_method || "",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Checkout" />,
+      cell: ({ row }) => {
+        const m = (row.original.checkout_method || "").toLowerCase();
+        if (!m) return <span className="text-muted-foreground text-xs">—</span>;
+        const colors: Record<string, string> = {
+          cash: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+          credit: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+          delivery: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
+        };
+        const cls = colors[m] || "bg-muted text-muted-foreground";
+        return <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium capitalize ${cls}`}>{m}</span>;
+      },
     },
     {
       id: "total_usd",

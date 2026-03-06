@@ -361,6 +361,7 @@ class SalesInvoiceIn(BaseModel):
     tax: Optional[TaxBlock] = None
     payments: Optional[List[PaymentBlock]] = None
     invoice_date: Optional[date] = None
+    checkout_method: Optional[str] = None
 
 
 class SalesReturnLineIn(BaseModel):
@@ -655,6 +656,7 @@ def list_sales_invoices(
                          ELSE 'unpaid'
                        END AS payment_status,
                        i.sales_channel,
+                       i.checkout_method,
                        i.reserve_stock,
                        i.branch_id,
                        i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at,

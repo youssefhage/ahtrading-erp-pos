@@ -27,8 +27,8 @@ export function buildSalePaymentsForSettlement({
   const usd = roundUsd(totalUsd);
   const lbp = roundLbp(totalLbp);
 
-  if (method === "credit") {
-    return [{ method: "credit", amount_usd: 0, amount_lbp: 0 }];
+  if (method === "credit" || method === "delivery") {
+    return [{ method, amount_usd: 0, amount_lbp: 0 }];
   }
 
   // Partial cash: cashAmountSettlement is the amount paid now in settlement currency.
@@ -57,7 +57,7 @@ export function assertPaymentsWithinTotals({
   payments = [],
 } = {}) {
   const method = String(paymentMethod || "cash").trim().toLowerCase() || "cash";
-  if (method === "credit") return;
+  if (method === "credit" || method === "delivery") return;
 
   const settled = normalizeSettlementCurrency(settlementCurrency);
   const expectedUsd = roundUsd(totalUsd);
