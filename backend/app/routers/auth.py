@@ -12,7 +12,7 @@ from ..deps import get_session, SESSION_COOKIE_NAME
 from ..security import hash_password, verify_password, needs_rehash, hash_session_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-SESSION_DAYS = 3
+SESSION_DAYS = 30
 
 _login_attempts: dict = {}  # key -> {"count": int, "locked_until": float, "last_activity": float}
 _LOGIN_MAX_ATTEMPTS = 5

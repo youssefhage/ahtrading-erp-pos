@@ -10,7 +10,6 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = [
   "/login",
-  "/",
   "/favicon.ico",
   "/icon.png",
   "/apple-icon.png",
@@ -25,6 +24,15 @@ const PUBLIC_PREFIXES = [
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Root "/" → redirect to /dashboard (if logged in) or /login
+  if (pathname === "/") {
+    const session = request.cookies.get("ahtrading_session");
+    if (session?.value) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
 
   // Allow public paths
   if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();

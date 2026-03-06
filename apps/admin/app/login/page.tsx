@@ -223,15 +223,6 @@ function LoginForm() {
                 </Button>
               </form>
 
-              <div className="mt-6 text-center">
-                <button
-                  type="button"
-                  onClick={() => router.push("/")}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Back to home
-                </button>
-              </div>
             </CardContent>
           </Card>
 
