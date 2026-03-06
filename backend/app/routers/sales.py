@@ -3,7 +3,7 @@ from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from ..db import get_conn, set_company_context
+from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
@@ -703,6 +703,20 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
             )
             inv = cur.fetchone()
             if not inv:
+                # Check if the invoice exists in a different company so we can
+                # return a more actionable error than a generic 404.
+                with get_admin_conn() as admin_conn:
+                    with admin_conn.cursor() as admin_cur:
+                        admin_cur.execute(
+                            "SELECT company_id FROM sales_invoices WHERE id = %s",
+                            (invoice_id,),
+                        )
+                        other = admin_cur.fetchone()
+                if other and str(other["company_id"]) != company_id:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="invoice belongs to a different company",
+                    )
                 raise HTTPException(status_code=404, detail="invoice not found")
 
             cur.execute(

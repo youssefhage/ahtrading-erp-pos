@@ -5,7 +5,8 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Check, Copy, FileText, Package, Receipt } from "lucide-react";
 
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, ApiError, getCompanyId, getCompanies } from "@/lib/api";
+import { applyCompanyMetadata } from "@/lib/constants";
 import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -502,6 +503,27 @@ function SalesInvoiceShowInner() {
       }
       setStatus("");
     } catch (err) {
+      // If the invoice belongs to a different company, switch to it and reload.
+      if (
+        err instanceof ApiError &&
+        err.status === 404 &&
+        typeof err.body === "object" &&
+        err.body !== null &&
+        (err.body as Record<string, unknown>).detail === "invoice belongs to a different company"
+      ) {
+        const currentCid = getCompanyId();
+        const allCompanies = getCompanies();
+        const otherCompany = allCompanies.find((c) => c !== currentCid);
+        if (otherCompany) {
+          // Switch to the other company and full-reload so all state is fresh
+          window.localStorage.setItem("ahtrading.companyId", otherCompany);
+          try { window.sessionStorage.setItem("ahtrading.companyId", otherCompany); } catch {}
+          applyCompanyMetadata(otherCompany);
+          try { await apiPost("/auth/select-company", { company_id: otherCompany }); } catch {}
+          window.location.reload();
+          return;
+        }
+      }
       setDetail(null); setCustomerAccount(null);
       setStatus(err instanceof Error ? err.message : String(err));
     } finally { setLoading(false); }
