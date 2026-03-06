@@ -318,12 +318,83 @@ async function requestJson<T>(path: string, init: RequestInit, opts: ApiCallOpti
   throw lastErr instanceof Error ? lastErr : new ApiError(503, "Request failed", null);
 }
 
+// ─── Cross-company 404 recovery ────────────────────────────────────────────
+// When a GET returns 404, the resource may live in a different company than the
+// one active in the current tab.  Probe the user's other companies and, if
+// found, silently switch context + reload so the page renders correctly.
+// This covers every detail endpoint in the app without per-page logic.
+
+let _recoveryInProgress = false;
+
+async function tryCompanyRecovery(path: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  if (_recoveryInProgress) return false;
+
+  const currentCid = getCompanyId();
+  const allCompanies = getCompanies();
+  if (allCompanies.length < 2 || !currentCid) return false;
+
+  const otherCompanies = allCompanies.filter((c) => c !== currentCid);
+  if (otherCompanies.length === 0) return false;
+
+  _recoveryInProgress = true;
+
+  for (const candidateCid of otherCompanies) {
+    try {
+      // Direct fetch (not requestJson) to avoid recursion.
+      const res = await fetch(apiUrl(path), {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Company-Id": candidateCid,
+        },
+        credentials: "include",
+      });
+
+      if (!res.ok) continue; // not in this company either
+
+      // ✓ Resource exists in this company — switch and reload.
+      window.localStorage.setItem(storageKeys.companyId, candidateCid);
+      try { window.sessionStorage.setItem(storageKeys.companyId, candidateCid); } catch { /* ignore */ }
+
+      // Notify backend about the switch (fire-and-forget).
+      fetch(apiUrl("/auth/select-company"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Company-Id": candidateCid },
+        body: JSON.stringify({ company_id: candidateCid }),
+        credentials: "include",
+      }).catch(() => {});
+
+      window.location.reload();
+      return true;
+    } catch {
+      continue;
+    }
+  }
+
+  _recoveryInProgress = false;
+  return false;
+}
+
 export async function apiGet<T>(path: string, options?: ApiCallOptions): Promise<T> {
-  return requestJson<T>(path, {
-    method: "GET",
-    headers: headers(),
-    credentials: "include",
-  }, options);
+  try {
+    return await requestJson<T>(path, {
+      method: "GET",
+      headers: headers(),
+      credentials: "include",
+    }, options);
+  } catch (err) {
+    // On 404, try the same path against the user's other companies.
+    if (err instanceof ApiError && err.status === 404) {
+      const recovered = await tryCompanyRecovery(path);
+      if (recovered) {
+        // Page will reload — return a never-resolving promise so callers
+        // don't continue processing with stale state.
+        return new Promise<T>(() => {});
+      }
+    }
+    throw err;
+  }
 }
 
 export async function apiPost<T>(path: string, body: unknown, options?: ApiCallOptions): Promise<T> {
