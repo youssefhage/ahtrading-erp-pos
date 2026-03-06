@@ -30,6 +30,7 @@ import { DataTableColumnHeader } from "@/components/business/data-table/data-tab
 import { StatusBadge } from "@/components/business/status-badge";
 import { KpiCard } from "@/components/business/kpi-card";
 import { EmptyState } from "@/components/business/empty-state";
+import { DocumentTimeline } from "@/components/document-timeline";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ViewRaw } from "@/components/view-raw";
 import { Badge } from "@/components/ui/badge";
@@ -168,6 +169,11 @@ type PriceChangeRow = {
   new_price_lbp?: string | number | null;
   pct_change_lbp?: string | number | null;
   source_type?: string | null;
+  price_list_id?: string | null;
+  price_list_code?: string | null;
+  price_list_name?: string | null;
+  changed_by_user_id?: string | null;
+  changed_by_email?: string | null;
 };
 
 type StockRow = {
@@ -582,6 +588,14 @@ export default function ItemViewPage() {
         cell: ({ row }) => <span className="font-mono text-xs">{formatDateLike(row.original.changed_at)}</span>,
       },
       {
+        accessorFn: (r) => r.changed_by_email || "",
+        id: "who",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Who" />,
+        cell: ({ row }) => (
+          <span className="text-xs">{row.original.changed_by_email || "system"}</span>
+        ),
+      },
+      {
         accessorFn: (r) => r.effective_from || "",
         id: "effective",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Effective" />,
@@ -624,10 +638,13 @@ export default function ItemViewPage() {
         cell: ({ row }) => <span className="font-mono text-xs">{fmtPct(row.original.pct_change_lbp)}</span>,
       },
       {
-        accessorFn: (r) => r.source_type || "",
+        accessorFn: (r) => r.price_list_code || r.source_type || "",
         id: "source",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Source" />,
-        cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.source_type || "-"}</span>,
+        cell: ({ row }) => {
+          const r = row.original;
+          return <span className="text-xs text-muted-foreground">{r.price_list_code || r.source_type || "-"}</span>;
+        },
       },
     ];
   }, []);
@@ -1402,7 +1419,7 @@ export default function ItemViewPage() {
             <CardHeader className="flex flex-row items-start justify-between">
               <div>
                 <CardTitle>Price Change History</CardTitle>
-                <CardDescription>Sell price changes derived from item price inserts ({priceChanges.length} records)</CardDescription>
+                <CardDescription>Sell price changes across all pricing paths ({priceChanges.length} records)</CardDescription>
               </div>
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/inventory/price-changes/list?q=${encodeURIComponent(item.sku || "")}`}>
@@ -1420,6 +1437,14 @@ export default function ItemViewPage() {
               />
             </CardContent>
           </Card>
+
+          {/* General activity log (edits, price changes, stock moves, etc.) */}
+          <DocumentTimeline
+            entityType="item"
+            entityId={item.id}
+            title="Activity Log"
+            description="All actions on this item — edits, price changes, and more."
+          />
         </TabsContent>
       </Tabs>
     </div>

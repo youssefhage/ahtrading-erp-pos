@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal
 from datetime import datetime, date, timedelta, timezone
 import uuid
-from ..db import get_conn, set_company_context
+from ..db import get_conn, set_company_context, set_user_context
 from ..deps import require_device, get_company_id, require_company_access, require_permission, get_current_user
 from ..security import hash_device_token, hash_pin, verify_pin
 import secrets
@@ -1886,8 +1886,10 @@ def pos_add_item_price(
     back to the legacy ``item_prices`` table.
     """
     company_id = device["company_id"]
+    device_id_str = str(device.get("device_id", ""))
     with get_conn() as conn:
         set_company_context(conn, company_id)
+        set_user_context(conn, device_id_str)
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
@@ -1958,25 +1960,28 @@ def pos_add_item_price(
                     audit_action = "item_price_added_pos"
                     entity_type = "item"
 
+                audit_details = json.dumps({
+                    "price_id": str(price_id),
+                    "source": "pos_price_override",
+                    "price_list_id": data.price_list_id,
+                    **{k: str(v) for k, v in data.model_dump().items() if k != "price_list_id"},
+                }, default=str)
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s::jsonb)
                     """,
-                    (
-                        company_id,
-                        str(device.get("device_id", "")),
-                        audit_action,
-                        entity_type,
-                        item_id,
-                        json.dumps({
-                            "price_id": str(price_id),
-                            "source": "pos_price_override",
-                            "price_list_id": data.price_list_id,
-                            **{k: str(v) for k, v in data.model_dump().items() if k != "price_list_id"},
-                        }, default=str),
-                    ),
+                    (company_id, device_id_str, audit_action, entity_type, item_id, audit_details),
                 )
+                # For price_list path, mirror on entity_type='item' so DocumentTimeline finds it.
+                if data.price_list_id:
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 'item', %s, %s::jsonb)
+                        """,
+                        (company_id, device_id_str, audit_action, item_id, audit_details),
+                    )
                 return {"id": str(price_id)}
 
 

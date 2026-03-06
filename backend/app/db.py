@@ -80,3 +80,12 @@ def set_company_context(conn, company_id: str):
             "SELECT set_config('app.current_company_id', %s::text, true)",
             (company_id,),
         )
+
+
+def set_user_context(conn, user_id: str):
+    """Set the current user ID in the session so DB triggers can read it via app_current_user_id()."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT set_config('app.current_user_id', %s::text, true)",
+            (user_id,),
+        )

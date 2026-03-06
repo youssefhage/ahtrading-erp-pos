@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 import re as _re
 
-from ...db import get_conn, set_company_context
+from ...db import get_conn, set_company_context, set_user_context
 from .registry import ToolResult, register_tool
 
 logger = logging.getLogger(__name__)
@@ -336,6 +336,7 @@ def update_item_price(
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
+        set_user_context(conn, user["user_id"])
         with conn.transaction():
             with conn.cursor() as cur:
                 # Resolve item — prefer exact match, fall back to fuzzy LIKE
@@ -412,21 +413,27 @@ def update_item_price(
                 new_id = str(cur.fetchone()["id"])
 
                 # Audit
+                audit_details = json.dumps({
+                    "item_name": item["name"],
+                    "item_sku": item["sku"],
+                    "price_list": pl["name"],
+                    "new_price_usd": str(price_usd),
+                    "source": "kai_copilot",
+                }, default=str)
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'price_updated', 'price_list_item', %s, %s::jsonb)
                     """,
-                    (
-                        company_id, user["user_id"], new_id,
-                        json.dumps({
-                            "item_name": item["name"],
-                            "item_sku": item["sku"],
-                            "price_list": pl["name"],
-                            "new_price_usd": str(price_usd),
-                            "source": "kai_copilot",
-                        }, default=str),
-                    ),
+                    (company_id, user["user_id"], new_id, audit_details),
+                )
+                # Mirror on the item entity so DocumentTimeline finds it.
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_updated', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item["id"], audit_details),
                 )
 
                 safe_item_name = _sanitize_for_prompt(item["name"])

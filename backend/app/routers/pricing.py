@@ -6,7 +6,7 @@ from typing import Optional, Literal, Any
 
 import json
 
-from ..db import get_conn, set_company_context
+from ..db import get_conn, set_company_context, set_user_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..validation import CurrencyCode
 from ..journal_utils import q_usd, q_lbp
@@ -833,9 +833,14 @@ def list_price_changes(
                        c.effective_from, c.effective_to,
                        c.old_price_usd, c.new_price_usd, c.pct_change_usd,
                        c.old_price_lbp, c.new_price_lbp, c.pct_change_lbp,
-                       c.source_type, c.source_id
+                       c.source_type, c.source_id,
+                       c.price_list_id,
+                       pl.code AS price_list_code, pl.name AS price_list_name,
+                       c.changed_by_user_id, u.email AS changed_by_email
                 FROM item_price_change_log c
                 JOIN items i ON i.company_id = c.company_id AND i.id = c.item_id
+                LEFT JOIN price_lists pl ON pl.company_id = c.company_id AND pl.id = c.price_list_id
+                LEFT JOIN users u ON u.id = c.changed_by_user_id
                 WHERE c.company_id = %s
             """
             params: list = [company_id]
@@ -1568,6 +1573,7 @@ def list_price_list_items(
 def add_price_list_item(list_id: str, data: PriceListItemIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
+        set_user_context(conn, user["user_id"])
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
@@ -1616,6 +1622,15 @@ def add_price_list_item(list_id: str, data: PriceListItemIn, company_id: str = D
                     """,
                     (company_id, user["user_id"], pli_id, json.dumps(data.model_dump(), default=str)),
                 )
+                # Mirror on the item entity so DocumentTimeline finds it.
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_item_add', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], data.item_id,
+                     json.dumps({**data.model_dump(), "price_list_id": list_id, "price_list_item_id": str(pli_id)}, default=str)),
+                )
                 # Auto-propagate: run any derivations that use this list as their base.
                 _trigger_dependent_derivations(cur, company_id, list_id, data.effective_from, user["user_id"])
                 return {"id": pli_id}
@@ -1647,6 +1662,7 @@ def update_price_list_item(
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
+        set_user_context(conn, user["user_id"])
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
@@ -1654,7 +1670,7 @@ def update_price_list_item(
                     UPDATE price_list_items
                     SET {', '.join(fields)}
                     WHERE company_id = %s AND price_list_id = %s AND id = %s
-                    RETURNING id
+                    RETURNING id, item_id
                     """,
                     [*params, company_id, list_id, item_row_id],
                 )
@@ -1667,6 +1683,15 @@ def update_price_list_item(
                     VALUES (gen_random_uuid(), %s, %s, 'price_list_item_update', 'price_list_item', %s, %s::jsonb)
                     """,
                     (company_id, user["user_id"], item_row_id, json.dumps(patch, default=str)),
+                )
+                # Mirror on the item entity so DocumentTimeline finds it.
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_item_update', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], row["item_id"],
+                     json.dumps({**patch, "price_list_id": list_id, "price_list_item_id": item_row_id}, default=str)),
                 )
                 # Auto-propagate: run any derivations that use this list as their base.
                 eff = patch.get("effective_from") or date.today()
@@ -1683,6 +1708,7 @@ def delete_price_list_item(
 ):
     with get_conn() as conn:
         set_company_context(conn, company_id)
+        set_user_context(conn, user["user_id"])
         with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
@@ -1706,6 +1732,19 @@ def delete_price_list_item(
                         user["user_id"],
                         item_row_id,
                         json.dumps({"item_id": row["item_id"]}),
+                    ),
+                )
+                # Mirror on the item entity so DocumentTimeline finds it.
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_item_delete', 'item', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        row["item_id"],
+                        json.dumps({"price_list_id": list_id, "price_list_item_id": item_row_id}),
                     ),
                 )
                 # Auto-propagate: re-run derivations that use this list as their base
@@ -1738,9 +1777,11 @@ def batch_update_price_list_items(
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
+        set_user_context(conn, user["user_id"])
         with conn.transaction():
             with conn.cursor() as cur:
                 updated = 0
+                updated_item_ids: list[str] = []
                 for item in data.updates:
                     fields = []
                     params = []
@@ -1763,12 +1804,14 @@ def batch_update_price_list_items(
                         UPDATE price_list_items
                         SET {', '.join(fields)}
                         WHERE company_id = %s AND price_list_id = %s AND id = %s
-                        RETURNING id
+                        RETURNING id, item_id
                         """,
                         [*params, company_id, list_id, item.id],
                     )
-                    if cur.fetchone():
+                    row = cur.fetchone()
+                    if row:
                         updated += 1
+                        updated_item_ids.append(str(row["item_id"]))
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -1776,6 +1819,16 @@ def batch_update_price_list_items(
                     """,
                     (company_id, user["user_id"], list_id, json.dumps({"count": updated})),
                 )
+                # Mirror on each item entity so DocumentTimeline finds them.
+                if updated_item_ids:
+                    batch_details_json = json.dumps({"price_list_id": list_id, "batch_update": True})
+                    cur.executemany(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'price_list_items_batch_update', 'item', %s, %s::jsonb)
+                        """,
+                        [(company_id, user["user_id"], iid, batch_details_json) for iid in updated_item_ids],
+                    )
                 _trigger_dependent_derivations(cur, company_id, list_id, date.today(), user["user_id"])
                 return {"updated": updated}
 
