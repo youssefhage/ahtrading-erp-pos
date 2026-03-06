@@ -62,8 +62,8 @@ def _validate_overrides(overrides: list[dict], label: str, id_key: str):
             raise HTTPException(status_code=400, detail=f"{label}[{idx}]: duplicate {id_key} {oid}")
         seen.add(oid)
         ov_mode = ov.get("mode")
-        if ov_mode not in ("exempt", "markup_pct", "discount_pct"):
-            raise HTTPException(status_code=400, detail=f"{label}[{idx}]: mode must be exempt, markup_pct, or discount_pct")
+        if ov_mode not in ("exempt", "markup_pct", "discount_pct", "cost_markup_pct"):
+            raise HTTPException(status_code=400, detail=f"{label}[{idx}]: mode must be exempt, markup_pct, discount_pct, or cost_markup_pct")
         if ov_mode != "exempt":
             try:
                 ov_pct = Decimal(str(ov.get("pct", 0)))
@@ -72,7 +72,7 @@ def _validate_overrides(overrides: list[dict], label: str, id_key: str):
             if ov_pct < 0 or ov_pct > Decimal("0.90"):
                 raise HTTPException(status_code=400, detail=f"{label}[{idx}]: pct must be between 0 and 0.90")
 
-DerivationMode = Literal["markup_pct", "discount_pct"]
+DerivationMode = Literal["markup_pct", "discount_pct", "cost_markup_pct"]
 
 class PriceListDerivationIn(BaseModel):
     target_price_list_id: str
@@ -424,6 +424,7 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         """
         SELECT DISTINCT ON (pli.item_id)
           pli.item_id, pli.price_usd, pli.price_lbp,
+          pli.cost_usd AS base_cost_usd, pli.cost_lbp AS base_cost_lbp,
           i.category_id, i.brand,
           isup.supplier_id AS primary_supplier_id
         FROM price_list_items pli
@@ -529,18 +530,35 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
             item_mode = mode
             item_pct = pct
 
+        # Replacement cost from base price list row (pass-through to derived rows).
+        repl_cost_usd = _to_dec(bp.get("base_cost_usd"))
+        repl_cost_lbp = _to_dec(bp.get("base_cost_lbp"))
+
         prepared += 1
-        mult = Decimal("1")
-        if item_mode == "markup_pct":
-            mult = Decimal("1") + item_pct
+
+        if item_mode == "cost_markup_pct":
+            # cost_markup_pct: derived_price = replacement_cost × (1 + pct)
+            # Requires replacement cost to be set on the base price list item.
+            if repl_cost_usd <= 0 and repl_cost_lbp <= 0:
+                missing_cost += 1
+                if skip_if_cost_missing:
+                    continue
+                # Fallback: treat as regular markup on base price.
+                d_usd = base_usd * (Decimal("1") + item_pct)
+                d_lbp = base_lbp * (Decimal("1") + item_pct)
+            else:
+                d_usd = repl_cost_usd * (Decimal("1") + item_pct) if repl_cost_usd > 0 else base_usd * (Decimal("1") + item_pct)
+                d_lbp = repl_cost_lbp * (Decimal("1") + item_pct) if repl_cost_lbp > 0 else base_lbp * (Decimal("1") + item_pct)
+        elif item_mode == "markup_pct":
+            d_usd = base_usd * (Decimal("1") + item_pct)
+            d_lbp = base_lbp * (Decimal("1") + item_pct)
         elif item_mode == "discount_pct":
-            mult = Decimal("1") - item_pct
+            d_usd = base_usd * (Decimal("1") - item_pct)
+            d_lbp = base_lbp * (Decimal("1") - item_pct)
         else:
             # Unknown mode — skip silently in auto-trigger context.
             continue
 
-        d_usd = base_usd * mult
-        d_lbp = base_lbp * mult
         d_usd = _round_to_step(d_usd, usd_step)
         if lbp_step and lbp_step > 0:
             d_lbp = _round_to_step(d_lbp, lbp_step)
@@ -548,12 +566,16 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
             d_lbp = q_lbp(d_lbp)
 
         # Margin guard (USD only for now; LBP follows same multiplier/rounding).
+        # Cost priority for margin guard: replacement cost > warehouse avg > standard cost.
         if min_margin is not None and min_margin > 0:
-            cb = cost_by_item.get(item_id) or {}
-            cost_usd = cb.get("avg_usd", Decimal("0"))
-            if cost_usd <= 0:
-                cost_usd = cb.get("std_usd", Decimal("0"))
-            if cost_usd <= 0:
+            # Prefer replacement cost from base price list for margin guard.
+            guard_cost_usd = repl_cost_usd
+            if guard_cost_usd <= 0:
+                cb = cost_by_item.get(item_id) or {}
+                guard_cost_usd = cb.get("avg_usd", Decimal("0"))
+                if guard_cost_usd <= 0:
+                    guard_cost_usd = cb.get("std_usd", Decimal("0"))
+            if guard_cost_usd <= 0:
                 missing_cost += 1
                 if skip_if_cost_missing:
                     # For discounts, keep base price; for markups, still apply (safe).
@@ -563,15 +585,15 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
                 # else allow
             else:
                 if d_usd > 0:
-                    margin_pct = (d_usd - cost_usd) / d_usd
+                    margin_pct = (d_usd - guard_cost_usd) / d_usd
                     if margin_pct < min_margin:
                         # Discount rules should not apply if they break margin.
                         if item_mode == "discount_pct":
                             d_usd, d_lbp = base_usd, base_lbp
                             blocked_by_margin += 1
                         else:
-                            # Markup: raise to meet min margin.
-                            target = cost_usd / (Decimal("1") - min_margin)
+                            # Markup / cost_markup: raise to meet min margin.
+                            target = guard_cost_usd / (Decimal("1") - min_margin)
                             d_usd = _round_to_step(target, usd_step)
                             # LBP: keep same ratio if base LBP exists.
                             if base_usd > 0 and base_lbp > 0:
@@ -586,15 +608,17 @@ def _execute_derivation(cur, company_id: str, derivation_id: str, eff: date, use
         cur.execute(
             """
             INSERT INTO price_list_items
-              (id, company_id, price_list_id, item_id, price_usd, price_lbp, effective_from, effective_to)
+              (id, company_id, price_list_id, item_id, price_usd, price_lbp, cost_usd, cost_lbp, effective_from, effective_to)
             VALUES
-              (gen_random_uuid(), %s, %s::uuid, %s::uuid, %s, %s, %s, NULL)
+              (gen_random_uuid(), %s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, NULL)
             ON CONFLICT (company_id, price_list_id, item_id, effective_from) DO UPDATE
             SET price_usd = EXCLUDED.price_usd,
                 price_lbp = EXCLUDED.price_lbp,
+                cost_usd = EXCLUDED.cost_usd,
+                cost_lbp = EXCLUDED.cost_lbp,
                 effective_to = EXCLUDED.effective_to
             """,
-            (company_id, target_id, item_id, d_usd, d_lbp, eff),
+            (company_id, target_id, item_id, d_usd, d_lbp, repl_cost_usd, repl_cost_lbp, eff),
         )
         upserted_item_ids.add(item_id)
         applied += 1
@@ -936,10 +960,12 @@ def suggested_price(
                 """
                 SELECT i.standard_cost_usd, i.standard_cost_lbp,
                        COALESCE(plp.price_usd, p.price_usd) AS price_usd,
-                       COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp
+                       COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
+                       plp.cost_usd AS replacement_cost_usd,
+                       plp.cost_lbp AS replacement_cost_lbp
                 FROM items i
                 LEFT JOIN LATERAL (
-                    SELECT price_usd, price_lbp
+                    SELECT price_usd, price_lbp, cost_usd, cost_lbp
                     FROM price_list_items pli
                     WHERE pli.company_id = i.company_id
                       AND pli.price_list_id = %s::uuid
@@ -965,6 +991,8 @@ def suggested_price(
             prow = cur.fetchone() or {}
             standard_cost_usd = Decimal(str(prow.get("standard_cost_usd") or 0))
             standard_cost_lbp = Decimal(str(prow.get("standard_cost_lbp") or 0))
+            replacement_cost_usd = Decimal(str(prow.get("replacement_cost_usd") or 0))
+            replacement_cost_lbp = Decimal(str(prow.get("replacement_cost_lbp") or 0))
             price_usd = Decimal(str(prow.get("price_usd") or 0))
             price_lbp = Decimal(str(prow.get("price_lbp") or 0))
 
@@ -1016,17 +1044,23 @@ def suggested_price(
             warehouse_cost_usd = cost_usd
             warehouse_cost_lbp = cost_lbp
 
-            # If both warehouse avg and standard cost exist, pick whichever is closer to current selling price.
-            if price_usd > 0 and warehouse_cost_usd > 0 and standard_cost_usd > 0:
+            # Cost priority for pricing decisions:
+            # 1. Replacement cost (from price list) — reflects current market cost
+            # 2. Warehouse avg cost (from stock moves) — historical purchase cost
+            # 3. Standard cost (manual fallback on item)
+            if replacement_cost_usd > 0:
+                cost_usd = replacement_cost_usd
+            elif price_usd > 0 and warehouse_cost_usd > 0 and standard_cost_usd > 0:
                 if abs(price_usd - standard_cost_usd) < abs(price_usd - warehouse_cost_usd):
                     cost_usd = standard_cost_usd
                 else:
                     cost_usd = warehouse_cost_usd
             elif cost_usd <= 0 and standard_cost_usd > 0:
-                # If warehouse avg is missing, fall back to standard cost.
                 cost_usd = standard_cost_usd
 
-            if price_lbp > 0 and warehouse_cost_lbp > 0 and standard_cost_lbp > 0:
+            if replacement_cost_lbp > 0:
+                cost_lbp = replacement_cost_lbp
+            elif price_lbp > 0 and warehouse_cost_lbp > 0 and standard_cost_lbp > 0:
                 if abs(price_lbp - standard_cost_lbp) < abs(price_lbp - warehouse_cost_lbp):
                     cost_lbp = standard_cost_lbp
                 else:
@@ -1073,6 +1107,10 @@ def suggested_price(
                     "price_lbp": str(price_lbp),
                     "avg_cost_usd": str(cost_usd),
                     "avg_cost_lbp": str(cost_lbp),
+                    "replacement_cost_usd": str(replacement_cost_usd),
+                    "replacement_cost_lbp": str(replacement_cost_lbp),
+                    "warehouse_cost_usd": str(warehouse_cost_usd),
+                    "warehouse_cost_lbp": str(warehouse_cost_lbp),
                     "margin_usd": (str(m_usd) if m_usd is not None else None),
                     "margin_lbp": (str(m_lbp) if m_lbp is not None else None),
                 },
@@ -1404,6 +1442,8 @@ class PriceListItemIn(BaseModel):
     item_id: str
     price_usd: Decimal = Decimal("0")
     price_lbp: Decimal = Decimal("0")
+    cost_usd: Decimal = Decimal("0")
+    cost_lbp: Decimal = Decimal("0")
     effective_from: date
     effective_to: Optional[date] = None
 
@@ -1411,6 +1451,8 @@ class PriceListItemIn(BaseModel):
 class PriceListItemUpdate(BaseModel):
     price_usd: Optional[Decimal] = None
     price_lbp: Optional[Decimal] = None
+    cost_usd: Optional[Decimal] = None
+    cost_lbp: Optional[Decimal] = None
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
 
@@ -1434,7 +1476,7 @@ def list_price_list_items_for_item(list_id: str, item_id: str, company_id: str =
 
             cur.execute(
                 """
-                SELECT id, item_id, price_usd, price_lbp, effective_from, effective_to, created_at
+                SELECT id, item_id, price_usd, price_lbp, cost_usd, cost_lbp, effective_from, effective_to, created_at
                 FROM price_list_items
                 WHERE company_id = %s AND price_list_id = %s AND item_id = %s
                 ORDER BY effective_from DESC, created_at DESC, id DESC
@@ -1446,7 +1488,7 @@ def list_price_list_items_for_item(list_id: str, item_id: str, company_id: str =
 
             cur.execute(
                 """
-                SELECT id, item_id, price_usd, price_lbp, effective_from, effective_to, created_at
+                SELECT id, item_id, price_usd, price_lbp, cost_usd, cost_lbp, effective_from, effective_to, created_at
                 FROM price_list_items
                 WHERE company_id = %s AND price_list_id = %s AND item_id = %s
                   AND effective_from <= CURRENT_DATE
@@ -1491,6 +1533,7 @@ def list_price_list_items(
                     f"""
                     SELECT DISTINCT ON (pli.item_id)
                            pli.id, pli.item_id, pli.price_usd, pli.price_lbp,
+                           pli.cost_usd, pli.cost_lbp,
                            pli.effective_from, pli.effective_to, pli.created_at
                     FROM price_list_items pli
                     JOIN items i ON i.id = pli.item_id AND i.company_id = pli.company_id
@@ -1507,6 +1550,7 @@ def list_price_list_items(
                 cur.execute(
                     f"""
                     SELECT pli.id, pli.item_id, pli.price_usd, pli.price_lbp,
+                           pli.cost_usd, pli.cost_lbp,
                            pli.effective_from, pli.effective_to, pli.created_at
                     FROM price_list_items pli
                     JOIN items i ON i.id = pli.item_id AND i.company_id = pli.company_id
@@ -1541,12 +1585,14 @@ def add_price_list_item(list_id: str, data: PriceListItemIn, company_id: str = D
                 cur.execute(
                     """
                     INSERT INTO price_list_items
-                      (id, company_id, price_list_id, item_id, price_usd, price_lbp, effective_from, effective_to)
+                      (id, company_id, price_list_id, item_id, price_usd, price_lbp, cost_usd, cost_lbp, effective_from, effective_to)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (company_id, price_list_id, item_id, effective_from) DO UPDATE
                     SET price_usd = EXCLUDED.price_usd,
                         price_lbp = EXCLUDED.price_lbp,
+                        cost_usd = EXCLUDED.cost_usd,
+                        cost_lbp = EXCLUDED.cost_lbp,
                         effective_to = EXCLUDED.effective_to
                     RETURNING id
                     """,
@@ -1556,6 +1602,8 @@ def add_price_list_item(list_id: str, data: PriceListItemIn, company_id: str = D
                         data.item_id,
                         data.price_usd,
                         data.price_lbp,
+                        data.cost_usd,
+                        data.cost_lbp,
                         data.effective_from,
                         data.effective_to,
                     ),
@@ -1587,7 +1635,7 @@ def update_price_list_item(
 
     fields = []
     params = []
-    for key in ("price_usd", "price_lbp", "effective_from"):
+    for key in ("price_usd", "price_lbp", "cost_usd", "cost_lbp", "effective_from"):
         if key in patch:
             fields.append(f"{key} = %s")
             params.append(patch[key])
@@ -1670,6 +1718,8 @@ class BatchPriceUpdateItem(BaseModel):
     id: str
     price_usd: Optional[Decimal] = None
     price_lbp: Optional[Decimal] = None
+    cost_usd: Optional[Decimal] = None
+    cost_lbp: Optional[Decimal] = None
 
 class BatchPriceUpdateIn(BaseModel):
     updates: list[BatchPriceUpdateItem]
@@ -1700,6 +1750,12 @@ def batch_update_price_list_items(
                     if item.price_lbp is not None:
                         fields.append("price_lbp = %s")
                         params.append(item.price_lbp)
+                    if item.cost_usd is not None:
+                        fields.append("cost_usd = %s")
+                        params.append(item.cost_usd)
+                    if item.cost_lbp is not None:
+                        fields.append("cost_lbp = %s")
+                        params.append(item.cost_lbp)
                     if not fields:
                         continue
                     cur.execute(

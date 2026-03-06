@@ -69,6 +69,8 @@ type PriceListItemRow = {
   item_id: string;
   price_usd: string | number;
   price_lbp: string | number;
+  cost_usd: string | number;
+  cost_lbp: string | number;
   effective_from: string;
   effective_to: string | null;
   created_at: string;
@@ -116,6 +118,8 @@ export default function PriceListsPage() {
   const [addEffectiveTo, setAddEffectiveTo] = useState("");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
+  const [addCostUsd, setAddCostUsd] = useState("");
+  const [addCostLbp, setAddCostLbp] = useState("");
   const [adding, setAdding] = useState(false);
 
   /* ---- Edit price row ---- */
@@ -125,11 +129,13 @@ export default function PriceListsPage() {
   const [editEffectiveTo, setEditEffectiveTo] = useState("");
   const [editUsd, setEditUsd] = useState("");
   const [editLbp, setEditLbp] = useState("");
+  const [editCostUsd, setEditCostUsd] = useState("");
+  const [editCostLbp, setEditCostLbp] = useState("");
   const [editItemSaving, setEditItemSaving] = useState(false);
 
   /* ---- Bulk edit mode ---- */
   const [editMode, setEditMode] = useState(false);
-  const [dirtyPrices, setDirtyPrices] = useState<Map<string, { price_usd?: string; price_lbp?: string }>>(new Map());
+  const [dirtyPrices, setDirtyPrices] = useState<Map<string, { price_usd?: string; price_lbp?: string; cost_usd?: string; cost_lbp?: string }>>(new Map());
   const [batchSaving, setBatchSaving] = useState(false);
 
   /* ---- Multi-select & quick actions ---- */
@@ -263,6 +269,8 @@ export default function PriceListsPage() {
     setAddEffectiveTo("");
     setAddUsd("");
     setAddLbp("");
+    setAddCostUsd("");
+    setAddCostLbp("");
     setItemsOpen(true);
     try {
       const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${encodeURIComponent(listId)}/items?page_size=5000`);
@@ -291,6 +299,8 @@ export default function PriceListsPage() {
         item_id: addItemId,
         price_usd: Number(addUsd || 0),
         price_lbp: Number(addLbp || 0),
+        cost_usd: Number(addCostUsd || 0),
+        cost_lbp: Number(addCostLbp || 0),
         effective_from: addEffectiveFrom,
         effective_to: addEffectiveTo ? addEffectiveTo : null,
       });
@@ -300,6 +310,8 @@ export default function PriceListsPage() {
       setAddItemId("");
       setAddUsd("");
       setAddLbp("");
+      setAddCostUsd("");
+      setAddCostLbp("");
       setAddEffectiveFrom(todayIso());
       setAddEffectiveTo("");
     } catch (e) {
@@ -319,6 +331,8 @@ export default function PriceListsPage() {
       await apiPatch(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(editRowId)}`, {
         price_usd: Number(editUsd || 0),
         price_lbp: Number(editLbp || 0),
+        cost_usd: Number(editCostUsd || 0),
+        cost_lbp: Number(editCostLbp || 0),
         effective_from: editEffectiveFrom,
         effective_to: editEffectiveTo ? editEffectiveTo : null,
       });
@@ -343,7 +357,7 @@ export default function PriceListsPage() {
     }
   }
 
-  function setDirtyField(rowId: string, field: "price_usd" | "price_lbp", value: string) {
+  function setDirtyField(rowId: string, field: "price_usd" | "price_lbp" | "cost_usd" | "cost_lbp", value: string) {
     setDirtyPrices((prev) => {
       const next = new Map(prev);
       const existing = next.get(rowId) || {};
@@ -361,6 +375,8 @@ export default function PriceListsPage() {
         id,
         ...(vals.price_usd !== undefined ? { price_usd: Number(vals.price_usd || 0) } : {}),
         ...(vals.price_lbp !== undefined ? { price_lbp: Number(vals.price_lbp || 0) } : {}),
+        ...(vals.cost_usd !== undefined ? { cost_usd: Number(vals.cost_usd || 0) } : {}),
+        ...(vals.cost_lbp !== undefined ? { cost_lbp: Number(vals.cost_lbp || 0) } : {}),
       }));
       await apiPost(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/batch-update`, { updates });
       const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items?page_size=5000`);
@@ -615,6 +631,62 @@ export default function PriceListsPage() {
       },
     },
     {
+      accessorFn: (li) => Number(li.cost_usd || 0),
+      id: "cost_usd",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Cost $" />,
+      cell: ({ row }) => {
+        const v = Number(row.original.cost_usd || 0);
+        if (!editMode) return <span className="font-mono text-xs text-muted-foreground">{v > 0 ? v : "-"}</span>;
+        const dirty = dirtyPrices.get(row.original.id);
+        const val = dirty?.cost_usd ?? String(row.original.cost_usd ?? "");
+        return (
+          <Input
+            className="h-7 w-24 font-mono text-xs"
+            value={val}
+            onChange={(e) => setDirtyField(row.original.id, "cost_usd", e.target.value)}
+            onKeyDown={(e) => handleEditKeyDown(e, row.index, "cost_usd")}
+            data-row={row.index}
+            data-col="cost_usd"
+            inputMode="decimal"
+          />
+        );
+      },
+    },
+    {
+      accessorFn: (li) => Number(li.cost_lbp || 0),
+      id: "cost_lbp",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Cost L" />,
+      cell: ({ row }) => {
+        const v = Number(row.original.cost_lbp || 0);
+        if (!editMode) return <span className="font-mono text-xs text-muted-foreground">{v > 0 ? v : "-"}</span>;
+        const dirty = dirtyPrices.get(row.original.id);
+        const val = dirty?.cost_lbp ?? String(row.original.cost_lbp ?? "");
+        return (
+          <Input
+            className="h-7 w-24 font-mono text-xs"
+            value={val}
+            onChange={(e) => setDirtyField(row.original.id, "cost_lbp", e.target.value)}
+            onKeyDown={(e) => handleEditKeyDown(e, row.index, "cost_lbp")}
+            data-row={row.index}
+            data-col="cost_lbp"
+            inputMode="decimal"
+          />
+        );
+      },
+    },
+    {
+      id: "margin",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Margin" />,
+      cell: ({ row }) => {
+        const price = Number(row.original.price_usd || 0);
+        const cost = Number(row.original.cost_usd || 0);
+        if (price <= 0 || cost <= 0) return <span className="text-xs text-muted-foreground">-</span>;
+        const m = ((price - cost) / price) * 100;
+        const color = m >= 30 ? "text-emerald-600" : m >= 15 ? "text-amber-600" : "text-red-600";
+        return <span className={`font-mono text-xs font-medium ${color}`}>{m.toFixed(1)}%</span>;
+      },
+    },
+    {
       accessorKey: "effective_from",
       header: ({ column }) => <DataTableColumnHeader column={column} title="From" />,
       cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.effective_from}</span>,
@@ -642,6 +714,8 @@ export default function PriceListsPage() {
                 setEditEffectiveTo(li.effective_to || "");
                 setEditUsd(String(li.price_usd ?? ""));
                 setEditLbp(String(li.price_lbp ?? ""));
+                setEditCostUsd(String(li.cost_usd ?? ""));
+                setEditCostLbp(String(li.cost_lbp ?? ""));
                 setEditItemOpen(true);
               }}
             >
@@ -1008,6 +1082,16 @@ export default function PriceListsPage() {
                             <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
                           </div>
                         </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Replacement Cost USD</Label>
+                            <Input value={addCostUsd} onChange={(e) => setAddCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Replacement Cost LBP</Label>
+                            <Input value={addCostLbp} onChange={(e) => setAddCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                          </div>
+                        </div>
                         <div className="space-y-2">
                           <Label>Effective To (optional)</Label>
                           <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
@@ -1072,6 +1156,16 @@ export default function PriceListsPage() {
               <div className="space-y-2">
                 <Label>Price LBP</Label>
                 <Input value={editLbp} onChange={(e) => setEditLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Replacement Cost USD</Label>
+                <Input value={editCostUsd} onChange={(e) => setEditCostUsd(e.target.value)} placeholder="0.00" inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Replacement Cost LBP</Label>
+                <Input value={editCostLbp} onChange={(e) => setEditCostLbp(e.target.value)} placeholder="0" inputMode="decimal" />
               </div>
             </div>
             <DialogFooter>
