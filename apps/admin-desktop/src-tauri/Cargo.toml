@@ -1,6 +1,6 @@
 [package]
 name = "melqard-portal-desktop"
-version = "0.0.54"
+version = "0.0.55"
 description = "Melqard Portal Desktop (Tauri)"
 authors = ["Melqard"]
 edition = "2021"
