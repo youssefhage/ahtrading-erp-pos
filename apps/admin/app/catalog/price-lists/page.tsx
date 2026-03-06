@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, RefreshCw, ListOrdered, Star, Pencil, X } from "lucide-react";
+import { Loader2, Plus, RefreshCw, ListOrdered, Star, Pencil, X, Check, Percent, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -41,6 +41,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -125,6 +131,12 @@ export default function PriceListsPage() {
   const [editMode, setEditMode] = useState(false);
   const [dirtyPrices, setDirtyPrices] = useState<Map<string, { price_usd?: string; price_lbp?: string }>>(new Map());
   const [batchSaving, setBatchSaving] = useState(false);
+
+  /* ---- Multi-select & quick actions ---- */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"markup" | "discount" | "fixed" | null>(null);
+  const [bulkValue, setBulkValue] = useState("");
+  const [bulkField, setBulkField] = useState<"both" | "usd" | "lbp">("both");
 
   /* ---- Lookups ---- */
   const itemBySku = useMemo(() => {
@@ -324,6 +336,8 @@ export default function PriceListsPage() {
     if (editMode) {
       setEditMode(false);
       setDirtyPrices(new Map());
+      setSelectedIds(new Set());
+      setBulkAction(null);
     } else {
       setEditMode(true);
     }
@@ -366,6 +380,72 @@ export default function PriceListsPage() {
       const next = document.querySelector<HTMLInputElement>(`input[data-row="${rowIndex + 1}"][data-col="${col}"]`);
       next?.focus();
     }
+  }
+
+  /* ---- Multi-select helpers ---- */
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(listItems.map((li) => li.id)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  /** Apply a bulk price operation to all selected items */
+  function applyBulkAction() {
+    const pct = parseFloat(bulkValue);
+    if (isNaN(pct) || pct === 0) return;
+
+    setDirtyPrices((prev) => {
+      const next = new Map(prev);
+      for (const li of listItems) {
+        if (!selectedIds.has(li.id)) continue;
+        const existing = next.get(li.id) || {};
+        const curUsd = existing.price_usd !== undefined ? Number(existing.price_usd) : Number(li.price_usd || 0);
+        const curLbp = existing.price_lbp !== undefined ? Number(existing.price_lbp) : Number(li.price_lbp || 0);
+
+        let newUsd = curUsd;
+        let newLbp = curLbp;
+
+        if (bulkAction === "markup") {
+          if (bulkField !== "lbp") newUsd = curUsd * (1 + pct / 100);
+          if (bulkField !== "usd") newLbp = curLbp * (1 + pct / 100);
+        } else if (bulkAction === "discount") {
+          if (bulkField !== "lbp") newUsd = curUsd * (1 - pct / 100);
+          if (bulkField !== "usd") newLbp = curLbp * (1 - pct / 100);
+        } else if (bulkAction === "fixed") {
+          if (bulkField !== "lbp") newUsd = curUsd + pct;
+          if (bulkField !== "usd") newLbp = curLbp + pct;
+        }
+
+        // Round: USD to 2 decimals, LBP to 0
+        newUsd = Math.round(newUsd * 100) / 100;
+        newLbp = Math.round(newLbp);
+
+        // Don't go below 0
+        if (newUsd < 0) newUsd = 0;
+        if (newLbp < 0) newLbp = 0;
+
+        const updates: { price_usd?: string; price_lbp?: string } = {};
+        if (bulkField !== "lbp") updates.price_usd = String(newUsd);
+        if (bulkField !== "usd") updates.price_lbp = String(newLbp);
+
+        next.set(li.id, { ...existing, ...updates });
+      }
+      return next;
+    });
+
+    setBulkAction(null);
+    setBulkValue("");
   }
 
   /* ---- Columns: price lists ---- */
@@ -424,6 +504,25 @@ export default function PriceListsPage() {
 
   /* ---- Columns: list items ---- */
   const listItemColumns = useMemo<ColumnDef<PriceListItemRow>[]>(() => [
+    ...(editMode ? [{
+      id: "select",
+      header: () => (
+        <Checkbox
+          checked={listItems.length > 0 && selectedIds.size === listItems.length}
+          onCheckedChange={(checked) => checked ? selectAll() : deselectAll()}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }: { row: any }) => (
+        <Checkbox
+          checked={selectedIds.has(row.original.id)}
+          onCheckedChange={() => toggleSelect(row.original.id)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    } as ColumnDef<PriceListItemRow>] : []),
     {
       accessorFn: (li) => itemById.get(li.item_id)?.sku || "",
       id: "sku",
@@ -556,7 +655,7 @@ export default function PriceListsPage() {
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [itemById, itemsListId, editMode, dirtyPrices]);
+  ], [itemById, itemsListId, editMode, dirtyPrices, selectedIds, listItems]);
 
   const currentList = lists.find((l) => l.id === itemsListId);
 
@@ -687,7 +786,7 @@ export default function PriceListsPage() {
       </Dialog>
 
       {/* ---- List Items Dialog (full-width) ---- */}
-      <Dialog open={itemsOpen} onOpenChange={(o) => { setItemsOpen(o); if (!o) { setEditMode(false); setDirtyPrices(new Map()); } }}>
+      <Dialog open={itemsOpen} onOpenChange={(o) => { setItemsOpen(o); if (!o) { setEditMode(false); setDirtyPrices(new Map()); setSelectedIds(new Set()); setBulkAction(null); } }}>
         <DialogContent className="w-[96vw] max-w-[1400px] h-[92vh] overflow-hidden p-0">
           <div className="flex h-full min-h-0 flex-col">
             <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6 pr-12">
@@ -715,6 +814,127 @@ export default function PriceListsPage() {
             </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
+              {/* Quick Actions bar (edit mode) */}
+              {editMode && (
+                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-4 py-2.5">
+                  <span className="mr-1 text-sm font-medium text-muted-foreground">
+                    {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select items to apply bulk changes"}
+                  </span>
+
+                  {selectedIds.size > 0 && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={deselectAll}>
+                      Clear
+                    </Button>
+                  )}
+
+                  <div className="mx-1 h-5 w-px bg-border" />
+
+                  {/* Markup % */}
+                  <Popover open={bulkAction === "markup"} onOpenChange={(o) => { setBulkAction(o ? "markup" : null); setBulkValue(""); }}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" disabled={selectedIds.size === 0}>
+                        <TrendingUp className="h-3.5 w-3.5" /> Markup %
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72" align="start">
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium">Markup by percentage</p>
+                        <p className="text-xs text-muted-foreground">Increase prices of {selectedIds.size} selected item{selectedIds.size === 1 ? "" : "s"}</p>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={bulkValue}
+                            onChange={(e) => setBulkValue(e.target.value)}
+                            placeholder="e.g. 10"
+                            inputMode="decimal"
+                            className="h-8"
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyBulkAction(); } }}
+                          />
+                          <span className="text-sm font-medium">%</span>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <Button variant={bulkField === "both" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("both")}>Both</Button>
+                          <Button variant={bulkField === "usd" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("usd")}>USD only</Button>
+                          <Button variant={bulkField === "lbp" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("lbp")}>LBP only</Button>
+                        </div>
+                        <Button size="sm" className="w-full" onClick={applyBulkAction} disabled={!bulkValue || isNaN(parseFloat(bulkValue))}>
+                          <Check className="mr-1.5 h-3.5 w-3.5" /> Apply Markup
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Discount % */}
+                  <Popover open={bulkAction === "discount"} onOpenChange={(o) => { setBulkAction(o ? "discount" : null); setBulkValue(""); }}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" disabled={selectedIds.size === 0}>
+                        <TrendingDown className="h-3.5 w-3.5" /> Discount %
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72" align="start">
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium">Discount by percentage</p>
+                        <p className="text-xs text-muted-foreground">Decrease prices of {selectedIds.size} selected item{selectedIds.size === 1 ? "" : "s"}</p>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={bulkValue}
+                            onChange={(e) => setBulkValue(e.target.value)}
+                            placeholder="e.g. 5"
+                            inputMode="decimal"
+                            className="h-8"
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyBulkAction(); } }}
+                          />
+                          <span className="text-sm font-medium">%</span>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <Button variant={bulkField === "both" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("both")}>Both</Button>
+                          <Button variant={bulkField === "usd" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("usd")}>USD only</Button>
+                          <Button variant={bulkField === "lbp" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("lbp")}>LBP only</Button>
+                        </div>
+                        <Button size="sm" className="w-full" onClick={applyBulkAction} disabled={!bulkValue || isNaN(parseFloat(bulkValue))}>
+                          <Check className="mr-1.5 h-3.5 w-3.5" /> Apply Discount
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Fixed +/- */}
+                  <Popover open={bulkAction === "fixed"} onOpenChange={(o) => { setBulkAction(o ? "fixed" : null); setBulkValue(""); }}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" disabled={selectedIds.size === 0}>
+                        <DollarSign className="h-3.5 w-3.5" /> Fixed +/-
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72" align="start">
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium">Add / subtract fixed amount</p>
+                        <p className="text-xs text-muted-foreground">Use negative for decrease (e.g. -2.50)</p>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={bulkValue}
+                            onChange={(e) => setBulkValue(e.target.value)}
+                            placeholder="e.g. 2.50 or -1.00"
+                            inputMode="decimal"
+                            className="h-8"
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyBulkAction(); } }}
+                          />
+                        </div>
+                        <div className="flex gap-1.5">
+                          <Button variant={bulkField === "both" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("both")}>Both</Button>
+                          <Button variant={bulkField === "usd" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("usd")}>USD only</Button>
+                          <Button variant={bulkField === "lbp" ? "default" : "outline"} size="sm" className="h-7 text-xs flex-1" onClick={() => setBulkField("lbp")}>LBP only</Button>
+                        </div>
+                        <Button size="sm" className="w-full" onClick={applyBulkAction} disabled={!bulkValue || isNaN(parseFloat(bulkValue))}>
+                          <Check className="mr-1.5 h-3.5 w-3.5" /> Apply Change
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+
               <div className={editMode ? "" : "grid gap-6 xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,1fr)]"}>
                 {/* Table */}
                 <div className="min-w-0">
@@ -798,7 +1018,7 @@ export default function PriceListsPage() {
                   {dirtyPrices.size} item{dirtyPrices.size === 1 ? "" : "s"} changed
                 </span>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => { setDirtyPrices(new Map()); setEditMode(false); }}>
+                  <Button variant="outline" size="sm" onClick={() => { setDirtyPrices(new Map()); setEditMode(false); setSelectedIds(new Set()); }}>
                     Discard
                   </Button>
                   <Button size="sm" onClick={saveBatch} disabled={batchSaving}>
