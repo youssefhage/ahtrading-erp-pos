@@ -52,9 +52,11 @@
   const CASHIER_MANAGER_META_STORAGE_KEY = "pos_ui_cashier_manager_meta_v1";
   const CART_DRAFTS_STORAGE_KEY = "pos_ui_cart_drafts_v1";
   const CART_DRAFT_KEEP_COPY_STORAGE_KEY = "pos_ui_cart_drafts_keep_copy_on_resume";
+  const SHIFT_CACHE_STORAGE_KEY = "pos_shift_cache_v1";
   const DEFAULT_API_BASE = "/api";
   const DEFAULT_OTHER_AGENT_URL = "";
   const WEB_LOCAL_OUTBOX_MAX = 800;
+  const WEB_LOCAL_OUTBOX_WARN = 750;
   const WEB_LOCAL_AUDIT_MAX = 500;
   const CART_DRAFTS_MAX = 50;
   const SHIFT_INVOICES_MAX = 160;
@@ -169,6 +171,41 @@
   };
   const _removeStorage = (key) => {
     try { localStorage.removeItem(key); } catch (_) {}
+  };
+
+  // ── Shift cache for offline use ──
+  // Persists the active shift ID per company so the POS can operate offline
+  // even if the shift was opened in a previous session.
+  const _cacheShiftId = (companyKey, shiftId) => {
+    try {
+      const raw = localStorage.getItem(SHIFT_CACHE_STORAGE_KEY);
+      const cache = raw ? JSON.parse(raw) : {};
+      const key = companyKey === "unofficial" ? "unofficial" : "official";
+      if (shiftId) {
+        cache[key] = { shiftId, cachedAt: Date.now() };
+      } else {
+        delete cache[key];
+      }
+      localStorage.setItem(SHIFT_CACHE_STORAGE_KEY, JSON.stringify(cache));
+    } catch (_) {}
+  };
+  const _getCachedShifts = () => {
+    try {
+      const raw = localStorage.getItem(SHIFT_CACHE_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) { return {}; }
+  };
+  const _restoreCachedShifts = (setter) => {
+    const cache = _getCachedShifts();
+    let restored = 0;
+    for (const key of ["official", "unofficial"]) {
+      const entry = cache[key];
+      if (entry?.shiftId) {
+        setter(key, entry.shiftId);
+        restored += 1;
+      }
+    }
+    return restored;
   };
 
   const _managerRoleNames = ["manager", "admin", "owner", "supervisor"];
@@ -502,6 +539,7 @@
   let error = "";
   let isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
   let offlineCacheFresh = false;
+  let offlineCacheTooOld = false;
   let lastSyncTime = 0;
   let _offlineNoticeTimer = null;
   const _setOfflineNotice = (msg, durationMs) => {
@@ -833,6 +871,8 @@
     } else {
       config = { ...config, shift_id: nextShiftId };
     }
+    // Persist to localStorage so the shift survives offline reboots.
+    _cacheShiftId(key, nextShiftId);
   };
   const _shiftExpectedUsdFrom = (srcShift, fallback = 0) => (
     toNum(_shiftPickMoney(srcShift || {}, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(srcShift || {}, ["opening_cash_usd", "opening_usd"], fallback)), 0)
@@ -1260,7 +1300,13 @@
   };
   const _persistWebLocalOutbox = () => {
     try { localStorage.setItem(WEB_LOCAL_OUTBOX_STORAGE_KEY, JSON.stringify(webLocalOutboxByCompany || {})); }
-    catch (e) { console.warn("[POS] outbox persist failed:", e?.message || e); }
+    catch (e) {
+      console.warn("[POS] outbox persist failed:", e?.message || e);
+      if (e?.name === "QuotaExceededError" || (e?.message || "").includes("quota")) {
+        error = "Storage full — pending sales cannot be saved. Connect to network immediately to sync.";
+        alert("⚠️ Storage full — pending sales cannot be saved!\n\nConnect to the network immediately to sync pending sales.\nDo NOT close the app or you may lose data.");
+      }
+    }
   };
   const _persistWebAudit = () => {
     try { localStorage.setItem(WEB_LOCAL_AUDIT_STORAGE_KEY, JSON.stringify(webAuditByCompany || {})); }
@@ -1280,6 +1326,24 @@
   };
   const _appendWebLocalOutboxEvent = (companyKey, eventType, payload, idempotencyKey = "") => {
     const key = _companyForStorage(companyKey);
+    const currentRows = _webLocalOutboxRowsFor(key);
+    const pendingCount = currentRows.filter((r) => {
+      const st = String(r?.status || "pending").trim().toLowerCase();
+      return st === "pending" || st === "failed";
+    }).length;
+
+    // Block if outbox is at capacity — prevent silent data loss from _trimArray.
+    if (pendingCount >= WEB_LOCAL_OUTBOX_MAX) {
+      const msg = `Outbox full (${pendingCount} pending sales). Connect to network to sync before processing more.`;
+      error = msg;
+      alert(`⚠️ ${msg}`);
+      return null;
+    }
+    // Warn when approaching the limit.
+    if (pendingCount >= WEB_LOCAL_OUTBOX_WARN) {
+      _setOfflineNotice(`⚠️ ${pendingCount} pending sales queued. Connect to network soon to sync.`, 15000);
+    }
+
     const nowIso = new Date().toISOString();
     const localEventId = `local-${makeUuid()}`;
     const ev = {
@@ -1298,7 +1362,7 @@
       acked_at: null,
       remote_event_id: "",
     };
-    const rows = [ev, ..._webLocalOutboxRowsFor(key)];
+    const rows = [ev, ...currentRows];
     _setWebLocalOutboxRowsFor(key, rows);
     return ev;
   };
@@ -1725,6 +1789,7 @@
     if (!cart.length) return "";
     if (checkoutMissingCashiers.length) return `Cashier sign-in required: ${_companyListText(checkoutMissingCashiers)}.`;
     if (checkoutMissingShifts.length) return `Open shift required: ${_companyListText(checkoutMissingShifts)}.`;
+    if (offlineCacheTooOld) return "Cached data too old — connect to network to refresh prices and exchange rates.";
     return "";
   })();
   $: checkoutBlocked = !!checkoutBlockReason;
@@ -2449,6 +2514,7 @@
   };
   const _submitAndProcessPosEventWeb = async (companyKey, eventType, payload, idempotencyKey = "") => {
     const localEvent = _appendWebLocalOutboxEvent(companyKey, eventType, payload, idempotencyKey);
+    if (!localEvent) throw new Error("Outbox full — cannot queue sale. Connect to network to sync pending sales.");
     const action = eventType === "sale.returned" ? "return.submit" : "sale.submit";
     const saleTotals = _salePayloadTotalsWeb(payload || {});
     const returnTotals = _returnPayloadTotalsWeb(payload || {});
@@ -6030,6 +6096,7 @@
       status = "Ready";
       isOnline = true;
       offlineCacheFresh = false;
+      offlineCacheTooOld = false;
       lastSyncTime = Date.now();
 
       // Persist to IndexedDB for offline use.
@@ -6108,13 +6175,45 @@
                 openAdminPinModal();
               }
             } else {
-              unofficialStatus = "Offline";
+              // Network error fetching unofficial config — try IndexedDB cache.
+              try {
+                const cachedU = await loadCachedCompanyData(otherCompanyKey);
+                if (cachedU && Array.isArray(cachedU.items) && cachedU.items.length > 0) {
+                  if (cachedU.config) unofficialConfig = { ...unofficialConfig, ...cachedU.config };
+                  unofficialItems = cachedU.items;
+                  unofficialBarcodes = cachedU.barcodes || [];
+                  unofficialCustomers = cachedU.customers || [];
+                  unofficialCashiers = cachedU.cashiers || [];
+                  unofficialPromotions = cachedU.promotions || [];
+                  unofficialStatus = "Ready";
+                } else {
+                  unofficialStatus = "Offline";
+                }
+              } catch (_cacheErr) {
+                unofficialStatus = "Offline";
+              }
               unofficialLocked = false;
             }
           }
         }
       } catch (_) {
-        unofficialStatus = "Offline";
+        // Outer catch for unofficial company — try IndexedDB cache.
+        try {
+          const cachedU = await loadCachedCompanyData(otherCompanyKey);
+          if (cachedU && Array.isArray(cachedU.items) && cachedU.items.length > 0) {
+            if (cachedU.config) unofficialConfig = { ...unofficialConfig, ...cachedU.config };
+            unofficialItems = cachedU.items;
+            unofficialBarcodes = cachedU.barcodes || [];
+            unofficialCustomers = cachedU.customers || [];
+            unofficialCashiers = cachedU.cashiers || [];
+            unofficialPromotions = cachedU.promotions || [];
+            unofficialStatus = "Ready";
+          } else {
+            unofficialStatus = "Offline";
+          }
+        } catch (_cacheErr) {
+          unofficialStatus = "Offline";
+        }
         unofficialLocked = false;
       }
 
@@ -6174,11 +6273,22 @@
             offlineCacheFresh = true;
             const ageMinutes = cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 60000) : 0;
             const ageHours = Math.floor(ageMinutes / 60);
-            const ageLabel = ageHours >= 1 ? `${ageHours}h` : ageMinutes > 0 ? `${ageMinutes}m` : "";
+            const ageDays = Math.floor(ageHours / 24);
+            const ageLabel = ageDays >= 1 ? `${ageDays}d` : ageHours >= 1 ? `${ageHours}h` : ageMinutes > 0 ? `${ageMinutes}m` : "";
             status = "Ready";
             error = "";
-            const staleWarning = ageHours >= 6 ? " Exchange rates may be outdated." : "";
-            _setOfflineNotice(`Offline mode — using cached data${ageLabel ? ` (${ageLabel} old)` : ""}.${staleWarning} Sales will sync when back online.`, staleWarning ? 15000 : 8000);
+            // Hard block if cache is older than 7 days — prices/rates too stale.
+            if (ageDays >= 7) {
+              offlineCacheTooOld = true;
+              _setOfflineNotice(`⚠️ Cached data is ${ageDays} days old — checkout blocked. Connect to network to refresh.`, 0);
+            } else if (ageHours >= 24) {
+              offlineCacheTooOld = false;
+              _setOfflineNotice(`Offline mode — cached data is ${ageLabel} old. Exchange rates may be outdated. Sales will sync when back online.`, 15000);
+            } else {
+              offlineCacheTooOld = false;
+              const staleWarning = ageHours >= 6 ? " Exchange rates may be outdated." : "";
+              _setOfflineNotice(`Offline mode — using cached data${ageLabel ? ` (${ageLabel} old)` : ""}.${staleWarning} Sales will sync when back online.`, staleWarning ? 15000 : 8000);
+            }
           }
           // Also try unofficial company cache.
           const cachedU = await loadCachedCompanyData(otherCompanyKey);
@@ -6193,6 +6303,12 @@
           } else if (!restoredFromCache) {
             unofficialStatus = "Offline";
           }
+
+          // Restore cached shift IDs so the POS can process sales offline
+          // even if the shift was opened in a previous (online) session.
+          if (restoredFromCache) {
+            _restoreCachedShifts(_setShiftIdForCompany);
+          }
         } catch (_cacheErr) {
           console.warn("[POS] IndexedDB cache fallback failed:", _cacheErr?.message || _cacheErr);
         }
@@ -6201,11 +6317,9 @@
       if (!restoredFromCache) {
         error = e?.message || String(e);
         status = "Offline";
-        // If we don't have any real data loaded yet, keep a minimal demo catalog
-        // so the UI isn't blank (useful during design/dev).
-        if (!items || items.length === 0) items = MOCK_ITEMS;
-        if (!customers || customers.length === 0) customers = MOCK_Customers;
-        if (!unofficialItems || unofficialItems.length === 0) unofficialItems = [];
+        // Restore cached shifts even without catalog cache — the user may
+        // be able to take manual-entry sales once products load later.
+        _restoreCachedShifts(_setShiftIdForCompany);
       }
     } finally {
       if (showBusy) loading = false;
@@ -10102,9 +10216,19 @@
     const onOnline = () => {
       isOnline = true;
       offlineCacheFresh = false;
+      offlineCacheTooOld = false;
       _setOfflineNotice("Back online — syncing...", 4000);
+      // Refresh catalog, config, and exchange rates from the server.
       fetchData({ background: true });
       schedulePush(1500);
+      // Immediately flush any queued local outbox events (both companies).
+      Promise.resolve().then(() =>
+        Promise.allSettled(POS_COMPANY_KEYS.map((k) => _flushWebLocalOutbox(k, { limit: 30 }).catch(() => {})))
+      ).catch(() => {});
+      // Refresh shift status so the UI reflects the current server state.
+      Promise.resolve().then(() =>
+        Promise.allSettled(POS_COMPANY_KEYS.map((k) => shiftRefresh(k, { quiet: true }).catch(() => {})))
+      ).catch(() => {});
     };
     const onOffline = () => {
       isOnline = false;
