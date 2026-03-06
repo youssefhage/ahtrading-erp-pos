@@ -733,6 +733,14 @@
   let shiftInvoiceLoadingByKey = {};
   let shiftInvoiceExpandedByKey = {};
   let shiftInvoiceActionBusyKey = "";
+  // POS payment collection state
+  let posPaymentRow = null; // the invoice row being paid
+  let posPaymentMethod = "cash";
+  let posPaymentTenderUsd = "";
+  let posPaymentTenderLbp = "";
+  let posPaymentBusy = false;
+  let posPaymentError = "";
+  let posPaymentSuccess = "";
   let cartDraftName = "";
   let cartDrafts = [];
   let keepDraftCopyOnResume = false;
@@ -2475,6 +2483,8 @@
       total_lbp: eventType === "sale.returned" ? returnTotals.total_lbp : saleTotals.total_lbp,
       return_total_usd: eventType === "sale.returned" ? returnTotals.total_usd : null,
       return_total_lbp: eventType === "sale.returned" ? returnTotals.total_lbp : null,
+      checkout_method: String(payload?.checkout_method || payload?.payment_method || "").trim().toLowerCase() || null,
+      split_group_id: String(receiptMeta?.pilot?.split_group_id || "").trim() || null,
     };
     _appendWebAudit(companyKey, {
       action,
@@ -4703,6 +4713,7 @@
             status: String(entry?.statusText || row?.status || "").trim() || "unknown",
             audit_status: String(entry?.statusText || row?.status || "").trim() || null,
             outbox_status: null,
+            checkout_method: String(details?.checkout_method || details?.payment_method || "").trim().toLowerCase() || null,
             payment_method: String(details?.payment_method || "").trim().toLowerCase() || null,
             line_count: Math.max(0, Math.round(toNum(details?.line_count, 0))),
             subtotal_usd: toNum(details?.subtotal_usd, 0),
@@ -4711,10 +4722,16 @@
             tax_lbp: Math.round(toNum(details?.tax_lbp, 0)),
             total_usd: totalUsd,
             total_lbp: totalLbp,
+            paid_usd: 0,
+            paid_lbp: 0,
+            // Outstanding: local data has no payment records, so credit/delivery = full outstanding
+            outstanding_usd: (() => { const cm = String(details?.checkout_method || details?.payment_method || "").trim().toLowerCase(); return (cm === "credit" || cm === "delivery") ? Math.max(0, totalUsd - refundedUsd) : 0; })(),
+            outstanding_lbp: (() => { const cm = String(details?.checkout_method || details?.payment_method || "").trim().toLowerCase(); return (cm === "credit" || cm === "delivery") ? Math.max(0, totalLbp - refundedLbp) : 0; })(),
             refund_count: refundCount,
             refunded_total_usd: refundedUsd,
             refunded_total_lbp: refundedLbp,
             refund_status: refundStatus,
+            split_group_id: String(details?.split_group_id || "").trim() || null,
           };
         });
       const seen = new Set();
@@ -5003,6 +5020,11 @@
     // Price override from POS
     if (method === "POST" && /^\/items\/[^/]+\/prices$/.test(pathname)) {
       return await _webPosCall(companyKey, `/pos${pathname}`, { method: "POST", body });
+    }
+
+    // POS invoice payment collection
+    if (method === "POST" && /^\/pos\/invoices\/[^/]+\/payment$/.test(pathname)) {
+      return await _webPosCall(companyKey, pathname, { method: "POST", body });
     }
 
     throw new Error(`Unsupported web POS route: ${method} ${pathname}`);
@@ -5406,6 +5428,66 @@
   };
   const closeShiftInvoicesDrawer = () => {
     showShiftInvoicesDrawer = false;
+  };
+  const openPosPaymentForm = (row) => {
+    posPaymentRow = row;
+    posPaymentMethod = "cash";
+    posPaymentTenderUsd = String(toNum(row?.outstanding_usd, 0).toFixed(2));
+    posPaymentTenderLbp = String(Math.round(toNum(row?.outstanding_lbp, 0)));
+    posPaymentBusy = false;
+    posPaymentError = "";
+    posPaymentSuccess = "";
+    // Auto-expand the invoice detail
+    const key = _shiftInvoiceKey(row);
+    if (key && !shiftInvoiceExpandedByKey?.[key]) {
+      toggleShiftInvoiceDetail(row);
+    }
+  };
+  const closePosPaymentForm = () => {
+    posPaymentRow = null;
+    posPaymentError = "";
+    posPaymentSuccess = "";
+  };
+  const submitPosPayment = async () => {
+    if (!posPaymentRow) return;
+    const invoiceId = String(posPaymentRow?.invoice_id || "").trim();
+    if (!invoiceId) {
+      posPaymentError = "Invoice ID not available. Try refreshing.";
+      return;
+    }
+    const tenderUsd = parseFloat(posPaymentTenderUsd) || 0;
+    const tenderLbp = parseFloat(posPaymentTenderLbp) || 0;
+    if (tenderUsd <= 0 && tenderLbp <= 0) {
+      posPaymentError = "Enter a payment amount.";
+      return;
+    }
+    posPaymentBusy = true;
+    posPaymentError = "";
+    posPaymentSuccess = "";
+    try {
+      const companyKey = normalizeCompanyKey(posPaymentRow?.companyKey || "official");
+      const res = await apiCallFor(companyKey, `/pos/invoices/${invoiceId}/payment`, {
+        method: "POST",
+        body: {
+          method: posPaymentMethod,
+          tender_usd: tenderUsd,
+          tender_lbp: tenderLbp,
+        },
+      });
+      if (res?.ok) {
+        posPaymentSuccess = "Payment recorded successfully.";
+        // Reload shift invoices to refresh balances
+        await loadShiftInvoices();
+        // Close the payment form after a short delay
+        setTimeout(() => closePosPaymentForm(), 1500);
+      } else {
+        posPaymentError = res?.detail || res?.error || "Payment failed.";
+      }
+    } catch (e) {
+      posPaymentError = e?.message || "Payment failed.";
+    } finally {
+      posPaymentBusy = false;
+    }
   };
 
   const handleRecordCashMovement = async () => {
@@ -11372,7 +11454,24 @@
             {@const cashierName = String(row?.cashier_name || "").trim()}
             {@const cashierId = String(row?.cashier_id || "").trim()}
             {@const customerName = String(row?.customer_name || invoice?.customer_name || "").trim()}
-            <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2.5">
+            {@const checkoutMethod = String(row?.checkout_method || row?.payment_method || "").trim().toLowerCase()}
+            {@const outstandingUsd = toNum(row?.outstanding_usd, 0)}
+            {@const outstandingLbp = Math.round(toNum(row?.outstanding_lbp, 0))}
+            {@const isUnpaidCheckout = checkoutMethod === "credit" || checkoutMethod === "delivery"}
+            {@const hasOutstanding = isUnpaidCheckout && (outstandingUsd > 0.005 || outstandingLbp > 0)}
+            {@const groupId = String(row?.split_group_id || "").trim()}
+            {@const groupKeys = groupId ? (shiftInvoices.filter(r => String(r?.split_group_id || "").trim() === groupId).map(r => _shiftInvoiceKey(r))) : []}
+            {@const isInGroup = groupId && groupKeys.length > 1}
+            {@const isFirstInGroup = isInGroup && groupKeys[0] === key}
+            {#if isFirstInGroup}
+              <div class="text-[9px] font-bold uppercase tracking-wider text-violet-400 mt-1 mb-0.5 flex items-center gap-1.5">
+                <span class="inline-block w-3 h-px bg-violet-500/50"></span>
+                Split Sale
+                <span class="inline-block flex-1 h-px bg-violet-500/50"></span>
+              </div>
+            {/if}
+            <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2.5 {isInGroup ? 'border-l-2 border-l-violet-500/50' : ''}"
+            >
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
@@ -11385,6 +11484,16 @@
                     <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${_shiftInvoiceRefundTone(refundStatus)}`}>
                       {refundStatus === "refunded" ? "Refunded" : (refundStatus === "partial" ? "Partially Refunded" : "No Refund")}
                     </span>
+                    {#if checkoutMethod}
+                      <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
+                        checkoutMethod === "cash" ? "border-emerald-500/35 bg-emerald-500/12 text-emerald-300" :
+                        checkoutMethod === "delivery" ? "border-sky-500/35 bg-sky-500/12 text-sky-300" :
+                        checkoutMethod === "credit" ? "border-amber-500/35 bg-amber-500/12 text-amber-300" :
+                        "border-ink/20 bg-ink/8 text-muted"
+                      }`}>
+                        {checkoutMethod === "cash" ? "Cash" : checkoutMethod === "credit" ? "Credit" : checkoutMethod === "delivery" ? "Delivery" : checkoutMethod}
+                      </span>
+                    {/if}
                     {#if docNo}
                       <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-accent/35 bg-accent/12 text-accent">
                         {docNo}
@@ -11409,6 +11518,11 @@
                     <div class="text-[11px] text-muted mt-1">Refunded</div>
                     <div class="text-xs font-mono text-ink/80">USD {_fmtMoney(refundedUsd, 2)}</div>
                     <div class="text-xs font-mono text-ink/70">{refundedLbp.toLocaleString()} LBP</div>
+                  {/if}
+                  {#if hasOutstanding}
+                    <div class="text-[11px] text-amber-300 mt-1">Outstanding</div>
+                    <div class="text-xs font-mono text-amber-200">USD {_fmtMoney(outstandingUsd, 2)}</div>
+                    <div class="text-xs font-mono text-amber-200/80">{outstandingLbp.toLocaleString()} LBP</div>
                   {/if}
                 </div>
               </div>
@@ -11455,6 +11569,16 @@
                 >
                   Void
                 </button>
+                {#if hasOutstanding && !fullyRefunded}
+                  <button
+                    class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-emerald-500/35 bg-emerald-500/12 text-emerald-300 hover:bg-emerald-500/22 transition-colors disabled:opacity-60"
+                    type="button"
+                    on:click={() => openPosPaymentForm(row)}
+                    disabled={busy}
+                  >
+                    Record Payment
+                  </button>
+                {/if}
               </div>
               {#if shiftInvoiceExpandedByKey?.[key]}
                 <div class="rounded-lg border border-ink/10 bg-surface/50 p-3 space-y-2">
@@ -11490,6 +11614,73 @@
                             </div>
                           </div>
                         {/each}
+                      </div>
+                    {/if}
+                    {#if posPaymentRow && _shiftInvoiceKey(posPaymentRow) === key}
+                      <div class="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3 space-y-2.5">
+                        <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Record Payment</div>
+                        {#if posPaymentError}
+                          <div class="text-[11px] text-red-300 bg-red-500/10 rounded-lg px-3 py-2 border border-red-500/20">{posPaymentError}</div>
+                        {/if}
+                        {#if posPaymentSuccess}
+                          <div class="text-[11px] text-emerald-300 bg-emerald-500/10 rounded-lg px-3 py-2 border border-emerald-500/20">{posPaymentSuccess}</div>
+                        {:else}
+                          <div class="grid grid-cols-3 gap-2">
+                            <div>
+                              <label class="block text-[10px] text-muted font-semibold uppercase mb-1">Method</label>
+                              <select
+                                bind:value={posPaymentMethod}
+                                class="w-full rounded-lg border border-ink/15 bg-ink/5 px-2 py-1.5 text-[12px] text-ink"
+                              >
+                                <option value="cash">Cash</option>
+                                {#each _shiftCashMethods(row?.companyKey) as cm}
+                                  {#if cm.toLowerCase() !== "cash"}
+                                    <option value={cm.toLowerCase()}>{cm}</option>
+                                  {/if}
+                                {/each}
+                              </select>
+                            </div>
+                            <div>
+                              <label class="block text-[10px] text-muted font-semibold uppercase mb-1">USD</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                bind:value={posPaymentTenderUsd}
+                                class="w-full rounded-lg border border-ink/15 bg-ink/5 px-2 py-1.5 text-[12px] text-ink font-mono"
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div>
+                              <label class="block text-[10px] text-muted font-semibold uppercase mb-1">LBP</label>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                bind:value={posPaymentTenderLbp}
+                                class="w-full rounded-lg border border-ink/15 bg-ink/5 px-2 py-1.5 text-[12px] text-ink font-mono"
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+                          <div class="flex items-center gap-2 pt-1">
+                            <button
+                              class="px-3 py-1.5 rounded-lg text-[11px] font-semibold border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors disabled:opacity-60"
+                              type="button"
+                              on:click={submitPosPayment}
+                              disabled={posPaymentBusy}
+                            >
+                              {posPaymentBusy ? "Processing..." : "Confirm Payment"}
+                            </button>
+                            <button
+                              class="px-3 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
+                              type="button"
+                              on:click={closePosPaymentForm}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        {/if}
                       </div>
                     {/if}
                   {/if}

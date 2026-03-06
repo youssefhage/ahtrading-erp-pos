@@ -3624,6 +3624,16 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
         else:
             refund_status = "partial"
 
+        # Derive checkout_method and split_group_id from payload
+        checkout_method = str(payload.get("checkout_method") or payment_method or "").strip().lower() or None
+        split_gid = str(pilot_meta.get("split_group_id") or "").strip() or None
+
+        # Outstanding balance: local data has no payment records, so approximate:
+        # credit/delivery invoices are fully outstanding (minus refunds); cash = 0.
+        is_unpaid_method = checkout_method in ("credit", "delivery")
+        outstanding_usd = max(0.0, total_usd - refunded_usd) if is_unpaid_method else 0.0
+        outstanding_lbp = max(0, total_lbp - refunded_lbp) if is_unpaid_method else 0
+
         out.append(
             {
                 "audit_id": int(r["id"]),
@@ -3638,6 +3648,7 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
                 "status": (outbox_status or str(r["status"] or "").strip() or "unknown"),
                 "audit_status": (str(r["status"] or "").strip() or None),
                 "outbox_status": outbox_status,
+                "checkout_method": checkout_method,
                 "payment_method": payment_method or None,
                 "line_count": int(totals.get("line_count") or 0),
                 "subtotal_usd": float(totals.get("subtotal_usd") or 0),
@@ -3646,10 +3657,15 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
                 "tax_lbp": int(totals.get("tax_lbp") or 0),
                 "total_usd": total_usd,
                 "total_lbp": total_lbp,
+                "paid_usd": 0.0,
+                "paid_lbp": 0,
+                "outstanding_usd": round(outstanding_usd, 2),
+                "outstanding_lbp": outstanding_lbp,
                 "refund_count": refund_count,
                 "refunded_total_usd": refunded_usd,
                 "refunded_total_lbp": refunded_lbp,
                 "refund_status": refund_status,
+                "split_group_id": split_gid,
             }
         )
         if len(out) >= lim:
@@ -5906,6 +5922,36 @@ class Handler(BaseHTTPRequestHandler):
                     "invoices": rows,
                 },
             )
+            return
+
+        # Proxy: POS invoice payment collection
+        if parsed.path.startswith('/api/pos/invoices/') and parsed.path.endswith('/payment'):
+            cfg = load_config()
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
+            if not cfg.get('device_id') or not cfg.get('device_token'):
+                json_response(self, {'error': 'missing device_id or device_token'}, status=400)
+                return
+            data = self.read_json()
+            # Add cashier_id from config if not provided
+            if not data.get("cashier_id") and cfg.get("cashier_id"):
+                data["cashier_id"] = cfg["cashier_id"]
+            # Extract invoice_id from path: /api/pos/invoices/{invoice_id}/payment
+            parts = parsed.path.strip("/").split("/")
+            # parts = ['api', 'pos', 'invoices', '{invoice_id}', 'payment']
+            invoice_id = parts[3] if len(parts) >= 5 else ""
+            if not invoice_id:
+                json_response(self, {'error': 'invoice_id is required'}, status=400)
+                return
+            try:
+                url = f"{base}/pos/invoices/{quote(invoice_id)}/payment"
+                res = post_json(url, data, headers=device_headers(cfg))
+                json_response(self, res)
+            except Exception as ex:
+                json_response(self, {'error': str(ex)}, status=502)
             return
 
         if parsed.path == '/api/shift/open':

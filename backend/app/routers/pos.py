@@ -21,6 +21,9 @@ router = APIRouter(prefix="/pos", tags=["pos"])
 _pin_verify_attempts: dict = {}  # device_id -> {"count": int, "locked_until": float}
 _PIN_MAX_ATTEMPTS = 5
 _PIN_LOCKOUT_SECONDS = 60
+from ..period_locks import assert_period_open
+from ..journal_utils import q_usd, q_lbp, normalize_dual_amounts, auto_balance_journal, assert_journal_balanced, USD_Q
+from ..account_defaults import ensure_company_account_defaults
 from ..print_utils import (
     load_print_policy as _load_print_policy,
     effective_sales_invoice_pdf_template as _effective_sales_invoice_pdf_template,
@@ -2661,10 +2664,14 @@ def pos_shift_invoices(
                     COALESCE(si.subtotal_lbp, 0) AS subtotal_lbp,
                     si.total_usd,
                     COALESCE(si.total_lbp, 0)    AS total_lbp,
+                    si.checkout_method,
+                    si.receipt_meta->>'pilot' AS receipt_meta_pilot_raw,
                     COALESCE(lc.line_count, 0)   AS line_count,
                     COALESCE(tx.tax_usd, 0)      AS tax_usd,
                     COALESCE(tx.tax_lbp, 0)      AS tax_lbp,
                     pm.method                    AS payment_method,
+                    COALESCE(paid.paid_usd, 0)   AS paid_usd,
+                    COALESCE(paid.paid_lbp, 0)   AS paid_lbp,
                     COALESCE(ref.refund_count, 0)        AS refund_count,
                     COALESCE(ref.refunded_total_usd, 0)  AS refunded_total_usd,
                     COALESCE(ref.refunded_total_lbp, 0)  AS refunded_total_lbp
@@ -2693,6 +2700,12 @@ def pos_shift_invoices(
                     ORDER BY sp.created_at ASC
                     LIMIT 1
                 ) pm ON true
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(sp.amount_usd), 0) AS paid_usd,
+                           COALESCE(SUM(sp.amount_lbp), 0) AS paid_lbp
+                    FROM sales_payments sp
+                    WHERE sp.invoice_id = si.id AND sp.voided_at IS NULL
+                ) paid ON true
                 LEFT JOIN LATERAL (
                     SELECT COUNT(rf.id)::int              AS refund_count,
                            COALESCE(SUM(rf.amount_usd), 0) AS refunded_total_usd,
@@ -2730,6 +2743,20 @@ def pos_shift_invoices(
         refunded_usd = Decimal(str(r["refunded_total_usd"] or 0))
         refunded_lbp = Decimal(str(r["refunded_total_lbp"] or 0))
         refund_count = int(r["refund_count"] or 0)
+        paid_usd = Decimal(str(r.get("paid_usd") or 0))
+        paid_lbp = Decimal(str(r.get("paid_lbp") or 0))
+        outstanding_usd = max(Decimal("0"), total_usd - paid_usd)
+        outstanding_lbp = max(0, int(total_lbp - paid_lbp))
+        # Parse pilot metadata for split_group_id
+        pilot_raw = r.get("receipt_meta_pilot_raw")
+        split_group_id = None
+        if pilot_raw:
+            try:
+                pilot = json.loads(pilot_raw) if isinstance(pilot_raw, str) else pilot_raw
+                split_group_id = str(pilot.get("split_group_id") or "").strip() or None
+            except Exception:
+                pass
+        checkout_method = str(r.get("checkout_method") or "").strip().lower() or None
         invoices.append({
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             "company_id": str(r["company_id"]) if r["company_id"] else None,
@@ -2745,6 +2772,7 @@ def pos_shift_invoices(
             "status": r["status"] or "posted",
             "audit_status": "acked",
             "outbox_status": "acked",
+            "checkout_method": checkout_method or (r["payment_method"] or "").lower() or None,
             "payment_method": (r["payment_method"] or "").lower() or None,
             "line_count": int(r["line_count"] or 0),
             "subtotal_usd": float(r["subtotal_usd"] or 0),
@@ -2753,10 +2781,15 @@ def pos_shift_invoices(
             "tax_lbp": int(r["tax_lbp"] or 0),
             "total_usd": float(total_usd),
             "total_lbp": int(total_lbp),
+            "paid_usd": float(paid_usd),
+            "paid_lbp": int(paid_lbp),
+            "outstanding_usd": float(outstanding_usd),
+            "outstanding_lbp": outstanding_lbp,
             "refund_count": refund_count,
             "refunded_total_usd": float(refunded_usd),
             "refunded_total_lbp": int(refunded_lbp),
             "refund_status": _refund_status(total_usd, total_lbp, refunded_usd, refunded_lbp, refund_count),
+            "split_group_id": split_group_id,
         })
 
     return {"ok": True, "shift_id": shift_id, "invoices": invoices}
@@ -3958,3 +3991,253 @@ def list_shifts(company_id: str = Depends(get_company_id), _auth=Depends(require
                 row["expected_cash_usd"] = expected_usd
                 row["expected_cash_lbp"] = expected_lbp
             return {"shifts": rows}
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# POS Payment Recording — collect payment on credit/delivery invoices from POS
+# ────────────────────────────────────────────────────────────────────────────────
+
+class PosPaymentIn(BaseModel):
+    method: str
+    tender_usd: Decimal = Decimal("0")
+    tender_lbp: Decimal = Decimal("0")
+    cashier_id: Optional[str] = None
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _normalize_method(cls, v):
+        return str(v or "").strip().lower()
+
+
+def _normalize_dual(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
+    """Mirror of sales.py _normalize_dual_amounts — ensures both currencies are consistent."""
+    return normalize_dual_amounts(usd, lbp, exchange_rate)
+
+
+@router.post("/invoices/{invoice_id}/payment")
+def pos_record_payment(invoice_id: str, data: PosPaymentIn, device=Depends(require_device)):
+    """
+    Record a payment against a posted invoice from the POS device.
+    Used for collecting on credit/delivery invoices when the customer pays up.
+    """
+    invoice_id = _normalize_required_uuid_text(invoice_id, "invoice_id")
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+
+    tender_usd = data.tender_usd
+    tender_lbp = data.tender_lbp
+    method = data.method
+
+    if tender_usd < 0 or tender_lbp < 0:
+        raise HTTPException(status_code=400, detail="amounts must be >= 0")
+    if tender_usd == 0 and tender_lbp == 0:
+        raise HTTPException(status_code=400, detail="amount is required")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                pay_date = date.today()
+                assert_period_open(cur, company_id, pay_date)
+
+                # 1. Look up invoice
+                cur.execute(
+                    """
+                    SELECT customer_id, exchange_rate, settlement_currency, total_usd, total_lbp, status
+                    FROM sales_invoices
+                    WHERE id = %s AND company_id = %s
+                    FOR UPDATE
+                    """,
+                    (invoice_id, company_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if str(inv.get("status") or "").strip().lower() != "posted":
+                    raise HTTPException(status_code=409, detail="payment is allowed only for posted invoices")
+                if not inv.get("customer_id"):
+                    raise HTTPException(status_code=400, detail="invoice has no customer — cannot accept payment")
+
+                exchange_rate = Decimal(str(inv.get("exchange_rate") or 0))
+                settle = str(inv.get("settlement_currency") or "USD").upper()
+
+                # 2. Compute applied amounts
+                applied_usd = Decimal("0")
+                applied_lbp = Decimal("0")
+                if settle == "USD":
+                    applied_usd = tender_usd + ((tender_lbp / exchange_rate) if exchange_rate else Decimal("0"))
+                    applied_usd = q_usd(applied_usd)
+                    applied_usd, applied_lbp = _normalize_dual(applied_usd, Decimal("0"), exchange_rate)
+                    applied_lbp = q_lbp(applied_lbp)
+                else:
+                    applied_lbp = tender_lbp + (tender_usd * exchange_rate)
+                    applied_lbp = q_lbp(applied_lbp)
+                    applied_usd, applied_lbp = _normalize_dual(Decimal("0"), applied_lbp, exchange_rate)
+                    applied_usd = q_usd(applied_usd)
+
+                if applied_usd <= 0 and applied_lbp <= 0:
+                    raise HTTPException(status_code=400, detail="payment amount resolves to zero")
+
+                # 3. Verify payment method exists
+                cur.execute(
+                    "SELECT 1 FROM payment_method_mappings WHERE company_id = %s AND method = %s",
+                    (company_id, method),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail=f"Unknown payment method: {method}")
+
+                # 4. Compute outstanding balance
+                cur.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM(amount_usd), 0) AS paid_usd,
+                      COALESCE(SUM(amount_lbp), 0) AS paid_lbp
+                    FROM sales_payments
+                    WHERE invoice_id = %s AND voided_at IS NULL
+                    """,
+                    (invoice_id,),
+                )
+                paid = cur.fetchone() or {}
+                paid_usd = Decimal(str(paid.get("paid_usd") or 0))
+                paid_lbp = Decimal(str(paid.get("paid_lbp") or 0))
+
+                # Credit-note returns reduce outstanding
+                cur.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM(rf.amount_usd), 0) AS credited_usd,
+                      COALESCE(SUM(rf.amount_lbp), 0) AS credited_lbp
+                    FROM sales_refunds rf
+                    JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                    WHERE sr.company_id = %s AND sr.invoice_id = %s AND sr.status = 'posted'
+                      AND lower(coalesce(rf.method, '')) = 'credit'
+                    """,
+                    (company_id, invoice_id),
+                )
+                credited = cur.fetchone() or {}
+                credited_usd = Decimal(str(credited.get("credited_usd") or 0))
+                credited_lbp = Decimal(str(credited.get("credited_lbp") or 0))
+
+                total_usd = Decimal(str(inv.get("total_usd") or 0))
+                total_lbp = Decimal(str(inv.get("total_lbp") or 0))
+                outstanding_usd = total_usd - paid_usd - credited_usd
+                outstanding_lbp = total_lbp - paid_lbp - credited_lbp
+                eps_usd = USD_Q
+                eps_lbp = Decimal("100")
+                if outstanding_usd < eps_usd:
+                    outstanding_usd = Decimal("0")
+                if outstanding_lbp < eps_lbp:
+                    outstanding_lbp = Decimal("0")
+                if outstanding_usd == 0 and outstanding_lbp == 0:
+                    raise HTTPException(status_code=409, detail="invoice has no outstanding balance")
+
+                # Auto-snap small residuals
+                remaining_usd = outstanding_usd - applied_usd
+                remaining_lbp = outstanding_lbp - applied_lbp
+                if settle == "USD" and remaining_usd <= eps_usd and Decimal("0") < remaining_lbp <= eps_lbp:
+                    applied_lbp = outstanding_lbp
+                elif settle == "LBP" and remaining_lbp <= eps_lbp and Decimal("0") < remaining_usd <= eps_usd:
+                    applied_usd = outstanding_usd
+
+                if applied_usd > (outstanding_usd + eps_usd) or applied_lbp > (outstanding_lbp + eps_lbp):
+                    raise HTTPException(status_code=409, detail="payment exceeds invoice outstanding balance")
+
+                # 5. Insert payment record
+                cur.execute(
+                    """
+                    INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, tender_usd, tender_lbp,
+                                               settlement_currency, captured_at)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, now())
+                    RETURNING id
+                    """,
+                    (invoice_id, method, applied_usd, applied_lbp, tender_usd, tender_lbp, settle or None),
+                )
+                payment_id = cur.fetchone()["id"]
+
+                # 6. Update customer credit balance
+                cur.execute(
+                    """
+                    UPDATE customers
+                    SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                        credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (applied_usd, applied_lbp, company_id, inv["customer_id"]),
+                )
+
+                # 7. GL journal: Dr Cash/Bank, Cr AR
+                defaults = ensure_company_account_defaults(cur, company_id)
+                ar = defaults.get("AR")
+                if not ar:
+                    raise HTTPException(status_code=400, detail="Missing AR default account")
+
+                cur.execute(
+                    """
+                    SELECT m.method, d.account_id
+                    FROM payment_method_mappings m
+                    JOIN company_account_defaults d
+                      ON d.company_id = m.company_id AND d.role_code = m.role_code
+                    WHERE m.company_id = %s AND m.method = %s
+                    """,
+                    (company_id, method),
+                )
+                pay = cur.fetchone()
+                if not pay:
+                    raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {method}")
+                pay_account = pay["account_id"]
+
+                cur.execute(
+                    """
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market', %s, %s, NULL)
+                    RETURNING id
+                    """,
+                    (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date, exchange_rate, "POS customer payment"),
+                )
+                journal_id = cur.fetchone()["id"]
+
+                # Dr Cash/Bank
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'POS customer payment')
+                    """,
+                    (journal_id, pay_account, applied_usd, applied_lbp),
+                )
+                # Cr AR
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement')
+                    """,
+                    (journal_id, ar, applied_usd, applied_lbp),
+                )
+
+                try:
+                    auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                try:
+                    assert_journal_balanced(cur, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
+                # 8. Audit log
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, 'pos_payment', 'sales_payment', %s, %s::jsonb)
+                    """,
+                    (company_id, payment_id, json.dumps({
+                        "invoice_id": invoice_id,
+                        "method": method,
+                        "applied_usd": str(applied_usd),
+                        "applied_lbp": str(applied_lbp),
+                        "device_id": device_id,
+                        "cashier_id": data.cashier_id or None,
+                    })),
+                )
+
+                return {"ok": True, "payment_id": str(payment_id)}
