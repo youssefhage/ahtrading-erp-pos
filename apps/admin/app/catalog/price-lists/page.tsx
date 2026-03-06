@@ -566,16 +566,23 @@ export default function PriceListsPage() {
         if (!editMode) return <span className="font-mono text-xs">{row.original.price_usd}</span>;
         const dirty = dirtyPrices.get(row.original.id);
         const val = dirty?.price_usd ?? String(row.original.price_usd ?? "");
+        const orig = String(row.original.price_usd ?? "");
+        const changed = dirty?.price_usd !== undefined && dirty.price_usd !== orig;
         return (
-          <Input
-            className="h-7 w-28 font-mono text-xs"
-            value={val}
-            onChange={(e) => setDirtyField(row.original.id, "price_usd", e.target.value)}
-            onKeyDown={(e) => handleEditKeyDown(e, row.index, "usd")}
-            data-row={row.index}
-            data-col="usd"
-            inputMode="decimal"
-          />
+          <div className="flex flex-col gap-0.5">
+            <Input
+              className={`h-7 w-28 font-mono text-xs ${changed ? "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20" : ""}`}
+              value={val}
+              onChange={(e) => setDirtyField(row.original.id, "price_usd", e.target.value)}
+              onKeyDown={(e) => handleEditKeyDown(e, row.index, "usd")}
+              data-row={row.index}
+              data-col="usd"
+              inputMode="decimal"
+            />
+            {changed && (
+              <span className="font-mono text-[10px] text-muted-foreground line-through">{orig}</span>
+            )}
+          </div>
         );
       },
     },
@@ -587,16 +594,23 @@ export default function PriceListsPage() {
         if (!editMode) return <span className="font-mono text-xs">{row.original.price_lbp}</span>;
         const dirty = dirtyPrices.get(row.original.id);
         const val = dirty?.price_lbp ?? String(row.original.price_lbp ?? "");
+        const orig = String(row.original.price_lbp ?? "");
+        const changed = dirty?.price_lbp !== undefined && dirty.price_lbp !== orig;
         return (
-          <Input
-            className="h-7 w-28 font-mono text-xs"
-            value={val}
-            onChange={(e) => setDirtyField(row.original.id, "price_lbp", e.target.value)}
-            onKeyDown={(e) => handleEditKeyDown(e, row.index, "lbp")}
-            data-row={row.index}
-            data-col="lbp"
-            inputMode="decimal"
-          />
+          <div className="flex flex-col gap-0.5">
+            <Input
+              className={`h-7 w-28 font-mono text-xs ${changed ? "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20" : ""}`}
+              value={val}
+              onChange={(e) => setDirtyField(row.original.id, "price_lbp", e.target.value)}
+              onKeyDown={(e) => handleEditKeyDown(e, row.index, "lbp")}
+              data-row={row.index}
+              data-col="lbp"
+              inputMode="decimal"
+            />
+            {changed && (
+              <span className="font-mono text-[10px] text-muted-foreground line-through">{orig}</span>
+            )}
+          </div>
         );
       },
     },
