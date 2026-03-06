@@ -2848,6 +2848,7 @@
     metaRows.push(`<div class="mr"><span>Payment</span><span class="mono val">${_escapeHtml(String(paymentMethod || "cash").toUpperCase())}</span></div>`);
     if (exchangeRate > 0) metaRows.push(`<div class="mr"><span>Rate</span><span class="mono val">${_escapeHtml(_fmtMoney(exchangeRate, 0))} LBP</span></div>`);
 
+    let _totalDiscountUsd = 0;
     const itemRows = cartSnapshot.map((ln) => {
       const name = _lineNameForPrint(ln);
       const sku = _lineSkuForPrint(ln);
@@ -2855,12 +2856,21 @@
       const qtyStr = qty.toLocaleString("en-US", { maximumFractionDigits: 3 });
       const uom = String(ln?.uom || ln?.unit_of_measure || "").trim();
       const uomHtml = uom ? `<span class="uom">${_escapeHtml(uom)}</span>` : "";
-      const lineTotal = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
-      return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div></td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(lineTotal, 2))}</td></tr>`;
+      const unitUsd = toNum(ln?.price_usd, 0);
+      const lineTotal = unitUsd * toNum(ln?.qty, 0);
+      const preUsd = toNum(ln?.pre_discount_unit_price_usd, 0);
+      const hasDiscount = preUsd > 0 && preUsd > unitUsd;
+      const lineDiscountUsd = hasDiscount ? (preUsd - unitUsd) * toNum(ln?.qty, 0) : 0;
+      _totalDiscountUsd += lineDiscountUsd;
+      const discHtml = hasDiscount
+        ? `<div class="sku" style="color:#000"><s>${_escapeHtml(_fmtMoney(preUsd, 2))}</s> &rarr; ${_escapeHtml(_fmtMoney(unitUsd, 2))}/ea</div>`
+        : "";
+      return `<tr><td class="td-item"><div class="iname">${_escapeHtml(name)}</div><div class="sku">${_escapeHtml(sku)}</div>${discHtml}</td><td class="td-r mono">${_escapeHtml(qtyStr)}${uomHtml}</td><td class="td-r mono">${_escapeHtml(_fmtMoney(lineTotal, 2))}</td></tr>`;
     }).join("");
 
     const totalRows = [];
     totalRows.push(`<div class="tr"><span>Subtotal</span><span class="mono">${_escapeHtml(_fmtMoney(subtotalUsd || totalUsd, 2))}</span></div>`);
+    if (_totalDiscountUsd > 0) totalRows.push(`<div class="tr"><span>Discount</span><span class="mono">-${_escapeHtml(_fmtMoney(_totalDiscountUsd, 2))}</span></div>`);
     totalRows.push(`<div class="tr total-main"><span>Total USD</span><span class="mono bold">${_escapeHtml(_fmtMoney(totalUsd, 2))}</span></div>`);
     if (totalLbp) totalRows.push(`<div class="tr total-lbp"><span>Total LBP</span><span class="mono">${_escapeHtml(_fmtMoney(totalLbp, 0))}</span></div>`);
 
@@ -8560,6 +8570,9 @@
           // Non-blocking: if we cannot fetch fresh data, allow the sale to proceed
           // (backend will enforce the limit). Log for debugging.
           console.warn("[POS] credit limit pre-check failed:", e?.message || e);
+          if (_isFetchNetworkError(e)) {
+            reportNotice("Offline — credit limit not verified. Backend will enforce on sync.");
+          }
         }
       }
 
@@ -8715,6 +8728,10 @@
           }
           return null;
         } catch (e) {
+          // When offline (network error), trust the locally-selected customer ID.
+          // The customer was picked from the cached list, so the ID is valid —
+          // the cloud will resolve it when the queued event syncs.
+          if (_isFetchNetworkError(e)) return requested_customer_id;
           // For non-credit, don't block checkout if customer link/provision fails.
           if (payment_method !== "credit" && !isPartialCash) return null;
           throw e;
@@ -8818,6 +8835,34 @@
 
         queueSyncPush(invoiceCompany);
 
+        const flagDeferred = !!res?.process_deferred;
+        const flagQueuedLocal = !!res?.queued_local;
+        const flagOfflineNote = flagQueuedLocal ? "Sale saved offline — will sync when back online." : "";
+        // Capture cart snapshot for offline receipt BEFORE clearing.
+        const flagCartSnap = flagQueuedLocal ? [...cart] : null;
+        const flagSnapCustomerName = flagQueuedLocal ? String(activeCustomer?.name || "Walk-in").trim() : "";
+        const flagSnapCashierName = flagQueuedLocal
+          ? String((normalizeCompanyKey(invoiceCompany) === otherCompanyKey ? cashierUnofficialName : cashierOfficialName) || "").trim()
+          : "";
+        const _flagSnapExRate = flagQueuedLocal ? toNum(cfg?.exchange_rate, 0) : 0;
+        const _flagSnapSubUsd = flagQueuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0), 0) : 0;
+        const _flagSnapSubLbp = flagQueuedLocal ? cart.reduce((s, ln) => s + toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0), 0) : 0;
+        const _flagSnapTaxLbp = flagQueuedLocal ? cart.reduce((s, ln) => {
+          const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+          const effectiveLbp = baseLbp === 0 && _flagSnapExRate > 0 ? toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0) * _flagSnapExRate : baseLbp;
+          return s + roundLbp(effectiveLbp * Math.max(0, toNum(vatRateForLine(ln), 0)));
+        }, 0) : 0;
+        const _flagSnapTaxUsd = flagQueuedLocal ? cart.reduce((s, ln) => {
+          const baseUsd = toNum(ln?.price_usd, 0) * toNum(ln?.qty, 0);
+          const baseLbp = toNum(ln?.price_lbp, 0) * toNum(ln?.qty, 0);
+          const effectiveLbp = baseLbp === 0 && _flagSnapExRate > 0 ? baseUsd * _flagSnapExRate : baseLbp;
+          const vatRate = Math.max(0, toNum(vatRateForLine(ln), 0));
+          const lineTaxLbp = roundLbp(effectiveLbp * vatRate);
+          return s + (_flagSnapExRate > 0 ? roundUsd(lineTaxLbp / _flagSnapExRate) : roundUsd(baseUsd * vatRate));
+        }, 0) : 0;
+        const flagSnapTotalUsd = _flagSnapSubUsd + _flagSnapTaxUsd;
+        const flagSnapTotalLbp = _flagSnapSubLbp + _flagSnapTaxLbp;
+
         cart = [];
         activeCustomer = null;
         checkoutIntentId = "";
@@ -8825,11 +8870,33 @@
         returnSourceContext = null;
         setActiveScreen("pos");
         fetchData();
-        reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
+        reportNotice(flagOfflineNote || `Sale queued (official): ${res.event_id || "ok"}`);
         showSaleComplete = true;
         setTimeout(() => { showSaleComplete = false; }, 4000);
-        verifySaleProcessed(invoiceCompany, res?.event_id);
-        await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
+        if (!flagQueuedLocal) verifySaleProcessed(invoiceCompany, res?.event_id);
+        if (!flagDeferred && !flagQueuedLocal) {
+          printAfterSale(invoiceCompany, res?.event_id || "", receiptWin)
+            .catch((err) => {
+              console.warn(`[POS] print failed (${invoiceCompany}):`, err?.message || err);
+              reportNotice(`Print failed — use Reprint from Shift Invoices.`);
+            });
+        } else if (flagQueuedLocal && flagCartSnap) {
+          try { if (receiptWin) receiptWin.close(); } catch (_) {}
+          _printOfflineReceipt(flagCartSnap, {
+            companyKey: invoiceCompany,
+            paymentMethod: payment_method,
+            customerName: flagSnapCustomerName,
+            cashier: flagSnapCashierName,
+            eventId: res?.event_id || "",
+            totalUsd: flagSnapTotalUsd,
+            totalLbp: flagSnapTotalLbp,
+            subtotalUsd: _flagSnapSubUsd,
+            exchangeRate: toNum(cfg?.exchange_rate, 0),
+            footerText: String(cfg?.receipt_footer_text || "").trim(),
+          });
+        } else {
+          try { if (receiptWin) receiptWin.close(); } catch (_) {}
+        }
         markPrintWindowConsumed(invoiceCompany);
         return;
       }
@@ -9959,6 +10026,16 @@
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
 
+    // Flush pending outbox/audit data before the page unloads to prevent
+    // loss of offline-queued sales if the browser closes unexpectedly.
+    const onBeforeUnload = () => {
+      _persistWebLocalOutbox();
+      _persistWebAudit();
+      _persistCartDrafts();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onBeforeUnload);
+
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
     // This intentionally works without requiring focus on the dedicated scan field.
     let buf = "";
@@ -10115,6 +10192,8 @@
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onBeforeUnload);
       reset();
     };
   });
