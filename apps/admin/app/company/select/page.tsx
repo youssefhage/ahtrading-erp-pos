@@ -44,7 +44,8 @@ export default function CompanySelectPage() {
     } catch {
       // ignore
     }
-    router.push("/dashboard");
+    // Full reload to clear all stale React state (e.g. cached invoices from previous company)
+    window.location.href = "/dashboard";
   }
 
   const shown = (() => {
